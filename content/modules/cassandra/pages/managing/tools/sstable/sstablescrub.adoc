@@ -26,11 +26,16 @@ without actually scrubbing the sstables
 |-n,--no-validate |do not validate columns using column validator
 
 |-r,--reinsert-overflowed-ttl |Rewrites rows with overflowed expiration
-date affected by CASSANDRA-14092 with the maximum supported expiration
-date of 2038-01-19T03:14:06+00:00. The rows are rewritten with the
+date affected by CASSANDRA-14092. The rows are rewritten with the
 original timestamp incremented by one millisecond to override/supersede
 any potential tombstone that may have been generated during compaction
-of the affected rows.
+of the affected rows. The maximum supported expiration date depends on
+the `storage_compatibility_mode` setting: `2038-01-19T03:14:06+00:00`
+when compatible with Cassandra 4.x (`CASSANDRA_4` mode), or
+`2106-02-07T06:28:13+00:00` for Cassandra 5.0+ and 6.0 clusters
+(https://issues.apache.org/jira/browse/CASSANDRA-14227[CASSANDRA-14227]).
+On Cassandra 6.0 with the default `storage_compatibility_mode: NONE`,
+the 2106 limit is active.
 
 |-s,--skip-corrupted |skip corrupt rows in counter tables
 

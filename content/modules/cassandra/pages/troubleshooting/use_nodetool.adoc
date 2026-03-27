@@ -204,6 +204,36 @@ but if you have any that indicate a serious problem as the default
 timeouts to qualify as a drop are quite high (~5-10 seconds). Dropped
 messages often warrants further investigation.
 
+==== Thread pool sizing details (Cassandra 6.0+)
+
+From Cassandra 6.0
+(https://issues.apache.org/jira/browse/CASSANDRA-19289[CASSANDRA-19289]),
+you can pass `--verbose` (or `-v`) to `nodetool tpstats` to see three additional columns
+for each thread pool: `Core Pool Size`, `Max Pool Size`, and `Max Tasks Queued`.
+These values were previously only accessible via JMX.
+
+[source, bash]
+----
+$ nodetool tpstats --verbose
+Pool Name                         Active   Pending      Completed   Blocked  All time blocked  Core Pool Size  Max Pool Size  Max Tasks Queued
+ReadStage                              2         0             12         0                 0              32             32              1024
+MiscStage                              0         0              0         0                 0               1              1              1024
+CompactionExecutor                     0         0           1940         0                 0               2              2              1024
+MutationStage                          0         0              0         0                 0              32             32              1024
+...
+----
+
+The three new columns are:
+
+* `Core Pool Size` -- the minimum (core) thread count for the pool.
+* `Max Pool Size` -- the maximum thread count the pool can scale to.
+* `Max Tasks Queued` -- the maximum number of tasks that can be queued before blocking.
+  Unbounded pools (such as `Repair-Task` and `ValidationExecutor`) report `0`.
+
+The same values are always visible (without a flag) in
+`system_views.thread_pools`.
+See xref:cassandra:managing/operating/virtualtables.adoc#_thread_pools_virtual_table[Thread Pools Virtual Table].
+
 [[nodetool-compactionstats]]
 == Compaction State
 
@@ -283,3 +313,33 @@ Keyspace: system_auth
 By default all keyspaces and tables are listed, however, a list of `keyspace` and
 `keyspace.table` arguments can be given to query specific data paths. Using the `--format`
 option the output can be formatted as YAML or JSON.
+
+[[nodetool-clientstats]]
+== Client Authentication Mode
+
+From Cassandra 6.0
+(https://issues.apache.org/jira/browse/CASSANDRA-19366[CASSANDRA-19366]),
+you can use `nodetool clientstats --verbose` to see authentication mode
+information for each connected client alongside client options:
+
+[source, bash]
+----
+$ nodetool clientstats --verbose
+----
+
+The `--verbose` flag adds two columns to the output:
+
+* `Auth-Mode` -- the authentication mode for the connection
+  (e.g., `Password`, `MutualTls`, `Unauthenticated`).
+* `Auth-Metadata` -- additional metadata for the connection.
+  For mTLS connections, this includes the extracted client identity.
+
+This is useful for monitoring authentication migration progress --
+for example, identifying which clients have not yet migrated from
+password authentication to mTLS.
+
+The same data is available via the `system_views.clients` virtual table
+with the `authentication_mode` and `authentication_metadata` columns.
+See xref:cassandra:managing/operating/virtualtables.adoc#_clients_virtual_table[Clients Virtual Table].
+
+Source: `src/java/org/apache/cassandra/tools/nodetool/ClientStats.java`

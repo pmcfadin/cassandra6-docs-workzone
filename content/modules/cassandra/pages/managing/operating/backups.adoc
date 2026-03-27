@@ -558,6 +558,32 @@ second:
 include::cassandra:example$RESULTS/flush_and_check2.result[]
 ----
 
+== JMX Access to Snapshot Operations
+
+From Cassandra 6.0
+(https://issues.apache.org/jira/browse/CASSANDRA-18111[CASSANDRA-18111]),
+all snapshot operations are consolidated under a dedicated
+`SnapshotManager` with its own MBean:
+
+----
+org.apache.cassandra.service.snapshot:type=SnapshotManager
+----
+
+This MBean exposes `takeSnapshot`, `clearSnapshot`, `listSnapshots`,
+`getTrueSnapshotSize`, `setSnapshotLinksPerSecond`, `getSnapshotLinksPerSecond`,
+and a `restart()` method to force a reload of snapshot metadata from disk.
+
+The equivalent methods on `StorageServiceMBean` (`takeSnapshot`, `clearSnapshot`,
+`getSnapshotDetails`, `trueSnapshotsSize`) are deprecated since Cassandra 5.1
+but remain functional. Operators using custom JMX tooling for snapshot
+automation should migrate to the new MBean path.
+
+NOTE: The nodetool commands `snapshot`, `listsnapshots`, and `clearsnapshot`
+are unaffected -- they continue to work as before and internally delegate
+to `SnapshotManagerMBean`.
+
+Source: `src/java/org/apache/cassandra/service/snapshot/SnapshotManagerMBean.java`
+
 == Restoring from Incremental Backups and Snapshots
 
 The two main tools/commands for restoring a table after it has been

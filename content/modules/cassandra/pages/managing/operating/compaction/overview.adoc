@@ -210,6 +210,62 @@ List details about the last compactions.
 `setcompactionthreshold`::
 Set the min/max SSTable count for when to trigger compaction, defaults to 4/32.
 
+== Direct I/O for Compaction Reads
+
+Cassandra 6.0 introduces a `compaction_read_disk_access_mode` setting in
+`cassandra.yaml` that allows compaction SSTable reads to use Direct I/O
+(O_DIRECT), bypassing the OS page cache
+(https://issues.apache.org/jira/browse/CASSANDRA-19987[CASSANDRA-19987]).
+
+During compaction, SSTables are read sequentially and the data is rarely
+re-read afterward. Without Direct I/O, these reads evict hot data from the
+OS page cache, which can increase read latency for concurrent client queries.
+Direct I/O prevents compaction reads from polluting the page cache.
+
+=== Configuration
+
+[source,yaml]
+----
+# conf/cassandra.yaml
+# Default: auto (inherits disk_access_mode)
+compaction_read_disk_access_mode: auto
+----
+
+Valid values:
+
+* `auto` (default) -- inherits the `disk_access_mode` setting.
+  Preserves pre-6.0 behavior and requires no migration action.
+* `direct` -- uses O_DIRECT for SSTable reads during compaction,
+  bypassing the OS page cache.
+
+Source: `src/java/org/apache/cassandra/config/Config.java`
+(`public DiskAccessMode compaction_read_disk_access_mode = DiskAccessMode.auto`)
+
+Only `auto` and `direct` are valid values; other values cause an
+`IllegalArgumentException` at startup.
+
+=== Performance guidance
+
+[NOTE]
+====
+Benchmarks with a 1 GB hot dataset and 3 GB page cache showed:
+
+* p99 read latency: ~48% improvement (34.6 ms to 18.0 ms)
+* Mean read latency: ~25% improvement (1.88 ms to 1.41 ms)
+* Page cache stability: ~2.5x more stable during compaction
+
+These improvements are most pronounced under memory pressure, particularly
+with Size-Tiered Compaction Strategy (STCS) and large SSTables.
+(Source: CASSANDRA-19987 PR benchmarks, Jon Haddad / Sam Lightfoot, 2026-02-04)
+====
+
+CAUTION: This setting is opt-in and off by default. Evaluate the performance
+impact in your environment before enabling `direct` in production.
+The interaction with `disk_access_mode: mmap` is an open question -- if
+`disk_access_mode` is set to `mmap`, `compaction_read_disk_access_mode: auto`
+inherits mmap for compaction reads. Set `direct` explicitly to use O_DIRECT
+regardless of the base `disk_access_mode`.
+
 == Switching the compaction strategy and options using JMX
 
 It is possible to switch compaction strategies and its options on just a single node using JMX, this is a great way to experiment with settings without affecting the whole cluster. 

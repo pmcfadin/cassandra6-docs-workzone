@@ -19,7 +19,20 @@ stopped.
 
 == Usage
 
-sstableexpiredblockers <keyspace> <table>
+sstableexpiredblockers [-H] <keyspace> <table>
+
+Options:
+
+[cols=",",]
+|===
+|-H,--human-readable |Convert timestamps (minTS, maxTS, maxLDT) to ISO 8601
+format and display SSTable sizes in human-readable format (e.g.,
+"1.5 MB" instead of raw bytes).
+Without this flag, raw numeric output is preserved for backward compatibility.
+|===
+
+Source: `src/java/org/apache/cassandra/tools/SSTableExpiredBlockers.java`
+(https://issues.apache.org/jira/browse/CASSANDRA-20448[CASSANDRA-20448])
 
 == Output blocked sstables
 
@@ -31,12 +44,28 @@ Otherwise, the script will return [.title-ref]#<sstable> blocks <#>
 expired sstables from getting dropped# followed by a list of the blocked
 sstables.
 
-Example:
+Starting in Cassandra 6.0, both human-readable and default output include a `diskSize` field
+for each SSTable listed
+(https://issues.apache.org/jira/browse/CASSANDRA-20448[CASSANDRA-20448]).
+
+Default output (raw numeric values, with diskSize):
 
 ....
 sstableexpiredblockers keyspace1 standard1
 
-[BigTableReader(path='/var/lib/cassandra/data/keyspace1/standard1-0665ae80b2d711e886c66d2c86545d91/mc-2-big-Data.db') (minTS = 5, maxTS = 5, maxLDT = 2147483647)],  blocks 1 expired sstables from getting dropped: [BigTableReader(path='/var/lib/cassandra/data/keyspace1/standard1-0665ae80b2d711e886c66d2c86545d91/mc-3-big-Data.db') (minTS = 1536349775157606, maxTS = 1536349780311159, maxLDT = 1536349780)],
+[BigTableReader(path='/var/lib/cassandra/data/keyspace1/standard1-0665ae80b2d711e886c66d2c86545d91/mc-2-big-Data.db') (minTS = 5, maxTS = 5, maxLDT = 2147483647, diskSize = 36)],  blocks 1 expired sstables from getting dropped: [BigTableReader(path='/var/lib/cassandra/data/keyspace1/standard1-0665ae80b2d711e886c66d2c86545d91/mc-3-big-Data.db') (minTS = 1536349775157606, maxTS = 1536349780311159, maxLDT = 1536349780, diskSize = 1572864)],
 
-[BigTableReader(path='/var/lib/cassandra/data/keyspace1/standard1-0665ae80b2d711e886c66d2c86545d91/mc-1-big-Data.db') (minTS = 1, maxTS = 10, maxLDT = 2147483647)],  blocks 1 expired sstables from getting dropped: [BigTableReader(path='/var/lib/cassandra/data/keyspace1/standard1-0665ae80b2d711e886c66d2c86545d91/mc-3-big-Data.db') (minTS = 1536349775157606, maxTS = 1536349780311159, maxLDT = 1536349780)],
+[BigTableReader(path='/var/lib/cassandra/data/keyspace1/standard1-0665ae80b2d711e886c66d2c86545d91/mc-1-big-Data.db') (minTS = 1, maxTS = 10, maxLDT = 2147483647, diskSize = 36)],  blocks 1 expired sstables from getting dropped: [BigTableReader(path='/var/lib/cassandra/data/keyspace1/standard1-0665ae80b2d711e886c66d2c86545d91/mc-3-big-Data.db') (minTS = 1536349775157606, maxTS = 1536349780311159, maxLDT = 1536349780, diskSize = 1572864)],
 ....
+
+With the `-H` flag, timestamps are displayed as ISO 8601 instants and disk sizes in
+human-readable format:
+
+....
+sstableexpiredblockers -H keyspace1 standard1
+
+[BigTableReader(path='/var/lib/cassandra/data/keyspace1/standard1-0665ae80b2d711e886c66d2c86545d91/mc-2-big-Data.db') (minTS = 1970-01-01T00:00:00.000Z, maxTS = 1970-01-01T00:00:00.000Z, maxLDT = 2038-01-19T03:14:07Z, diskSize = 36 bytes)],  blocks 1 expired sstables from getting dropped: [BigTableReader(path='/var/lib/cassandra/data/keyspace1/standard1-0665ae80b2d711e886c66d2c86545d91/mc-3-big-Data.db') (minTS = 2018-09-07T17:49:35.158Z, maxTS = 2018-09-07T17:49:40.311Z, maxLDT = 2018-09-07T17:49:40Z, diskSize = 1.5 MB)],
+....
+
+NOTE: Sentinel values (`Long.MIN_VALUE`, `Long.MAX_VALUE`) are preserved as raw numbers
+rather than converted to dates when using `-H`.
