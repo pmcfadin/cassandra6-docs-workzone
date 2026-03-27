@@ -14,6 +14,7 @@ asciidoc:
 
 nav:
 - modules/ROOT/nav.adoc
+- modules/cassandra/nav.adoc
 - modules/operators/nav.adoc
 - modules/developers/nav.adoc
 - modules/contributors/nav.adoc

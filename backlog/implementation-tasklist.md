@@ -1,6 +1,7 @@
 # Cassandra 6 Docs Workzone — Implementation Task List
 
 Capture date: **2026-03-26**
+Last amended: **2026-03-27** (existing docs gap review — see `backlog/plan-review-existing-docs-gap.md`)
 
 ## How To Use This Document
 
@@ -213,16 +214,19 @@ Each task has a unique ID, a skill assignment, dependencies, and testable accept
 
 ### P2-T3: Create Antora playbook for local build
 
-**Problem:** The workzone needs a playbook YAML file that Antora can use to render the draft content locally. This playbook should reference the local workzone content source. The workzone spec (lines 607-616) requires the build to render the proposed IA, draft pages, and nav/cross-links.
+**Problem:** The workzone needs a playbook YAML file that Antora can use to render the draft content locally. This playbook must reference **two content sources**: (1) the workzone `content/` directory for new and draft pages, and (2) the existing trunk doc tree from a local `apache/cassandra` clone. This dual-source setup lets Antora's page-override mechanism work: workzone pages at the same component/module/page path replace the trunk originals, while all other trunk pages render as-is. Reviewers see the full documentation set — existing pages plus proposed changes — not just isolated drafts. The workzone spec (lines 607-616) requires the build to render the proposed IA, draft pages, and nav/cross-links.
 
 **Sources:**
 - `runbooks/build-preview-publish.md` (current build path reference)
 - `docs/workzone-spec.md` (build expectations, lines 607-616; preview expectations, lines 619-629)
 - `apache/cassandra-website` repo, `trunk`, `site-content/site.template.yaml` (reference playbook structure)
+- `apache/cassandra` repo, `trunk`, `doc/` (existing content source to include)
 
 **Acceptance:**
 - A playbook YAML file exists (e.g., `antora-playbook.yml`) at the workzone repo root
-- It references the local content source created in P2-T2
+- It references the local workzone content source created in P2-T2
+- It references the `apache/cassandra` trunk doc tree as a second content source
+- Workzone pages override trunk pages at the same path; trunk pages without workzone overrides render as-is
 - `npx antora antora-playbook.yml` produces HTML output in a `build/` directory
 - The output site is clearly labeled as "Preview / Unofficial / For review only" per the workzone spec
 - The playbook includes a default UI bundle
@@ -343,15 +347,44 @@ Each task has a unique ID, a skill assignment, dependencies, and testable accept
 
 ---
 
-## Phase 4: Priority Content Drafting
+## Phase 3A: Baseline Import
 
-**Goal:** Draft the highest-priority content slices — operator-critical and release-critical pages — using the research catalog as input. These are pages that either have no docs at all or need major rewrites.
-
-**Prerequisite:** Phase 1 must be complete (inventory reconciled, writing slices assigned). Phase 2 must be complete enough to render drafts (P2-T1 through P2-T3 at minimum).
+**Goal:** Import existing trunk doc pages into the workzone content structure so that update tasks in Phases 4 and 5 start from the current published content, not blank pages. This prevents content loss, preserves existing examples and cross-references, and makes diffs between "before" and "after" reviewable.
 
 ---
 
-### P4-T1: Draft TCM / Cluster Metadata content
+### P3A-T1: Import trunk doc pages into workzone content structure
+
+**Problem:** Of the 13 drafting tasks in Phases 4 and 5, roughly 9 are updates to pages that already exist on trunk. Without importing those pages first, drafters risk dropping existing explanations, examples, and cross-references built up over multiple Cassandra releases. This task copies the current trunk doc pages into the workzone `content/` directory, preserving Antora module/page paths so Antora's page-override mechanism works correctly against the trunk content source in the playbook.
+
+**Sources:**
+- `apache/cassandra` repo, branch `trunk`, `doc/modules/cassandra/pages/` and `doc/modules/ROOT/pages/`
+- `inventory/docs-map.csv` (to identify which pages have non-`unchanged` dispositions and thus need to be in the workzone for editing)
+- Workzone `content/` directory structure from P2-T2
+
+**Acceptance:**
+- Every trunk page with a `major-update`, `minor-update`, or `generated-review` disposition in `docs-map.csv` is copied into the corresponding workzone `content/modules/` path
+- Pages with `unchanged` disposition are NOT copied (they render from the trunk content source via the playbook)
+- Pages with `new` disposition are NOT copied (they will be created from scratch in Phases 4-5)
+- File paths preserve the Antora module/page structure so overrides work
+- The Antora build (`npx antora antora-playbook.yml`) still succeeds after the import
+- A manifest file or commit message lists exactly which pages were imported and from which trunk commit SHA
+
+**Skill:** `cassandra-antora-preview`
+**Depends on:** P1-T6 (dispositions must be assigned), P2-T3 (playbook must exist)
+**Complexity:** Medium
+
+---
+
+## Phase 4: Priority Content Drafting
+
+**Goal:** Draft the highest-priority content slices — operator-critical and release-critical pages. Each task is classified as either **new page** (no equivalent on trunk; draft from scratch) or **update existing page** (start from the trunk version imported in P3A-T1; apply research-driven changes). For update tasks, the trunk `.adoc` file is the primary input and research files provide the delta to apply.
+
+**Prerequisite:** Phase 1 must be complete (inventory reconciled, writing slices assigned). Phase 2 must be complete enough to render drafts (P2-T1 through P2-T3 at minimum). P3A-T1 must be complete (trunk pages imported for update tasks).
+
+---
+
+### P4-T1: Draft TCM / Cluster Metadata content *(new page)*
 
 **Problem:** TCM (CEP-21) is the most significant Cassandra 6 architectural change. The change catalog identifies it as needing new pages. There are no TCM docs in the current trunk doc tree. The workzone already has 12 TCM chapter drafts under `tcm/` that can serve as source material, but they must be converted to Antora-compatible AsciiDoc and placed in the correct module.
 
@@ -374,7 +407,7 @@ Each task has a unique ID, a skill assignment, dependencies, and testable accept
 
 ---
 
-### P4-T2: Draft guardrails reference page
+### P4-T2: Draft guardrails reference page *(new page)*
 
 **Problem:** No guardrails documentation page exists anywhere, yet 4+ research files (CASSANDRA-18781, CASSANDRA-20913, CASSANDRA-21024, CASSANDRA-19677) document new guardrail settings. Combined, these represent 12+ new YAML settings for bulk loading, durable writes, keyspace properties, disk usage, and per-type max sizes. Operators need a central reference.
 
@@ -398,73 +431,80 @@ Each task has a unique ID, a skill assignment, dependencies, and testable accept
 
 ---
 
-### P4-T3: Draft snitch deprecation and topology changes
+### P4-T3: Update snitch deprecation and topology changes *(update existing page)*
 
-**Problem:** Two related changes require major snitch documentation updates: CASSANDRA-19488 (IEndpointSnitch to Locator deprecation, 4 new YAML settings, cloud snitch removals) and CASSANDRA-20528 (nodetool altertopology for live DC/rack changes, zero docs). The delta catalog confirms snitch.adoc lost 82 lines of cloud snitch content. This is operator-critical upgrade content.
+**Problem:** Two related changes require major snitch documentation updates: CASSANDRA-19488 (IEndpointSnitch to Locator deprecation, 4 new YAML settings, cloud snitch removals) and CASSANDRA-20528 (nodetool altertopology for live DC/rack changes, zero docs). The delta catalog confirms snitch.adoc lost 82 lines of cloud snitch content. This is operator-critical upgrade content. `snitch.adoc` already exists on trunk with significant content — this is targeted surgery on a living document, not a rewrite.
 
 **Sources:**
-- `research/change-catalog/CASSANDRA-19488-snitch-deprecation.md`
-- `research/change-catalog/CASSANDRA-20528-topology-dc-rack.md`
-- `research/delta-catalog/managing-operating.md` (snitch section)
-- `apache/cassandra` repo, `trunk`, `doc/modules/cassandra/pages/managing/operating/snitch.adoc`
+- **Primary (start here):** Trunk `doc/modules/cassandra/pages/managing/operating/snitch.adoc` (imported in P3A-T1)
+- `research/change-catalog/CASSANDRA-19488-snitch-deprecation.md` (delta to apply)
+- `research/change-catalog/CASSANDRA-20528-topology-dc-rack.md` (delta to apply)
+- `research/delta-catalog/managing-operating.md` (snitch section — what changed between 5.0 and trunk)
+- `apache/cassandra` repo, `trunk`, snitch/Locator implementation
 
 **Acceptance:**
-- Updated snitch documentation reflects the Locator deprecation, removed cloud snitches, and new YAML settings
+- Updated snitch documentation starts from the existing trunk page and applies research-driven changes
+- Existing content, examples, and cross-references are preserved unless specifically invalidated
+- Locator deprecation, removed cloud snitches, and new YAML settings are incorporated
 - A page or section documents `nodetool altertopology` with command syntax, flags, and operational guidance
 - Upgrade notes cover what operators must change when migrating from 5.0 snitch configuration
 - All claims cite trunk source
 
 **Skill:** `cassandra-asciidoc-authoring`
-**Depends on:** P1-T3, P2-T2
+**Depends on:** P1-T3, P3A-T1
 **Complexity:** Medium
 
 ---
 
-### P4-T4: Draft JMX and security updates
+### P4-T4: Update JMX and security documentation *(update existing page)*
 
-**Problem:** Two research files identify major security doc changes: CASSANDRA-11695 (JMX configuration moving from system properties to cassandra.yaml) and CASSANDRA-19397 (native_transport_port_ssl removal, a breaking change). The delta catalog confirms security.adoc gained 204 lines and lost 90. This is operator-critical because misconfiguring JMX or SSL during upgrade could cause outages.
+**Problem:** Two research files identify major security doc changes: CASSANDRA-11695 (JMX configuration moving from system properties to cassandra.yaml) and CASSANDRA-19397 (native_transport_port_ssl removal, a breaking change). The delta catalog confirms security.adoc gained 204 lines and lost 90. `security.adoc` already exists on trunk as a substantial page — this is an update, not a rewrite. This is operator-critical because misconfiguring JMX or SSL during upgrade could cause outages.
 
 **Sources:**
-- `research/change-catalog/CASSANDRA-11695-jmx-server-options.md`
-- `research/change-catalog/CASSANDRA-19397-native-transport-ssl.md`
-- `research/delta-catalog/managing-operating.md` (security section)
-- `apache/cassandra` repo, `trunk`, `doc/modules/cassandra/pages/managing/operating/security.adoc`
+- **Primary (start here):** Trunk `doc/modules/cassandra/pages/managing/operating/security.adoc` (imported in P3A-T1)
+- `research/change-catalog/CASSANDRA-11695-jmx-server-options.md` (delta to apply)
+- `research/change-catalog/CASSANDRA-19397-native-transport-ssl.md` (delta to apply)
+- `research/delta-catalog/managing-operating.md` (security section — what changed between 5.0 and trunk)
+- `apache/cassandra` repo, `trunk`, security implementation
 
 **Acceptance:**
-- Security documentation covers the new JMX-in-YAML configuration surface
+- Updated security documentation starts from the existing trunk page and applies research-driven changes
+- Existing content, examples, and cross-references are preserved unless specifically invalidated
+- New JMX-in-YAML configuration surface is incorporated
 - The native_transport_port_ssl removal is documented with upgrade migration steps
 - PEM private key password-via-file examples are included
 - Removed crypto provider content is noted
 - All claims cite trunk source evidence
 
 **Skill:** `cassandra-asciidoc-authoring`
-**Depends on:** P1-T3, P2-T2
+**Depends on:** P1-T3, P3A-T1
 **Complexity:** Medium
 
 ---
 
-### P4-T5: Draft JDK 21 and JVM options content
+### P4-T5: Update JDK 21 and JVM options content *(update existing page)*
 
-**Problem:** CASSANDRA-18831 introduces JDK 21 as the default runtime with Generational ZGC as the default GC. The research file notes a new `jvm21-server.options` file and identifies a doc gap around JVM options. This is operator-critical because GC configuration directly affects production performance.
+**Problem:** CASSANDRA-18831 introduces JDK 21 as the default runtime with Generational ZGC as the default GC. The research file notes a new `jvm21-server.options` file and identifies a doc gap around JVM options. `cass_jvm_options_file.adoc` already exists on trunk — this is an update to add JDK 21 and ZGC content, not a rewrite. This is operator-critical because GC configuration directly affects production performance.
 
 **Sources:**
-- `research/change-catalog/CASSANDRA-18831-jdk21-zgc.md`
+- **Primary (start here):** Trunk `doc/modules/cassandra/pages/managing/configuration/cass_jvm_options_file.adoc` (imported in P3A-T1)
+- `research/change-catalog/CASSANDRA-18831-jdk21-zgc.md` (delta to apply)
 - `apache/cassandra` repo, `trunk`, `conf/jvm*-server.options`
-- `apache/cassandra` repo, `trunk`, `doc/modules/cassandra/pages/managing/configuration/cass_jvm_options_file.adoc`
 
 **Acceptance:**
-- JVM options documentation covers JDK 21 as default
+- Updated JVM options documentation starts from the existing trunk page
+- JDK 21 as default is incorporated
 - Generational ZGC default is documented with operational implications
 - The `jvm21-server.options` file is referenced
 - Upgrade guidance covers transitioning from JDK 11/17 GC settings
 
 **Skill:** `cassandra-asciidoc-authoring`
-**Depends on:** P1-T3, P2-T2
+**Depends on:** P1-T3, P3A-T1
 **Complexity:** Small
 
 ---
 
-### P4-T6: Draft startup checks SPI page
+### P4-T6: Draft startup checks SPI page *(new page)*
 
 **Problem:** CASSANDRA-21093 introduces an SPI for custom startup checks with YAML configuration. The change catalog marks this as needing a new page with zero existing documentation.
 
@@ -486,13 +526,13 @@ Each task has a unique ID, a skill assignment, dependencies, and testable accept
 
 ## Phase 5: Full Content Production
 
-**Goal:** Draft remaining content slices covering developer content, additional operator content, and review existing trunk docs that need minor updates.
+**Goal:** Draft remaining content slices covering developer content, additional operator content, and review existing trunk docs that need minor updates. As in Phase 4, each task is classified as **new page** or **update existing page**. Update tasks start from the trunk version imported in P3A-T1.
 
 ---
 
-### P5-T1: Draft Accord CQL transaction reference
+### P5-T1: Draft Accord CQL transaction reference *(new page)*
 
-**Problem:** BEGIN TRANSACTION syntax is undocumented. While 4 Accord-related pages exist on trunk (accord.adoc, accord-architecture.adoc, cql-on-accord.adoc, onboarding-to-accord.adoc), there is no CQL-level reference for the transaction statement syntax. This is developer-critical content.
+**Problem:** BEGIN TRANSACTION syntax is undocumented. While 4 Accord-related pages exist on trunk (accord.adoc, accord-architecture.adoc, cql-on-accord.adoc, onboarding-to-accord.adoc), there is no CQL-level reference for the transaction statement syntax. This is developer-critical content. Note: the existing Accord pages should be reviewed for context and cross-referencing but this task produces a new page, not an update to existing ones.
 
 **Sources:**
 - `research/change-catalog/CASSANDRA-17092-accord.md`
@@ -512,69 +552,74 @@ Each task has a unique ID, a skill assignment, dependencies, and testable accept
 
 ---
 
-### P5-T2: Update CQL documentation for new syntax
+### P5-T2: Update CQL documentation for new syntax *(update existing pages)*
 
-**Problem:** Multiple new CQL syntax additions need documentation: BETWEEN operator (CASSANDRA-19604), NOT operators with three-valued logic (CASSANDRA-18584), LIKE expressions (CASSANDRA-17198), CREATE TABLE LIKE (CASSANDRA-19964, marked major-update), and LIST SUPERUSERS (CASSANDRA-19417). The delta catalog notes developing/cql has 4 major-update pages.
+**Problem:** Multiple new CQL syntax additions need documentation: BETWEEN operator (CASSANDRA-19604), NOT operators with three-valued logic (CASSANDRA-18584), LIKE expressions (CASSANDRA-17198), CREATE TABLE LIKE (CASSANDRA-19964, marked major-update), and LIST SUPERUSERS (CASSANDRA-19417). The delta catalog notes developing/cql has 4 major-update pages. Multiple CQL pages already exist with established structure and examples — new syntax should be added to those pages, not replace them.
 
 **Sources:**
-- `research/change-catalog/CASSANDRA-19964-create-table-like.md`
-- `research/change-catalog/CHANGES-tail-triage.md` (New CQL Syntax section)
-- `research/delta-catalog/developing-cql.md`
+- **Primary (start here):** Trunk CQL pages imported in P3A-T1, especially `ddl.adoc`, `dml.adoc`, `operators.adoc`, `security.adoc`
+- `research/change-catalog/CASSANDRA-19964-create-table-like.md` (delta to apply)
+- `research/change-catalog/CHANGES-tail-triage.md` (New CQL Syntax section — deltas to apply)
+- `research/delta-catalog/developing-cql.md` (what changed between 5.0 and trunk)
 - `apache/cassandra` repo, `trunk`, CQL grammar files, statement implementations
 
 **Acceptance:**
-- Each new CQL syntax has at minimum a section in the relevant CQL reference page with syntax, examples, restrictions
+- Each new CQL syntax is added as a section within the relevant existing CQL reference page
+- Existing page structure, examples, and cross-references are preserved
 - CREATE TABLE LIKE has a full section in ddl.adoc or a standalone page
 - LIST SUPERUSERS is documented in the security/auth reference
 - All syntax examples are validated against parser/grammar on trunk
 
 **Skill:** `cassandra-asciidoc-authoring`
-**Depends on:** P1-T5 (research on tail-triage CQL JIRAs), P1-T6, P2-T2
+**Depends on:** P1-T5 (research on tail-triage CQL JIRAs), P1-T6, P3A-T1
 **Complexity:** Large
 
 ---
 
-### P5-T3: Update SAI documentation for frozen collections
+### P5-T3: Update SAI documentation for frozen collections *(update existing pages)*
 
-**Problem:** CASSANDRA-18492 adds SAI indexing for frozen collections. The research file identifies 6 affected pages with no existing documentation for frozen collection element indexing.
+**Problem:** CASSANDRA-18492 adds SAI indexing for frozen collections. The research file identifies 6 affected pages with no existing documentation for frozen collection element indexing. SAI documentation already has 6+ established pages — this update is additive.
 
 **Sources:**
-- `research/change-catalog/CASSANDRA-18492-sai-frozen-collections.md`
+- **Primary (start here):** Trunk SAI pages imported in P3A-T1 under `developing/cql/indexing/sai/`
+- `research/change-catalog/CASSANDRA-18492-sai-frozen-collections.md` (delta to apply)
 - `apache/cassandra` repo, `trunk`, SAI collection indexing code and tests
-- `apache/cassandra` repo, `trunk`, `doc/modules/cassandra/pages/developing/cql/indexing/sai/` pages
 
 **Acceptance:**
-- SAI collection pages document frozen collection indexing support
+- SAI collection pages are updated to document frozen collection indexing support
+- Existing SAI content, examples, and cross-references are preserved
 - Examples show CREATE INDEX on frozen collections
 - Behavior differences from non-frozen collection indexing are noted
 - sai-faq.adoc and sai-concepts.adoc updated as needed
 
 **Skill:** `cassandra-asciidoc-authoring`
-**Depends on:** P1-T6, P2-T2
+**Depends on:** P1-T6, P3A-T1
 **Complexity:** Medium
 
 ---
 
-### P5-T4: Update compaction documentation
+### P5-T4: Update compaction documentation *(update existing pages)*
 
-**Problem:** CASSANDRA-18802 adds `parallelize_output_shards` and `--jobs` flag for unified compaction, both undocumented. The tail triage also identifies CASSANDRA-21169 (override compaction strategy parameters at startup).
+**Problem:** CASSANDRA-18802 adds `parallelize_output_shards` and `--jobs` flag for unified compaction, both undocumented. The tail triage also identifies CASSANDRA-21169 (override compaction strategy parameters at startup). Compaction docs already exist — two new settings need to be added to existing pages.
 
 **Sources:**
-- `research/change-catalog/CASSANDRA-18802-compaction-parallelization.md`
+- **Primary (start here):** Trunk compaction pages imported in P3A-T1, especially `ucs.adoc` and `compact-subproperties.adoc`
+- `research/change-catalog/CASSANDRA-18802-compaction-parallelization.md` (delta to apply)
 - `apache/cassandra` repo, `trunk`, UCS implementation and config
 
 **Acceptance:**
+- Existing compaction pages are updated with new settings; existing content preserved
 - `parallelize_output_shards` documented with default, type, operational meaning
 - `--jobs` flag documented in nodetool compact reference
 - Updated content renders correctly
 
 **Skill:** `cassandra-asciidoc-authoring`
-**Depends on:** P1-T6, P2-T2
+**Depends on:** P1-T6, P3A-T1
 **Complexity:** Small
 
 ---
 
-### P5-T5: Review and update existing trunk docs marked review-only
+### P5-T5: Review and update existing trunk docs marked review-only *(update existing pages)*
 
 **Problem:** The change catalog identifies 7 research files with `review-only` next action, meaning docs exist on trunk but have minor gaps: auto repair (CASSANDRA-19918), constraints (CASSANDRA-19947), password validation (CASSANDRA-17457), string functions (CASSANDRA-20102), format functions (CASSANDRA-19546), index selection (CASSANDRA-18112), and async-profiler (CASSANDRA-20854).
 
@@ -589,12 +634,12 @@ Each task has a unique ID, a skill assignment, dependencies, and testable accept
 - Changes are tracked as minor updates
 
 **Skill:** `cassandra-asciidoc-authoring`
-**Depends on:** P1-T6, P2-T2
+**Depends on:** P1-T6, P3A-T1
 **Complexity:** Medium
 
 ---
 
-### P5-T6: Draft new virtual tables and observability content
+### P5-T6: Draft new virtual tables and observability content *(new page)*
 
 **Problem:** The tail triage identifies 14 new observability items: new virtual tables (slow_queries, uncaught_exceptions, partition_key_statistics), expanded metrics (auth cache, hints, bootstrap, streaming), and new nodetool observability options. These need documentation so operators know what is available.
 
@@ -615,23 +660,24 @@ Each task has a unique ID, a skill assignment, dependencies, and testable accept
 
 ---
 
-### P5-T7: Update miscellaneous operator docs
+### P5-T7: Update miscellaneous operator docs *(update existing pages)*
 
 **Problem:** Multiple change-catalog entries require updates to existing operator pages not covered by Phase 4: TTL 2106 updates (CASSANDRA-14227), ZSTD dictionary compression (CASSANDRA-17021), chronicle queue log rolling, snapshot MBean (CASSANDRA-18111), tpstats verbose (CASSANDRA-19289), auth mode in clients (CASSANDRA-19366), sstableexpiredblockers -H flag (CASSANDRA-20448), and direct I/O compaction (CASSANDRA-19987).
 
 **Sources:**
-- Corresponding research files under `research/change-catalog/`
-- Trunk doc pages identified in each research file's "Affected docs" column
+- **Primary (start here):** Trunk doc pages imported in P3A-T1 as identified in each research file's "Affected docs" column
+- Corresponding research files under `research/change-catalog/` (deltas to apply)
 
 **Acceptance:**
-- Each identified page is updated per the research file's findings
+- Each identified page is updated starting from the existing trunk version; existing content preserved
+- Each update applies only the research-driven delta, not a rewrite
 - TTL 2106: stale 2038 references removed, upgrade guidance added
 - ZSTD dictionary: nodetool training commands and CQL configuration documented
 - All updates cite source evidence
 - Updated pages render in preview
 
 **Skill:** `cassandra-asciidoc-authoring`
-**Depends on:** P1-T6, P2-T2
+**Depends on:** P1-T6, P3A-T1
 **Complexity:** Medium
 
 ---
@@ -859,9 +905,13 @@ P2-T1 ──→ P2-T2 ──→ P2-T3 ──→ P2-T4
 P2-T3, P2-T4 ──→ P3-T1 ──→ P3-T2
                   P3-T1 ──→ P3-T3
                       │
-P1-T3, P2-T2 ──→ P4-T1 through P4-T6 (parallel)
+P1-T6, P2-T3 ──→ P3A-T1 (baseline import)
                       │
-P1-T6, P2-T2 ──→ P5-T1 through P5-T7 (parallel)
+P1-T3, P2-T2 ──→ P4-T1, P4-T2, P4-T6 (new pages, parallel)
+P1-T3, P3A-T1 ──→ P4-T3, P4-T4, P4-T5 (update pages, parallel)
+                      │
+P1-T6, P2-T2 ──→ P5-T1, P5-T6 (new pages, parallel)
+P1-T6, P3A-T1 ──→ P5-T2, P5-T3, P5-T4, P5-T5, P5-T7 (update pages, parallel)
                       │
 P2-T3 ──→ P5G-T1, P5G-T2, P5G-T3 (parallel)
                       │
@@ -875,15 +925,24 @@ P6-T1, P6-T2 ──→ P6-T3
 - **Phase 1:** P1-T1 and P1-T5 run simultaneously. P1-T3 and P1-T4 can overlap after P1-T1.
 - **Phase 2:** P2-T1 is the starting gate; P2-T4 and P2-T5 run in parallel after P2-T3.
 - **Phase 3:** P3-T2 and P3-T3 run in parallel after P3-T1.
-- **Phase 4:** All six tasks (P4-T1 through P4-T6) run in parallel once P1-T3 and P2-T2 are done.
-- **Phase 5:** All seven tasks run in parallel. Phase 5G tasks run in parallel with Phase 5 authored tasks.
+- **Phase 3A:** Single task (P3A-T1), gates all update tasks in Phases 4-5.
+- **Phase 4:** New-page tasks (P4-T1, P4-T2, P4-T6) need P1-T3 + P2-T2. Update tasks (P4-T3, P4-T4, P4-T5) need P1-T3 + P3A-T1. All six can run in parallel once P3A-T1 is done.
+- **Phase 5:** New-page tasks (P5-T1, P5-T6) need P1-T6 + P2-T2. Update tasks (P5-T2, P5-T3, P5-T4, P5-T5, P5-T7) need P1-T6 + P3A-T1. Phase 5G tasks run in parallel with all Phase 5 authored tasks.
 - **Phase 6:** All four tasks can start anytime. P6-T3 depends on P6-T1 and P6-T2.
 
 **Cross-phase parallelism:**
 - Phase 2 can start immediately (no Phase 1 dependency)
 - Phase 3 starts as soon as Phase 2 core tasks (P2-T1 through P2-T3) complete
+- Phase 3A starts as soon as P1-T6 and P2-T3 complete
 - Phase 5G starts as soon as P2-T3 completes (independent of Phase 1 or Phase 4)
 - Phase 6 tasks are independent and can start anytime
+
+## Task Classification Summary
+
+| Type | Count | Tasks |
+|---|---|---|
+| **New page** | 4 | P4-T1 (TCM), P4-T2 (guardrails), P4-T6 (startup checks), P5-T1 (Accord CQL), P5-T6 (virtual tables) |
+| **Update existing page** | 9 | P4-T3 (snitch), P4-T4 (security), P4-T5 (JVM), P5-T2 (CQL syntax), P5-T3 (SAI), P5-T4 (compaction), P5-T5 (review-only), P5-T7 (misc operator) |
 
 ## Task Count Summary
 
@@ -892,9 +951,10 @@ P6-T1, P6-T2 ──→ P6-T3
 | Phase 1: Inventory & Reconciliation | 6 | `cassandra-inventory-reconciliation`, `cassandra-researcher`, `cassandra-changelog-triage` |
 | Phase 2: Build Infrastructure | 5 | `cassandra-antora-preview` |
 | Phase 3: Preview Pipeline | 3 | `cassandra-antora-preview` |
+| Phase 3A: Baseline Import | 1 | `cassandra-antora-preview` |
 | Phase 4: Priority Content | 6 | `cassandra-asciidoc-authoring` |
 | Phase 5: Full Content | 7 | `cassandra-asciidoc-authoring` |
 | Phase 5G: Generated Docs | 3 | `cassandra-antora-preview` |
 | Phase 6: Version Wire-Up | 4 | `cassandra-doc` |
 | Governance | 2 | `cassandra-doc`, `cassandra-inventory-reconciliation` |
-| **Total** | **36** | **All 7 skills used** |
+| **Total** | **37** | **All 7 skills used** |
