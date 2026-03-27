@@ -112,6 +112,7 @@ image::sai/saiReadpathOverview.png[alt=AI read path as described in subsequent s
 === Index selection and Coordinator processing
 
 When presented with a query, the first action the SAI Coordinator performs, to take advantage of one or more indexes, is to identify the most selective index.
+Users can override automatic index selection using xref:cassandra:developing/cql/dml.adoc#index-hints[index hints] — the `WITH included_indexes` and `WITH excluded_indexes` clauses on `SELECT` statements (CASSANDRA-18112).
 That most selective index is the index that will most aggressively narrow the filtering space and the number of ultimate results by returning the lowest value from an estimated results row calculation.
 If multiple SAI indexes are present (that is, where each SAI index is based on a different column, but the query involves more than one column), it does not matter which SAI index is selected first.
 

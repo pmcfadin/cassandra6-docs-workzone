@@ -171,7 +171,7 @@ CREATE TABLE ks.tb (
 Altering that constraint can be done with:
 
 ----
-ALTER TABLE ks.tb ALTER name LENGTH() < 512;
+ALTER TABLE ks.tb ALTER name CHECK LENGTH() < 512;
 ----
 
 Finally, the constraint can be removed:

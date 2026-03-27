@@ -35,6 +35,7 @@ xref:#fixed-split-token-range-splitter[FixedSplitTokenRangeSplitter].
 - Configurable settings tailored to each repair job.
 - Rich configuration options for each repair type (e.g., Full, Incremental, or Preview repairs).
 - Comprehensive observability features that allow operators to configure alarms as needed.
+See xref:cassandra:managing/operating/metrics.adoc#_automated_repair_metrics[Automated Repair Metrics] for the full list of available JMX metrics.
 
 == Considerations
 
@@ -122,7 +123,7 @@ repaired data set.
 Configuration for Auto Repair is managed in the `cassandra.yaml` file by the `auto_repair` property.
 
 A rich set of configuration exists for configuring Auto Repair with sensible defaults.  However, the expectation
-is that some tuning might be needed particulary when it comes to tuning how often repair should run
+is that some tuning might be needed particularly when it comes to tuning how often repair should run
 (`min_repair_interval`) and how repair assignments as created (`token_range_splitter`).
 
 The following is a practical example of an auto_repair configuration that one might use.

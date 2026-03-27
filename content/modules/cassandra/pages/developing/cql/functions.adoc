@@ -243,7 +243,7 @@ network bandwidth is reduced and memory is freed earlier, these functions still 
 
 | `octet_length` | All xref:cassandra:developing/cql/types.adoc#native-types[types] | Returns the length of the data in bytes.
 
-| `length` | `text` | Returns the string's length - the count of UTF-8 code units.
+| `length` | `text` | Returns the string's length - the count of UTF-16 code units.
 |===
 
 The `octet_length` function is defined for every xref:cassandra:developing/cql/types.adoc#native-types[type]
@@ -275,7 +275,7 @@ for common types:
 |===
 
 The `length` function is only defined for UTF-8 strings (`text`) and returns the length of that string, meaning the
-number of UTF-8 code units. Equivalent to Java's
+number of UTF-16 code units. Equivalent to Java's
 https://docs.oracle.com/en/java/javase/22/docs/api/java.base/java/lang/String.html#length()[`String#length()`] or
 Python 3's `len` function when applied to a string.
 
@@ -443,7 +443,7 @@ if our column values are in kibibytes and we want to convert them to mebibytes, 
 
 [source,sql]
 ----
-cqlsh> select format_bytes(val, 'Kib', 'MiB') from ks.tb;
+cqlsh> select format_bytes(val, 'KiB', 'MiB') from ks.tb;
 
  system.format_bytes(val, 'KiB', 'MiB')
 ----------------------------------------
