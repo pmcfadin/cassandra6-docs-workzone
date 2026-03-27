@@ -25,7 +25,7 @@ SAI enables queries that filter based on:
 * numeric range  
 * non-variable length numeric types
 * text type equality
-* CONTAINs logic (for collections)
+* `CONTAINS` logic (for collections, including frozen collections in Cassandra 6.0+)
 * tokenized data
 * row-aware query path
 * case sensitivity (optional)

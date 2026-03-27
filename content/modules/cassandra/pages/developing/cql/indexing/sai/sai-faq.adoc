@@ -117,6 +117,8 @@ In this case with an SAI index, you would specify just one of the columns that c
 
 With collection maps, you can define one or more SAI indexes on the same column, specifying `keys`, `values`, and `entries` as map types.
 SAI also supports `list` and `set` collections.
+Starting in Cassandra 6.0, SAI additionally supports element-level (`VALUES`, `KEYS`, `ENTRIES`) indexing on frozen collections.
+See <<saiFrozenCollectionFaq,frozen collection FAQ>> for details.
 
 --
 include::cassandra:partial$sai/collections-note.adoc[]
@@ -172,9 +174,27 @@ Yes -- SAI supports collections of type `map`, `list`, and `set`.
 See the following topics:
 
 * xref:cassandra:developing/cql/indexing/sai/collections.adoc[Using collections with SAI]
-// * xref:reference:cql-commands/create-custom-index.adoc[CREATE CUSTOM INDEX] 
+// * xref:reference:cql-commands/create-custom-index.adoc[CREATE CUSTOM INDEX]
 
 include::cassandra:partial$sai/collections-note.adoc[]
+
+[[saiFrozenCollectionFaq]]
+== Does SAI support element-level indexing on frozen collections?
+
+Yes, starting in Cassandra 6.0 (CASSANDRA-18492).
+SAI now accepts `VALUES`, `KEYS`, and `ENTRIES` index targets on frozen collections, in addition to `FULL`.
+This enables `CONTAINS`, `CONTAINS KEY`, and map entry equality queries on individual elements within frozen sets, lists, and maps.
+
+Before Cassandra 6.0, all index types (SAI and non-SAI) required `FULL` indexing for frozen collections, which only supports exact equality on the complete serialized collection value.
+In Cassandra 6.0, this restriction is relaxed for SAI only -- non-SAI (legacy 2i) indexes still require `FULL` for frozen collections.
+
+See xref:cassandra:developing/cql/indexing/sai/collections.adoc#saiUsingFrozenCollections[Frozen collection indexing] for examples and a full list of supported index targets.
+
+[NOTE]
+====
+`ENTRIES` indexing on a frozen map column that is a clustering column is not supported.
+Use `FULL`, `KEYS`, or `VALUES` for frozen map clustering columns.
+====
 
 == What are the supported query operators?
 

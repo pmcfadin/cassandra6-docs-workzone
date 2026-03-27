@@ -56,3 +56,33 @@ include::cassandra:example$RESULTS/sai/index-sai-select-from-list-two-columns.re
 ----
 --
 ====
+
+[[saiUsingFrozenListExamples]]
+== Frozen list indexing
+
+Starting in Cassandra 6.0 (CASSANDRA-18492), SAI supports `VALUES` indexing on frozen lists.
+This enables `CONTAINS` queries on individual list elements without requiring an exact match on the entire serialized value.
+`FULL` indexing continues to work for exact equality on the complete frozen list.
+
+[source,cql]
+----
+-- Table with a frozen list column
+CREATE TABLE ks.upcoming_calendar (
+    id uuid PRIMARY KEY,
+    month_year text,
+    events frozen<list<text>>
+);
+
+-- Create a VALUES index on the frozen list column (Cassandra 6.0+, SAI only)
+CREATE INDEX ON ks.upcoming_calendar (VALUES(events)) USING 'sai';
+
+-- Query: find calendar entries containing a specific event
+SELECT * FROM ks.upcoming_calendar WHERE events CONTAINS 'Grand Tour';
+----
+
+[NOTE]
+====
+`VALUES` indexing on frozen lists is supported by SAI only.
+Non-SAI (legacy 2i) indexes require `FULL` indexing for frozen lists.
+Source: `test/unit/org/apache/cassandra/index/sai/cql/types/collections/lists/ListFrozenCollectionTest.java`, trunk.
+====

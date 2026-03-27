@@ -83,3 +83,51 @@ include::cassandra:example$RESULTS/sai/index-sai-select-from-map-entries.result[
 ====
 
 This example looks for a row where two entries are present in the map `teams` column.
+
+[[saiUsingFrozenMapExamples]]
+== Frozen map indexing
+
+Starting in Cassandra 6.0 (CASSANDRA-18492), SAI supports `KEYS`, `VALUES`, and `ENTRIES` indexing on frozen maps.
+This enables element-level queries on frozen map columns using the same query syntax available for non-frozen maps.
+`FULL` indexing continues to work for exact equality on the complete frozen map.
+
+[source,cql]
+----
+-- Table with a frozen map column
+CREATE TABLE ks.cyclist_teams (
+    id uuid PRIMARY KEY,
+    firstname text,
+    lastname text,
+    teams frozen<map<int, text>>
+);
+
+-- Create element-level indexes on the frozen map column (Cassandra 6.0+, SAI only)
+CREATE INDEX ON ks.cyclist_teams (KEYS(teams)) USING 'sai';
+CREATE INDEX ON ks.cyclist_teams (VALUES(teams)) USING 'sai';
+CREATE INDEX ON ks.cyclist_teams (ENTRIES(teams)) USING 'sai';
+
+-- Query by key: find cyclists associated with a specific year
+SELECT * FROM ks.cyclist_teams WHERE teams CONTAINS KEY 2014;
+
+-- Query by value: find cyclists who rode for a specific team
+SELECT * FROM ks.cyclist_teams WHERE teams CONTAINS 'Team Garmin';
+
+-- Query by entry: find cyclists who rode for a specific team in a specific year
+SELECT * FROM ks.cyclist_teams WHERE teams[2014] = 'Team Garmin';
+----
+
+[NOTE]
+====
+Element-level indexing (`KEYS`, `VALUES`, `ENTRIES`) on frozen maps is supported by SAI only.
+Non-SAI (legacy 2i) indexes require `FULL` indexing for frozen maps.
+Source: `test/unit/org/apache/cassandra/index/sai/cql/types/collections/maps/MapKeysFrozenCollectionTest.java`, `MapValuesFrozenCollectionTest.java`, `MapEntriesFrozenCollectionTest.java`, trunk.
+====
+
+[IMPORTANT]
+====
+`ENTRIES` indexing is not supported on frozen map columns that are *clustering columns*.
+Map entry predicates (`column[key] = value`) cannot be evaluated on clustering columns.
+Attempting to create an `ENTRIES` index on a frozen map clustering column will produce an error.
+Use `FULL`, `KEYS`, or `VALUES` instead for frozen map clustering columns.
+Source: `src/java/org/apache/cassandra/cql3/statements/schema/CreateIndexStatement.java`, trunk.
+====

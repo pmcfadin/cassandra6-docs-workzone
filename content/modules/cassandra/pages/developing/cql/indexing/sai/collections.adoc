@@ -20,7 +20,97 @@ In CQL queries of database tables with SAI indexes, the `CONTAINS` clauses are s
 
 * SAI *collection maps* with `keys`, `values`, and `entries`
 * SAI *collections* with `list` and `set` types
+
+SAI also supports element-level indexes (`VALUES`, `KEYS`, `ENTRIES`) on *frozen* collections.
+See <<saiUsingFrozenCollections,Frozen collection indexing>> below.
 ====
+
+[[saiUsingFrozenCollections]]
+== Frozen collection indexing
+
+SAI supports element-level indexing on frozen collections (added in Cassandra 6.0, CASSANDRA-18492).
+Before Cassandra 6.0, frozen collections could only be indexed with the `FULL` target, which enables exact equality matching on the entire serialized collection value.
+SAI now also accepts `VALUES`, `KEYS`, and `ENTRIES` targets on frozen collections, enabling element-level queries with `CONTAINS`, `CONTAINS KEY`, and map entry equality (`column[key] = value`).
+
+[NOTE]
+====
+This relaxation is *SAI-specific*.
+Non-SAI (legacy 2i) indexes still require `FULL` indexing for frozen collections.
+Source: `src/java/org/apache/cassandra/cql3/statements/schema/CreateIndexStatement.java`, lines 297-304, trunk.
+====
+
+=== How SAI indexes frozen collection elements
+
+When an SAI index targets `VALUES`, `KEYS`, or `ENTRIES` on a frozen collection, SAI decomposes the serialized collection into individual terms at write time (both the memtable path and the SSTable path).
+Each element is indexed as a separate term.
+This is transparent to the query path but has write-amplification implications for large frozen collections: a frozen set with 100 elements produces 100 index terms per write instead of one.
+
+The `sai_frozen_term_size` guardrail applies to each individually extracted term, not to the full serialized collection.
+
+=== Supported index targets for frozen collections
+
+[cols="1,1,2", options="header"]
+|===
+| Collection type | Supported index targets | Enabled queries
+
+| `frozen<set<T>>` | `VALUES`, `FULL` | `CONTAINS`, exact equality on full value
+| `frozen<list<T>>` | `VALUES`, `FULL` | `CONTAINS`, exact equality on full value
+| `frozen<map<K,V>>` | `KEYS`, `VALUES`, `ENTRIES`, `FULL` | `CONTAINS KEY`, `CONTAINS`, `column[key] = value`, exact equality on full value
+|===
+
+[IMPORTANT]
+====
+`ENTRIES` indexing on a frozen map column that is a *clustering column* is not supported and will be rejected at index creation time.
+Map entry predicates (`column[key] = value`) cannot be evaluated on clustering columns.
+Use `FULL`, `KEYS`, or `VALUES` instead for frozen map clustering columns.
+Source: `src/java/org/apache/cassandra/cql3/statements/schema/CreateIndexStatement.java`, line 310-312, trunk.
+====
+
+=== Create indexes on frozen collections
+
+The following examples show `CREATE INDEX` syntax for frozen collection columns.
+All examples use `USING 'sai'`.
+
+[source,cql]
+----
+-- Frozen set: VALUES index enables CONTAINS queries
+CREATE INDEX ON ks.tbl (VALUES(frozen_tags)) USING 'sai';
+
+-- Frozen list: VALUES index enables CONTAINS queries
+CREATE INDEX ON ks.tbl (VALUES(frozen_events)) USING 'sai';
+
+-- Frozen map: KEYS index enables CONTAINS KEY queries
+CREATE INDEX ON ks.tbl (KEYS(frozen_metadata)) USING 'sai';
+
+-- Frozen map: VALUES index enables CONTAINS queries on map values
+CREATE INDEX ON ks.tbl (VALUES(frozen_metadata)) USING 'sai';
+
+-- Frozen map: ENTRIES index enables map entry equality queries
+CREATE INDEX ON ks.tbl (ENTRIES(frozen_metadata)) USING 'sai';
+
+-- FULL indexing continues to work for exact equality on the entire frozen collection
+CREATE INDEX ON ks.tbl (FULL(frozen_tags)) USING 'sai';
+----
+
+=== Query frozen collections with element-level indexes
+
+With element-level SAI indexes defined, you can query frozen collection columns using the same `CONTAINS`, `CONTAINS KEY`, and map entry equality syntax used for non-frozen collections.
+
+[source,cql]
+----
+-- Query a frozen set or list (requires VALUES index)
+SELECT * FROM ks.tbl WHERE frozen_tags CONTAINS 'cassandra';
+SELECT * FROM ks.tbl WHERE frozen_events CONTAINS 'summit';
+
+-- Query a frozen map by key (requires KEYS index)
+SELECT * FROM ks.tbl WHERE frozen_metadata CONTAINS KEY 'env';
+
+-- Query a frozen map by value (requires VALUES index)
+SELECT * FROM ks.tbl WHERE frozen_metadata CONTAINS 'production';
+
+-- Query a frozen map by entry (requires ENTRIES index)
+SELECT * FROM ks.tbl WHERE frozen_metadata['env'] = 'production';
+----
 
 include::_collections-set.adoc[leveloffset=+1]
 

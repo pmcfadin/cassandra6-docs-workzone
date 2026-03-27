@@ -33,3 +33,34 @@ include::cassandra:example$RESULTS/sai/index-sai-select-from-set.result[]
 ----
 --
 ====
+
+[[saiUsingFrozenSetExamples]]
+== Frozen set indexing
+
+Starting in Cassandra 6.0 (CASSANDRA-18492), SAI supports `VALUES` indexing on frozen sets.
+This enables `CONTAINS` queries on individual set elements without requiring an exact match on the entire serialized value.
+`FULL` indexing continues to work for exact equality on the complete frozen set.
+
+[source,cql]
+----
+-- Table with a frozen set column
+CREATE TABLE ks.cyclist_career_teams (
+    id uuid PRIMARY KEY,
+    firstname text,
+    lastname text,
+    teams frozen<set<text>>
+);
+
+-- Create a VALUES index on the frozen set column (Cassandra 6.0+, SAI only)
+CREATE INDEX ON ks.cyclist_career_teams (VALUES(teams)) USING 'sai';
+
+-- Query: find cyclists who were on a specific team
+SELECT * FROM ks.cyclist_career_teams WHERE teams CONTAINS 'Team Sky';
+----
+
+[NOTE]
+====
+`VALUES` indexing on frozen sets is supported by SAI only.
+Non-SAI (legacy 2i) indexes require `FULL` indexing for frozen sets.
+Source: `test/unit/org/apache/cassandra/index/sai/cql/types/collections/sets/SetFrozenCollectionTest.java`, trunk.
+====
