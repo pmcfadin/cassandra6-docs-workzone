@@ -1,0 +1,2122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Apache Cassandra® — Data at Every Scale, Open to Everyone</title>
+  <meta name="description" content="Apache Cassandra is the open source NoSQL database trusted by thousands of teams to handle massive amounts of data with no single point of failure." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,WONK@0,9..144,300..900,0;0,9..144,300..900,1;1,9..144,300..900,0;1,9..144,300..900,1&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ─── Custom properties ─────────────────────────────────────────── */
+    :root {
+      --cream:       #fdf6ec;
+      --brown:       #3d2b1f;
+      --brown-light: #6b4c3b;
+      --terracotta:  #c4654a;
+      --terracotta-dark: #a84e36;
+      --forest:      #2d5016;
+      --forest-light:#3d6b20;
+      --sky:         #4a90d9;
+      --sky-dark:    #3178c6;
+      --sage:        #e8eed4;
+      --sage-dark:   #d4dcb8;
+      --sand:        #f0e6d3;
+      --sand-dark:   #e5d5bc;
+      --radius-sm:   10px;
+      --radius-md:   16px;
+      --radius-lg:   24px;
+      --radius-xl:   32px;
+      --radius-pill: 999px;
+      --shadow-sm:   0 2px 8px rgba(61,43,31,0.08);
+      --shadow-md:   0 6px 24px rgba(61,43,31,0.12);
+      --shadow-lg:   0 16px 48px rgba(61,43,31,0.16);
+      --font-display: 'Fraunces', Georgia, serif;
+      --font-body:    'Plus Jakarta Sans', system-ui, sans-serif;
+      --transition:   0.22s cubic-bezier(0.4,0,0.2,1);
+    }
+
+    /* ─── Reset & base ──────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font-body);
+      background-color: var(--cream);
+      color: var(--brown);
+      line-height: 1.7;
+      font-size: 16px;
+      overflow-x: hidden;
+      /* Grain texture overlay */
+      position: relative;
+    }
+
+    /* Grain texture pseudo-element */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E");
+      opacity: 0.028;
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    /* ─── Typography ────────────────────────────────────────────────── */
+    h1, h2, h3, h4 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      line-height: 1.15;
+      color: var(--brown);
+    }
+
+    h1 { font-size: clamp(2.4rem, 5.5vw, 4.2rem); font-variation-settings: 'opsz' 72, 'WONK' 1; }
+    h2 { font-size: clamp(1.8rem, 3.5vw, 2.8rem); font-variation-settings: 'opsz' 48, 'WONK' 0; }
+    h3 { font-size: clamp(1.2rem, 2vw, 1.5rem); font-variation-settings: 'opsz' 24, 'WONK' 0; }
+
+    p { color: var(--brown-light); line-height: 1.75; }
+
+    a { color: var(--sky); text-decoration: none; transition: color var(--transition); }
+    a:hover { color: var(--sky-dark); }
+
+    /* ─── Layout helpers ────────────────────────────────────────────── */
+    .container {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    .section-label {
+      display: inline-block;
+      font-family: var(--font-body);
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--terracotta);
+      margin-bottom: 12px;
+    }
+
+    /* ─── Buttons ───────────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 13px 28px;
+      border-radius: var(--radius-pill);
+      font-family: var(--font-body);
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform var(--transition), box-shadow var(--transition), background var(--transition);
+      text-decoration: none;
+      border: 2px solid transparent;
+      line-height: 1;
+    }
+
+    .btn:hover { transform: translateY(-2px); }
+
+    .btn-terracotta {
+      background: var(--terracotta);
+      color: #fff;
+      box-shadow: 0 4px 16px rgba(196,101,74,0.35);
+    }
+    .btn-terracotta:hover {
+      background: var(--terracotta-dark);
+      box-shadow: 0 8px 24px rgba(196,101,74,0.45);
+      color: #fff;
+    }
+
+    .btn-outline {
+      background: transparent;
+      color: var(--brown);
+      border-color: var(--brown);
+    }
+    .btn-outline:hover {
+      background: var(--sand);
+      color: var(--brown);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .btn-forest {
+      background: var(--forest);
+      color: #fff;
+      box-shadow: 0 4px 16px rgba(45,80,22,0.3);
+    }
+    .btn-forest:hover {
+      background: var(--forest-light);
+      color: #fff;
+      box-shadow: 0 8px 24px rgba(45,80,22,0.4);
+    }
+
+    .btn-sm { padding: 9px 20px; font-size: 0.85rem; }
+
+    /* ─── Navigation ────────────────────────────────────────────────── */
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(253,246,236,0.92);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid rgba(61,43,31,0.08);
+      box-shadow: 0 2px 12px rgba(61,43,31,0.06);
+    }
+
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      height: 68px;
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      flex-shrink: 0;
+    }
+
+    .nav-logo-mark {
+      width: 36px;
+      height: 36px;
+      background: var(--terracotta);
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 18px;
+      font-weight: 800;
+      font-family: var(--font-display);
+      box-shadow: 0 2px 8px rgba(196,101,74,0.4);
+      flex-shrink: 0;
+    }
+
+    .nav-logo-text {
+      font-family: var(--font-display);
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--brown);
+      font-variation-settings: 'opsz' 18, 'WONK' 1;
+      line-height: 1;
+    }
+
+    .nav-logo-text span {
+      display: block;
+      font-size: 0.62rem;
+      font-family: var(--font-body);
+      font-weight: 500;
+      color: var(--brown-light);
+      letter-spacing: 0.04em;
+      margin-top: 1px;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      list-style: none;
+    }
+
+    .nav-links a {
+      color: var(--brown);
+      font-size: 0.9rem;
+      font-weight: 500;
+      padding: 8px 14px;
+      border-radius: var(--radius-sm);
+      transition: background var(--transition), color var(--transition);
+      display: block;
+    }
+    .nav-links a:hover {
+      background: var(--sand);
+      color: var(--terracotta);
+    }
+
+    .nav-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+
+    /* Mobile nav toggle */
+    .nav-toggle {
+      display: none;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 8px;
+      border-radius: var(--radius-sm);
+      color: var(--brown);
+    }
+
+    .nav-toggle svg { display: block; }
+
+    @media (max-width: 860px) {
+      .nav-links, .nav-right .btn { display: none; }
+      .nav-toggle { display: flex; }
+    }
+
+    /* ─── Hero ──────────────────────────────────────────────────────── */
+    .hero {
+      padding: 80px 0 0;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero-bg-shapes {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+      z-index: 0;
+    }
+
+    /* Organic blob shapes */
+    .hero-blob-1 {
+      position: absolute;
+      top: -120px;
+      right: -200px;
+      width: 700px;
+      height: 700px;
+      background: radial-gradient(ellipse at 40% 40%, rgba(196,101,74,0.12) 0%, transparent 65%);
+      border-radius: 40% 60% 55% 45% / 50% 45% 55% 50%;
+      animation: blobFloat1 12s ease-in-out infinite;
+    }
+
+    .hero-blob-2 {
+      position: absolute;
+      bottom: 60px;
+      left: -150px;
+      width: 500px;
+      height: 500px;
+      background: radial-gradient(ellipse at 60% 60%, rgba(45,80,22,0.08) 0%, transparent 65%);
+      border-radius: 60% 40% 45% 55% / 45% 55% 45% 55%;
+      animation: blobFloat2 15s ease-in-out infinite;
+    }
+
+    .hero-blob-3 {
+      position: absolute;
+      top: 30%;
+      left: 50%;
+      width: 300px;
+      height: 300px;
+      background: radial-gradient(ellipse, rgba(74,144,217,0.07) 0%, transparent 65%);
+      border-radius: 45% 55% 60% 40% / 55% 45% 55% 45%;
+      animation: blobFloat3 18s ease-in-out infinite;
+    }
+
+    @keyframes blobFloat1 {
+      0%, 100% { transform: translate(0, 0) rotate(0deg); }
+      33% { transform: translate(-20px, 30px) rotate(5deg); }
+      66% { transform: translate(15px, -20px) rotate(-3deg); }
+    }
+
+    @keyframes blobFloat2 {
+      0%, 100% { transform: translate(0, 0) rotate(0deg); }
+      50% { transform: translate(30px, -20px) rotate(-6deg); }
+    }
+
+    @keyframes blobFloat3 {
+      0%, 100% { transform: translate(0, 0); }
+      50% { transform: translate(-15px, 25px); }
+    }
+
+    /* Dot grid decoration */
+    .dot-grid {
+      position: absolute;
+      pointer-events: none;
+      opacity: 0.18;
+    }
+
+    .hero .dot-grid {
+      top: 40px;
+      right: 5%;
+      width: 180px;
+      height: 180px;
+      background-image: radial-gradient(circle, var(--terracotta) 1.5px, transparent 1.5px);
+      background-size: 20px 20px;
+    }
+
+    .hero .dot-grid-2 {
+      bottom: 120px;
+      left: 3%;
+      width: 140px;
+      height: 140px;
+      background-image: radial-gradient(circle, var(--forest) 1.5px, transparent 1.5px);
+      background-size: 18px 18px;
+    }
+
+    .hero-content {
+      position: relative;
+      z-index: 1;
+      max-width: 720px;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--forest);
+      color: #fff;
+      font-size: 0.82rem;
+      font-weight: 600;
+      padding: 6px 16px;
+      border-radius: var(--radius-pill);
+      margin-bottom: 28px;
+      box-shadow: 0 3px 12px rgba(45,80,22,0.3);
+    }
+
+    .hero-badge .badge-dot {
+      width: 6px;
+      height: 6px;
+      background: #a8e063;
+      border-radius: 50%;
+      animation: pulseDot 2s ease-in-out infinite;
+    }
+
+    @keyframes pulseDot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(1.4); }
+    }
+
+    .hero h1 {
+      margin-bottom: 24px;
+    }
+
+    .hero h1 em {
+      font-style: italic;
+      color: var(--terracotta);
+    }
+
+    .hero-subtitle {
+      font-size: 1.15rem;
+      color: var(--brown-light);
+      max-width: 580px;
+      margin-bottom: 40px;
+      line-height: 1.75;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      align-items: center;
+      margin-bottom: 52px;
+    }
+
+    /* Version card */
+    .version-card {
+      display: inline-flex;
+      align-items: center;
+      gap: 0;
+      background: var(--sand);
+      border-radius: var(--radius-lg);
+      padding: 4px;
+      box-shadow: var(--shadow-sm);
+      border: 1px solid rgba(61,43,31,0.08);
+      flex-wrap: wrap;
+    }
+
+    .version-pill {
+      padding: 8px 18px;
+      border-radius: var(--radius-md);
+      font-size: 0.82rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .version-pill-current {
+      background: var(--terracotta);
+      color: white;
+    }
+
+    .version-pill-stable {
+      color: var(--brown-light);
+    }
+
+    .version-pill-lts {
+      color: var(--brown-light);
+    }
+
+    .version-pill .v-label {
+      font-size: 0.7rem;
+      font-weight: 500;
+      opacity: 0.75;
+    }
+
+    /* Hero illustration area */
+    .hero-illustration {
+      position: absolute;
+      right: 0;
+      top: -20px;
+      width: 480px;
+      height: 500px;
+      z-index: 1;
+    }
+
+    @media (max-width: 1000px) {
+      .hero-illustration { display: none; }
+    }
+
+    .hero-viz {
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Cassandra node cluster illustration */
+    .node-cluster {
+      position: absolute;
+      inset: 40px;
+    }
+
+    .db-node {
+      position: absolute;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--radius-lg);
+      font-size: 0.72rem;
+      font-weight: 600;
+      font-family: var(--font-body);
+      transition: transform 0.3s ease;
+    }
+
+    .db-node:hover { transform: scale(1.05); }
+
+    .db-node svg { margin-bottom: 6px; }
+
+    .node-a {
+      width: 100px; height: 100px;
+      background: var(--sand);
+      border: 2px solid rgba(196,101,74,0.3);
+      color: var(--terracotta);
+      top: 0; left: 50%;
+      transform: translateX(-50%);
+      box-shadow: var(--shadow-md);
+    }
+
+    .node-b {
+      width: 88px; height: 88px;
+      background: var(--sage);
+      border: 2px solid rgba(45,80,22,0.2);
+      color: var(--forest);
+      bottom: 30px; left: 10px;
+      box-shadow: var(--shadow-md);
+    }
+
+    .node-c {
+      width: 88px; height: 88px;
+      background: #e8f1fa;
+      border: 2px solid rgba(74,144,217,0.25);
+      color: var(--sky);
+      bottom: 30px; right: 10px;
+      box-shadow: var(--shadow-md);
+    }
+
+    .node-d {
+      width: 76px; height: 76px;
+      background: var(--sand);
+      border: 2px solid rgba(196,101,74,0.2);
+      color: var(--brown-light);
+      top: 50px; left: 0;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .node-e {
+      width: 76px; height: 76px;
+      background: var(--sage);
+      border: 2px solid rgba(45,80,22,0.15);
+      color: var(--brown-light);
+      top: 50px; right: 0;
+      box-shadow: var(--shadow-sm);
+    }
+
+    /* Connector lines (SVG) */
+    .node-connectors {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    /* Stat chips */
+    .hero-stat-chips {
+      position: absolute;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      right: -20px;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+
+    .stat-chip {
+      background: white;
+      border-radius: var(--radius-md);
+      padding: 10px 16px;
+      box-shadow: var(--shadow-md);
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--brown);
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid rgba(61,43,31,0.06);
+      animation: floatChip 4s ease-in-out infinite;
+    }
+
+    .stat-chip:nth-child(2) { animation-delay: 1.3s; }
+    .stat-chip:nth-child(3) { animation-delay: 2.6s; }
+
+    @keyframes floatChip {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-5px); }
+    }
+
+    .stat-chip .chip-icon {
+      font-size: 16px;
+    }
+
+    /* Hero wave divider */
+    .hero-wave {
+      margin-top: 60px;
+      line-height: 0;
+    }
+
+    /* ─── Section dividers (wave) ───────────────────────────────────── */
+    .wave-down-sage {
+      background: var(--cream);
+      padding-bottom: 0;
+    }
+    .wave-down-sage svg { display: block; width: 100%; }
+
+    .wave-up-cream svg { display: block; width: 100%; }
+
+    /* ─── Route by Intent ───────────────────────────────────────────── */
+    .route-section {
+      background: var(--sage);
+      padding: 72px 0 80px;
+    }
+
+    .route-heading {
+      text-align: center;
+      margin-bottom: 52px;
+    }
+
+    .route-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+    }
+
+    @media (max-width: 760px) {
+      .route-grid { grid-template-columns: 1fr; }
+    }
+
+    .route-card {
+      background: var(--cream);
+      border-radius: var(--radius-xl);
+      padding: 36px 32px 40px;
+      box-shadow: var(--shadow-sm);
+      border: 2px solid transparent;
+      transition: transform var(--transition), box-shadow var(--transition), border-color var(--transition);
+      cursor: pointer;
+      text-decoration: none;
+      display: block;
+      color: inherit;
+    }
+
+    .route-card:hover {
+      transform: translateY(-6px);
+      box-shadow: var(--shadow-lg);
+      border-color: var(--terracotta);
+      color: inherit;
+    }
+
+    .route-card-icon {
+      width: 64px;
+      height: 64px;
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      margin-bottom: 22px;
+    }
+
+    .icon-terracotta { background: rgba(196,101,74,0.12); }
+    .icon-forest     { background: rgba(45,80,22,0.1); }
+    .icon-sky        { background: rgba(74,144,217,0.1); }
+
+    .route-card h3 {
+      margin-bottom: 8px;
+      color: var(--brown);
+    }
+
+    .route-card p {
+      font-size: 0.92rem;
+      color: var(--brown-light);
+      margin-bottom: 24px;
+      line-height: 1.65;
+    }
+
+    .route-card-links {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .route-link {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--sky);
+      transition: gap var(--transition), color var(--transition);
+    }
+
+    .route-link:hover { gap: 12px; color: var(--sky-dark); }
+
+    .route-link::after { content: '→'; }
+
+    .route-card-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 24px;
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: var(--terracotta);
+      transition: gap var(--transition);
+    }
+
+    .route-card-cta:hover { gap: 12px; color: var(--terracotta-dark); }
+    .route-card-cta::after { content: '→'; }
+
+    /* ─── Why Cassandra ─────────────────────────────────────────────── */
+    .why-section {
+      background: var(--cream);
+      padding: 80px 0 88px;
+    }
+
+    .why-header {
+      text-align: center;
+      margin-bottom: 56px;
+    }
+
+    .why-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 22px;
+    }
+
+    @media (max-width: 860px) { .why-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 540px) { .why-grid { grid-template-columns: 1fr; } }
+
+    .why-card {
+      background: var(--sand);
+      border-radius: var(--radius-xl);
+      padding: 32px 28px;
+      border-left: 4px solid var(--terracotta);
+      box-shadow: var(--shadow-sm);
+      transition: transform var(--transition), box-shadow var(--transition);
+    }
+
+    .why-card:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--shadow-md);
+    }
+
+    .why-card-icon {
+      font-size: 36px;
+      margin-bottom: 16px;
+      display: block;
+    }
+
+    .why-card h3 {
+      font-size: 1.15rem;
+      margin-bottom: 10px;
+      color: var(--brown);
+    }
+
+    .why-card p {
+      font-size: 0.88rem;
+      line-height: 1.7;
+      color: var(--brown-light);
+    }
+
+    /* Alternate accent colors */
+    .why-card:nth-child(2) { border-color: var(--forest); }
+    .why-card:nth-child(3) { border-color: var(--sky); }
+    .why-card:nth-child(4) { border-color: var(--terracotta); }
+    .why-card:nth-child(5) { border-color: var(--forest); }
+    .why-card:nth-child(6) { border-color: var(--sky); }
+
+    /* ─── Community section ─────────────────────────────────────────── */
+    .community-section {
+      background: var(--sage);
+      padding: 80px 0 88px;
+    }
+
+    .community-header {
+      text-align: center;
+      margin-bottom: 60px;
+    }
+
+    .community-header p {
+      max-width: 560px;
+      margin: 16px auto 0;
+      font-size: 1.05rem;
+    }
+
+    .community-channels {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 18px;
+      margin-bottom: 64px;
+    }
+
+    @media (max-width: 900px) { .community-channels { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 480px) { .community-channels { grid-template-columns: 1fr; } }
+
+    .channel-card {
+      background: var(--cream);
+      border-radius: var(--radius-lg);
+      padding: 28px 24px;
+      box-shadow: var(--shadow-sm);
+      text-align: center;
+      transition: transform var(--transition), box-shadow var(--transition);
+      text-decoration: none;
+      color: inherit;
+      display: block;
+      border: 2px solid transparent;
+    }
+
+    .channel-card:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--shadow-md);
+      border-color: rgba(196,101,74,0.3);
+      color: inherit;
+    }
+
+    .channel-icon {
+      font-size: 36px;
+      margin-bottom: 12px;
+      display: block;
+    }
+
+    .channel-card h4 {
+      font-family: var(--font-display);
+      font-size: 1.05rem;
+      font-weight: 700;
+      margin-bottom: 6px;
+      color: var(--brown);
+      font-variation-settings: 'opsz' 18;
+    }
+
+    .channel-card p {
+      font-size: 0.82rem;
+      color: var(--brown-light);
+      line-height: 1.55;
+    }
+
+    /* Contributing path */
+    .contrib-section {
+      text-align: center;
+      margin-bottom: 60px;
+    }
+
+    .contrib-section h3 {
+      font-size: 1.5rem;
+      margin-bottom: 36px;
+    }
+
+    .contrib-steps {
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 0;
+      flex-wrap: wrap;
+    }
+
+    .contrib-step {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      width: 160px;
+      padding: 0 8px;
+    }
+
+    .step-circle {
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      background: var(--cream);
+      border: 3px solid var(--terracotta);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      margin-bottom: 14px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .step-number {
+      font-family: var(--font-display);
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: var(--terracotta);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    .step-label {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--brown);
+      line-height: 1.4;
+    }
+
+    .step-arrow {
+      color: var(--terracotta);
+      font-size: 22px;
+      opacity: 0.4;
+      margin-top: 18px;
+      flex-shrink: 0;
+    }
+
+    @media (max-width: 700px) {
+      .step-arrow { display: none; }
+      .contrib-steps { gap: 20px; }
+    }
+
+    /* Governance box */
+    .governance-box {
+      background: var(--cream);
+      border-radius: var(--radius-xl);
+      padding: 36px 40px;
+      display: flex;
+      align-items: center;
+      gap: 32px;
+      box-shadow: var(--shadow-sm);
+      flex-wrap: wrap;
+    }
+
+    .governance-icon {
+      font-size: 48px;
+      flex-shrink: 0;
+    }
+
+    .governance-content h3 { margin-bottom: 10px; }
+    .governance-content p { font-size: 0.9rem; max-width: 560px; }
+    .governance-content .btn { margin-top: 18px; }
+
+    /* ─── Ecosystem / Users ─────────────────────────────────────────── */
+    .ecosystem-section {
+      background: var(--cream);
+      padding: 80px 0;
+      overflow: hidden;
+    }
+
+    .ecosystem-header {
+      text-align: center;
+      margin-bottom: 52px;
+    }
+
+    .ecosystem-header p {
+      max-width: 480px;
+      margin: 12px auto 0;
+      font-size: 0.95rem;
+    }
+
+    /* Logo strip */
+    .logo-strip-wrapper {
+      overflow: hidden;
+      margin-bottom: 56px;
+      mask-image: linear-gradient(to right, transparent, black 15%, black 85%, transparent);
+      -webkit-mask-image: linear-gradient(to right, transparent, black 15%, black 85%, transparent);
+    }
+
+    .logo-strip {
+      display: flex;
+      gap: 18px;
+      animation: scrollLogos 28s linear infinite;
+      width: max-content;
+    }
+
+    .logo-strip:hover { animation-play-state: paused; }
+
+    @keyframes scrollLogos {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
+
+    .logo-box {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--sand);
+      border-radius: var(--radius-md);
+      padding: 14px 28px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--brown-light);
+      letter-spacing: 0.03em;
+      white-space: nowrap;
+      border: 1px solid rgba(61,43,31,0.07);
+      min-width: 130px;
+      transition: background var(--transition), color var(--transition);
+      flex-shrink: 0;
+    }
+
+    .logo-box:hover {
+      background: var(--terracotta);
+      color: white;
+    }
+
+    /* Stats row */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 24px;
+      margin-bottom: 56px;
+    }
+
+    @media (max-width: 760px) { .stats-row { grid-template-columns: repeat(2, 1fr); } }
+
+    .stat-box {
+      text-align: center;
+      background: var(--sand);
+      border-radius: var(--radius-lg);
+      padding: 28px 20px;
+      border: 1px solid rgba(61,43,31,0.07);
+    }
+
+    .stat-box .stat-number {
+      font-family: var(--font-display);
+      font-size: 2.2rem;
+      font-weight: 800;
+      color: var(--terracotta);
+      line-height: 1;
+      font-variation-settings: 'opsz' 48;
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .stat-box .stat-label {
+      font-size: 0.82rem;
+      font-weight: 500;
+      color: var(--brown-light);
+    }
+
+    /* Testimonial */
+    .testimonial-card {
+      background: var(--sand);
+      border-radius: var(--radius-xl);
+      padding: 40px 44px;
+      border-left: 5px solid var(--terracotta);
+      box-shadow: var(--shadow-sm);
+      position: relative;
+    }
+
+    .testimonial-card::before {
+      content: '\201C';
+      font-family: var(--font-display);
+      font-size: 6rem;
+      color: var(--terracotta);
+      opacity: 0.15;
+      position: absolute;
+      top: -10px;
+      left: 28px;
+      line-height: 1;
+    }
+
+    .testimonial-card blockquote {
+      font-size: 1.1rem;
+      font-style: italic;
+      color: var(--brown);
+      line-height: 1.8;
+      margin-bottom: 20px;
+      font-family: var(--font-display);
+      font-variation-settings: 'opsz' 18, 'WONK' 0;
+    }
+
+    .testimonial-meta {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .testimonial-avatar {
+      width: 44px;
+      height: 44px;
+      background: var(--terracotta);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      color: white;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .testimonial-name {
+      font-weight: 700;
+      font-size: 0.88rem;
+      color: var(--brown);
+    }
+
+    .testimonial-role {
+      font-size: 0.78rem;
+      color: var(--brown-light);
+    }
+
+    /* ─── Footer ────────────────────────────────────────────────────── */
+    .footer {
+      background: var(--brown);
+      color: rgba(253,246,236,0.75);
+      padding: 72px 0 40px;
+      position: relative;
+    }
+
+    .footer-wave {
+      line-height: 0;
+      margin-bottom: 0;
+    }
+
+    .footer-inner {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+      gap: 48px;
+      margin-bottom: 56px;
+    }
+
+    @media (max-width: 900px) {
+      .footer-inner { grid-template-columns: 1fr 1fr; gap: 36px; }
+    }
+
+    @media (max-width: 480px) {
+      .footer-inner { grid-template-columns: 1fr; }
+    }
+
+    .footer-brand p {
+      font-size: 0.88rem;
+      line-height: 1.7;
+      margin: 16px 0 24px;
+      max-width: 280px;
+    }
+
+    .footer-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .footer-logo-mark {
+      width: 32px;
+      height: 32px;
+      background: var(--terracotta);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 16px;
+    }
+
+    .footer-logo-name {
+      font-family: var(--font-display);
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--cream);
+      font-variation-settings: 'opsz' 18, 'WONK' 1;
+    }
+
+    .social-links {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .social-link {
+      width: 38px;
+      height: 38px;
+      background: rgba(253,246,236,0.08);
+      border: 1px solid rgba(253,246,236,0.12);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: rgba(253,246,236,0.7);
+      font-size: 16px;
+      transition: background var(--transition), color var(--transition), transform var(--transition);
+      text-decoration: none;
+    }
+
+    .social-link:hover {
+      background: var(--terracotta);
+      border-color: var(--terracotta);
+      color: white;
+      transform: translateY(-2px);
+    }
+
+    .footer-col h5 {
+      font-family: var(--font-body);
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(253,246,236,0.45);
+      margin-bottom: 18px;
+    }
+
+    .footer-links {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .footer-links a {
+      color: rgba(253,246,236,0.7);
+      font-size: 0.88rem;
+      font-weight: 400;
+      transition: color var(--transition);
+      text-decoration: none;
+    }
+
+    .footer-links a:hover { color: var(--cream); }
+
+    .footer-bottom {
+      border-top: 1px solid rgba(253,246,236,0.1);
+      padding-top: 32px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 20px;
+    }
+
+    .footer-legal {
+      font-size: 0.78rem;
+      color: rgba(253,246,236,0.4);
+      line-height: 1.8;
+      max-width: 680px;
+    }
+
+    .footer-legal a { color: rgba(253,246,236,0.55); }
+    .footer-legal a:hover { color: var(--cream); }
+
+    .footer-leaf {
+      flex-shrink: 0;
+      opacity: 0.2;
+    }
+
+    /* ─── Animations (entrance) ─────────────────────────────────────── */
+    .fade-up {
+      opacity: 0;
+      transform: translateY(28px);
+      transition: opacity 0.6s cubic-bezier(0.4,0,0.2,1), transform 0.6s cubic-bezier(0.4,0,0.2,1);
+    }
+
+    .fade-up.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .fade-up-delay-1 { transition-delay: 0.1s; }
+    .fade-up-delay-2 { transition-delay: 0.2s; }
+    .fade-up-delay-3 { transition-delay: 0.3s; }
+    .fade-up-delay-4 { transition-delay: 0.4s; }
+    .fade-up-delay-5 { transition-delay: 0.5s; }
+
+    /* ─── Wavy underline decoration ─────────────────────────────────── */
+    .wavy-underline {
+      text-decoration: underline;
+      text-decoration-style: wavy;
+      text-decoration-color: var(--terracotta);
+      text-underline-offset: 5px;
+    }
+
+    /* ─── Skip link ─────────────────────────────────────────────────── */
+    .skip-link {
+      position: absolute;
+      top: -100px;
+      left: 16px;
+      background: var(--terracotta);
+      color: white;
+      padding: 10px 20px;
+      border-radius: var(--radius-sm);
+      font-weight: 600;
+      font-size: 0.9rem;
+      z-index: 9999;
+      text-decoration: none;
+      transition: top 0.2s;
+    }
+
+    .skip-link:focus { top: 16px; }
+
+    /* ─── Miscellaneous ─────────────────────────────────────────────── */
+    .text-center { text-align: center; }
+    .mt-4 { margin-top: 16px; }
+    .mt-6 { margin-top: 24px; }
+    .mt-8 { margin-top: 32px; }
+
+    strong { color: var(--brown); font-weight: 700; }
+
+    /* ─── Code snippet style in why section ─────────────────────────── */
+    .code-accent {
+      display: inline-block;
+      background: var(--brown);
+      color: #a8e063;
+      font-family: 'Courier New', monospace;
+      font-size: 0.8em;
+      padding: 2px 8px;
+      border-radius: 6px;
+    }
+
+    /* ─── Decorative organic dividers ──────────────────────────────── */
+    .organic-divider {
+      line-height: 0;
+      overflow: hidden;
+    }
+
+    /* CQL Feature strip */
+    .cql-strip {
+      background: var(--brown);
+      padding: 20px 0;
+      overflow: hidden;
+    }
+
+    .cql-strip-inner {
+      display: flex;
+      gap: 0;
+      animation: scrollCql 20s linear infinite;
+      width: max-content;
+    }
+
+    .cql-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 36px;
+      font-family: 'Courier New', monospace;
+      font-size: 0.82rem;
+      color: rgba(253,246,236,0.5);
+      border-right: 1px solid rgba(253,246,236,0.1);
+      white-space: nowrap;
+    }
+
+    .cql-item .kw { color: #a8e063; }
+    .cql-item .str { color: #f4b96e; }
+    .cql-item .num { color: #7ec8f4; }
+
+    @keyframes scrollCql {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
+
+  </style>
+</head>
+
+<body>
+  <a class="skip-link" href="#main">Skip to main content</a>
+
+  <!-- ─── Navigation ─────────────────────────────────────────────────── -->
+  <header role="banner">
+    <nav class="nav" aria-label="Main navigation">
+      <div class="nav-inner">
+        <a href="/" class="nav-logo" aria-label="Apache Cassandra home">
+          <div class="nav-logo-mark" aria-hidden="true">C</div>
+          <div class="nav-logo-text">
+            Apache Cassandra®
+            <span>Open Source Distributed Database</span>
+          </div>
+        </a>
+
+        <ul class="nav-links" role="list">
+          <li><a href="/doc/">Docs</a></li>
+          <li><a href="/download/">Downloads</a></li>
+          <li><a href="/community/">Community</a></li>
+          <li><a href="/contribute/">Contribute</a></li>
+          <li><a href="/governance/">Governance</a></li>
+          <li><a href="/blog/">Blog</a></li>
+        </ul>
+
+        <div class="nav-right">
+          <a href="/doc/latest/getting_started/" class="btn btn-terracotta btn-sm">Get Started</a>
+          <button class="nav-toggle" aria-label="Open menu" aria-expanded="false">
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <line x1="3" y1="6" x2="19" y2="6"/>
+              <line x1="3" y1="11" x2="19" y2="11"/>
+              <line x1="3" y1="16" x2="19" y2="16"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </nav>
+  </header>
+
+  <main id="main">
+
+    <!-- ─── Hero ──────────────────────────────────────────────────────── -->
+    <section class="hero" aria-labelledby="hero-heading">
+      <div class="hero-bg-shapes" aria-hidden="true">
+        <div class="hero-blob-1"></div>
+        <div class="hero-blob-2"></div>
+        <div class="hero-blob-3"></div>
+        <div class="dot-grid"></div>
+        <div class="dot-grid dot-grid-2"></div>
+      </div>
+
+      <div class="container" style="position:relative; z-index:1;">
+        <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:32px;">
+
+          <div class="hero-content fade-up">
+            <div class="hero-badge" aria-label="Version 6.0 is here">
+              <span class="badge-dot" aria-hidden="true"></span>
+              Version 6.0 is here — the biggest leap yet
+            </div>
+
+            <h1 id="hero-heading">
+              Data at<br>
+              Every <em>Scale,</em><br>
+              Open to Everyone
+            </h1>
+
+            <p class="hero-subtitle">
+              Apache Cassandra® is the open source NoSQL database built for
+              teams who refuse to choose between scale and reliability. Handle
+              petabytes across any number of data centers — with no single
+              point of failure, ever.
+            </p>
+
+            <div class="hero-actions">
+              <a href="/doc/latest/getting_started/" class="btn btn-terracotta">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="5,3 13,8 5,13"/></svg>
+                Start Building
+              </a>
+              <a href="/doc/latest/" class="btn btn-outline">
+                Explore the Docs
+              </a>
+            </div>
+
+            <div class="version-card fade-up fade-up-delay-2">
+              <div class="version-pill version-pill-current">
+                <span>6.0</span>
+                <span class="v-label">current</span>
+              </div>
+              <div class="version-pill version-pill-stable">
+                <span>5.0.4</span>
+                <span class="v-label">stable</span>
+              </div>
+              <div class="version-pill version-pill-lts">
+                <span>4.1.8</span>
+                <span class="v-label">LTS</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Cluster illustration -->
+          <div class="hero-illustration" aria-hidden="true">
+            <div class="hero-viz">
+              <!-- SVG connector lines -->
+              <svg class="node-connectors" viewBox="0 0 480 500" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <marker id="arr" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+                    <circle cx="3" cy="3" r="2" fill="rgba(196,101,74,0.4)"/>
+                  </marker>
+                </defs>
+                <!-- Ring connections -->
+                <path d="M 240 80 Q 160 200 120 300" stroke="rgba(196,101,74,0.18)" stroke-width="2" stroke-dasharray="6 5"/>
+                <path d="M 240 80 Q 320 200 360 300" stroke="rgba(45,80,22,0.15)" stroke-width="2" stroke-dasharray="6 5"/>
+                <path d="M 120 300 Q 240 360 360 300" stroke="rgba(74,144,217,0.15)" stroke-width="2" stroke-dasharray="6 5"/>
+                <path d="M 60 210 Q 140 150 240 80" stroke="rgba(196,101,74,0.12)" stroke-width="1.5" stroke-dasharray="4 6"/>
+                <path d="M 420 210 Q 340 150 240 80" stroke="rgba(45,80,22,0.1)" stroke-width="1.5" stroke-dasharray="4 6"/>
+                <!-- Data flow pulses (animated) -->
+                <circle r="4" fill="rgba(196,101,74,0.6)">
+                  <animateMotion dur="3s" repeatCount="indefinite">
+                    <mpath href="#path1"/>
+                  </animateMotion>
+                </circle>
+                <path id="path1" d="M 240 80 Q 160 200 120 300" fill="none" stroke="none"/>
+                <circle r="3" fill="rgba(45,80,22,0.5)">
+                  <animateMotion dur="3.8s" repeatCount="indefinite" begin="1.2s">
+                    <mpath href="#path2"/>
+                  </animateMotion>
+                </circle>
+                <path id="path2" d="M 240 80 Q 320 200 360 300" fill="none" stroke="none"/>
+                <circle r="3" fill="rgba(74,144,217,0.5)">
+                  <animateMotion dur="4.2s" repeatCount="indefinite" begin="2.1s">
+                    <mpath href="#path3"/>
+                  </animateMotion>
+                </circle>
+                <path id="path3" d="M 120 300 Q 240 360 360 300" fill="none" stroke="none"/>
+              </svg>
+
+              <div class="node-cluster">
+                <!-- Top node -->
+                <div class="db-node node-a" style="position:absolute; top:0; left:50%; transform:translateX(-50%);">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                    <ellipse cx="12" cy="5" rx="9" ry="3"/>
+                    <path d="M 3 5 v4 c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/>
+                    <path d="M 3 9 v4 c0 1.66 4.03 3 9 3s9-1.34 9-3V9"/>
+                    <path d="M 3 13 v4 c0 1.66 4.03 3 9 3s9-1.34 9-3v-4"/>
+                  </svg>
+                  DC-1
+                </div>
+                <!-- Bottom left -->
+                <div class="db-node node-b" style="position:absolute; bottom:20px; left:5%;">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                    <ellipse cx="12" cy="5" rx="9" ry="3"/>
+                    <path d="M 3 5 v4 c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/>
+                    <path d="M 3 9 v4 c0 1.66 4.03 3 9 3s9-1.34 9-3V9"/>
+                  </svg>
+                  DC-2
+                </div>
+                <!-- Bottom right -->
+                <div class="db-node node-c" style="position:absolute; bottom:20px; right:5%;">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                    <ellipse cx="12" cy="5" rx="9" ry="3"/>
+                    <path d="M 3 5 v4 c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/>
+                    <path d="M 3 9 v4 c0 1.66 4.03 3 9 3s9-1.34 9-3V9"/>
+                  </svg>
+                  DC-3
+                </div>
+                <!-- Left mid -->
+                <div class="db-node node-d" style="position:absolute; top:44%; left:-4%;">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                  </svg>
+                  Node 4
+                </div>
+                <!-- Right mid -->
+                <div class="db-node node-e" style="position:absolute; top:44%; right:-4%;">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                  </svg>
+                  Node 5
+                </div>
+              </div>
+
+              <!-- Stat chips -->
+              <div class="hero-stat-chips" aria-hidden="true">
+                <div class="stat-chip">
+                  <span class="chip-icon">⚡</span>
+                  <span>&lt; 1ms p99 latency</span>
+                </div>
+                <div class="stat-chip">
+                  <span class="chip-icon">∞</span>
+                  <span>Linear scalability</span>
+                </div>
+                <div class="stat-chip">
+                  <span class="chip-icon">🛡</span>
+                  <span>Zero downtime ops</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Wave bottom -->
+      <div class="hero-wave organic-divider">
+        <svg viewBox="0 0 1440 80" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
+          <path d="M0,40 C180,80 360,0 540,40 C720,80 900,0 1080,40 C1260,80 1350,20 1440,40 L1440,80 L0,80 Z" fill="#e8eed4"/>
+        </svg>
+      </div>
+    </section>
+
+    <!-- CQL ticker strip -->
+    <div class="cql-strip" aria-hidden="true">
+      <div class="cql-strip-inner">
+        <div class="cql-item"><span class="kw">CREATE KEYSPACE</span> <span class="str">production</span> <span>WITH replication = </span><span class="str">{'class': 'NetworkTopologyStrategy', 'dc1': 3}</span></div>
+        <div class="cql-item"><span class="kw">INSERT INTO</span> <span class="str">users</span> <span>(id, name, email) VALUES (</span><span class="num">uuid()</span>, <span class="str">'Alice'</span>, <span class="str">'alice@example.com'</span>)</div>
+        <div class="cql-item"><span class="kw">SELECT</span> * <span class="kw">FROM</span> <span class="str">events</span> <span class="kw">WHERE</span> user_id = <span class="num">?</span> <span class="kw">AND</span> created_at &gt; <span class="num">toTimestamp(now())</span></div>
+        <div class="cql-item"><span class="kw">ALTER TABLE</span> <span class="str">metrics</span> <span class="kw">ADD</span> region text</div>
+        <div class="cql-item"><span class="kw">CREATE INDEX</span> <span class="kw">ON</span> <span class="str">orders</span> (status)</div>
+        <div class="cql-item"><span class="kw">BATCH BEGIN</span> <span class="kw">INSERT INTO</span> <span class="str">inventory</span> ... <span class="kw">APPLY BATCH</span></div>
+        <!-- Duplicate for seamless loop -->
+        <div class="cql-item"><span class="kw">CREATE KEYSPACE</span> <span class="str">production</span> <span>WITH replication = </span><span class="str">{'class': 'NetworkTopologyStrategy', 'dc1': 3}</span></div>
+        <div class="cql-item"><span class="kw">INSERT INTO</span> <span class="str">users</span> <span>(id, name, email) VALUES (</span><span class="num">uuid()</span>, <span class="str">'Alice'</span>, <span class="str">'alice@example.com'</span>)</div>
+        <div class="cql-item"><span class="kw">SELECT</span> * <span class="kw">FROM</span> <span class="str">events</span> <span class="kw">WHERE</span> user_id = <span class="num">?</span> <span class="kw">AND</span> created_at &gt; <span class="num">toTimestamp(now())</span></div>
+        <div class="cql-item"><span class="kw">ALTER TABLE</span> <span class="str">metrics</span> <span class="kw">ADD</span> region text</div>
+        <div class="cql-item"><span class="kw">CREATE INDEX</span> <span class="kw">ON</span> <span class="str">orders</span> (status)</div>
+        <div class="cql-item"><span class="kw">BATCH BEGIN</span> <span class="kw">INSERT INTO</span> <span class="str">inventory</span> ... <span class="kw">APPLY BATCH</span></div>
+      </div>
+    </div>
+
+    <!-- ─── Route by Intent ────────────────────────────────────────────── -->
+    <section class="route-section" aria-labelledby="route-heading">
+      <div class="container">
+        <div class="route-heading fade-up">
+          <span class="section-label">Where do you want to go?</span>
+          <h2 id="route-heading">Find your path into Cassandra</h2>
+        </div>
+
+        <div class="route-grid">
+          <a href="/doc/latest/getting_started/installing.html" class="route-card fade-up fade-up-delay-1">
+            <div class="route-card-icon icon-terracotta" aria-hidden="true">⚙️</div>
+            <h3>Run Cassandra</h3>
+            <p>Deploy, configure, and operate Cassandra clusters. From a single node on your laptop to a multi-region production ring.</p>
+            <div class="route-card-links">
+              <span class="route-link">Install Cassandra</span>
+              <span class="route-link">Docker quickstart</span>
+              <span class="route-link">Cluster configuration</span>
+              <span class="route-link">Monitoring & observability</span>
+            </div>
+            <span class="route-card-cta">Operations guide</span>
+          </a>
+
+          <a href="/doc/latest/cql/" class="route-card fade-up fade-up-delay-2">
+            <div class="route-card-icon icon-sky" aria-hidden="true">🔨</div>
+            <h3>Build with Cassandra</h3>
+            <p>Model your data, write queries in CQL, and connect your application using drivers for every major language ecosystem.</p>
+            <div class="route-card-links">
+              <span class="route-link">CQL reference</span>
+              <span class="route-link">Data modeling guide</span>
+              <span class="route-link">Drivers (Java, Python, Go…)</span>
+              <span class="route-link">Query best practices</span>
+            </div>
+            <span class="route-card-cta">Developer guide</span>
+          </a>
+
+          <a href="/contribute/" class="route-card fade-up fade-up-delay-3">
+            <div class="route-card-icon icon-forest" aria-hidden="true">🌱</div>
+            <h3>Shape Cassandra</h3>
+            <p>Cassandra is yours to improve. Review patches, file issues, write documentation, or help newcomers find their footing.</p>
+            <div class="route-card-links">
+              <span class="route-link">How to contribute</span>
+              <span class="route-link">Good first issues</span>
+              <span class="route-link">Governance & PMC</span>
+              <span class="route-link">Community calls</span>
+            </div>
+            <span class="route-card-cta">Contributor guide</span>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Wave: sage → cream -->
+    <div class="organic-divider" style="background:var(--sage);" aria-hidden="true">
+      <svg viewBox="0 0 1440 72" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
+        <path d="M0,36 C240,72 480,0 720,36 C960,72 1200,0 1440,36 L1440,72 L0,72 Z" fill="#fdf6ec"/>
+      </svg>
+    </div>
+
+    <!-- ─── Why Cassandra ───────────────────────────────────────────────── -->
+    <section class="why-section" aria-labelledby="why-heading">
+      <div class="container">
+        <div class="why-header fade-up">
+          <span class="section-label">Built for production</span>
+          <h2 id="why-heading">Why teams <span class="wavy-underline">choose</span> Cassandra</h2>
+          <p style="max-width:540px; margin:16px auto 0; font-size:1rem;">
+            Not because it's easy. Because it's right for workloads that can't afford to fail,
+            slow down, or be outgrown.
+          </p>
+        </div>
+
+        <div class="why-grid">
+          <div class="why-card fade-up fade-up-delay-1">
+            <span class="why-card-icon" aria-hidden="true">🌐</span>
+            <h3>Truly Distributed</h3>
+            <p>No master node means no single point of failure. Every node is equal, every write acknowledged across replicas. Your data is safe even when datacenters go dark.</p>
+          </div>
+
+          <div class="why-card fade-up fade-up-delay-2">
+            <span class="why-card-icon" aria-hidden="true">🛡️</span>
+            <h3>Fault Tolerant</h3>
+            <p>Hardware fails. Networks partition. Cassandra keeps serving reads and writes through it all. Configurable replication means you choose your durability guarantee.</p>
+          </div>
+
+          <div class="why-card fade-up fade-up-delay-3">
+            <span class="why-card-icon" aria-hidden="true">⚡</span>
+            <h3>Consistently Fast</h3>
+            <p>Sub-millisecond writes at any scale. LSM-tree storage means writes are always fast. Read paths are tunable. Latency stays flat as your cluster grows.</p>
+          </div>
+
+          <div class="why-card fade-up fade-up-delay-1">
+            <span class="why-card-icon" aria-hidden="true">📈</span>
+            <h3>Linearly Scalable</h3>
+            <p>Adding a node adds proportional capacity — no resharding, no downtime, no surprises. Teams at Netflix, Apple, and Bloomberg scale by adding hardware, not rewriting apps.</p>
+          </div>
+
+          <div class="why-card fade-up fade-up-delay-2">
+            <span class="why-card-icon" aria-hidden="true">🔄</span>
+            <h3>Elastic by Nature</h3>
+            <p>Nodes join and leave the ring seamlessly. Stream data rebalances automatically. Scale up for peak season, scale back when demand drops — without touching your application.</p>
+          </div>
+
+          <div class="why-card fade-up fade-up-delay-3">
+            <span class="why-card-icon" aria-hidden="true">🔒</span>
+            <h3>Enterprise Secure</h3>
+            <p>TLS for all communications, role-based access control, audit logging, and transparent data encryption at rest. Compliance-ready out of the box.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Wave: cream → sage -->
+    <div class="organic-divider" style="background:var(--cream);" aria-hidden="true">
+      <svg viewBox="0 0 1440 72" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
+        <path d="M0,0 C360,72 720,0 1080,60 C1260,80 1380,20 1440,0 L1440,72 L0,72 Z" fill="#e8eed4"/>
+      </svg>
+    </div>
+
+    <!-- ─── Community ──────────────────────────────────────────────────── -->
+    <section class="community-section" aria-labelledby="community-heading">
+      <div class="container">
+        <div class="community-header fade-up">
+          <span class="section-label">People first</span>
+          <h2 id="community-heading">A <span class="wavy-underline">welcoming</span> community</h2>
+          <p>
+            Cassandra isn't just a database — it's thousands of engineers who show up,
+            share knowledge, and make each other better. Come as you are.
+          </p>
+        </div>
+
+        <div class="community-channels">
+          <a href="https://lists.apache.org/list.html?user@cassandra.apache.org" class="channel-card fade-up fade-up-delay-1" target="_blank" rel="noopener">
+            <span class="channel-icon" aria-hidden="true">✉️</span>
+            <h4>Mailing Lists</h4>
+            <p>The heart of async discussion. user@, dev@, and commits@ lists for every kind of conversation.</p>
+          </a>
+
+          <a href="https://s.apache.org/cassandra-slack" class="channel-card fade-up fade-up-delay-2" target="_blank" rel="noopener">
+            <span class="channel-icon" aria-hidden="true">💬</span>
+            <h4>ASF Slack</h4>
+            <p>Real-time chat in #cassandra and #cassandra-dev. Ask questions, share ideas, meet contributors.</p>
+          </a>
+
+          <a href="https://stackoverflow.com/questions/tagged/cassandra" class="channel-card fade-up fade-up-delay-3" target="_blank" rel="noopener">
+            <span class="channel-icon" aria-hidden="true">🧩</span>
+            <h4>Stack Overflow</h4>
+            <p>Tagged questions get answers from experienced community members. Search before you ask — it might be there.</p>
+          </a>
+
+          <a href="/community/meet/" class="channel-card fade-up fade-up-delay-4">
+            <span class="channel-icon" aria-hidden="true">📅</span>
+            <h4>Community Calls</h4>
+            <p>Monthly open calls for roadmap updates, contributor spotlights, and open Q&A with committers.</p>
+          </a>
+        </div>
+
+        <!-- Contributing path -->
+        <div class="contrib-section fade-up">
+          <h3>Your path to contributing</h3>
+          <div class="contrib-steps" role="list">
+            <div class="contrib-step" role="listitem">
+              <div class="step-circle" aria-hidden="true">👋</div>
+              <div class="step-number">Step 1</div>
+              <div class="step-label">Say hello on Slack or the mailing list</div>
+            </div>
+            <div class="step-arrow" aria-hidden="true">›</div>
+
+            <div class="contrib-step" role="listitem">
+              <div class="step-circle" aria-hidden="true">🔍</div>
+              <div class="step-number">Step 2</div>
+              <div class="step-label">Pick a good-first-issue from JIRA</div>
+            </div>
+            <div class="step-arrow" aria-hidden="true">›</div>
+
+            <div class="contrib-step" role="listitem">
+              <div class="step-circle" aria-hidden="true">📝</div>
+              <div class="step-number">Step 3</div>
+              <div class="step-label">Open a patch — tests & CI required</div>
+            </div>
+            <div class="step-arrow" aria-hidden="true">›</div>
+
+            <div class="contrib-step" role="listitem">
+              <div class="step-circle" aria-hidden="true">🔄</div>
+              <div class="step-number">Step 4</div>
+              <div class="step-label">Iterate with committer review</div>
+            </div>
+            <div class="step-arrow" aria-hidden="true">›</div>
+
+            <div class="contrib-step" role="listitem">
+              <div class="step-circle" aria-hidden="true">🎉</div>
+              <div class="step-number">Step 5</div>
+              <div class="step-label">Merge! You're a Cassandra contributor</div>
+            </div>
+          </div>
+
+          <div class="mt-8">
+            <a href="/contribute/" class="btn btn-terracotta">Read the contributor guide</a>
+          </div>
+        </div>
+
+        <!-- Governance -->
+        <div class="governance-box fade-up" role="region" aria-label="Governance information">
+          <div class="governance-icon" aria-hidden="true">🏛️</div>
+          <div class="governance-content">
+            <h3>Open governance, meritocratic community</h3>
+            <p>
+              Cassandra is an <a href="https://apache.org" target="_blank" rel="noopener">Apache Software Foundation</a> project,
+              governed by a Project Management Committee (PMC) elected by community merit —
+              not corporate affiliation. Decisions are made in the open, on public mailing lists,
+              by the people who do the work.
+            </p>
+            <a href="/governance/" class="btn btn-outline btn-sm">Learn about governance</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Wave: sage → cream -->
+    <div class="organic-divider" style="background:var(--sage);" aria-hidden="true">
+      <svg viewBox="0 0 1440 72" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
+        <path d="M0,60 C180,0 360,72 540,30 C720,0 900,72 1080,40 C1200,20 1380,60 1440,50 L1440,72 L0,72 Z" fill="#fdf6ec"/>
+      </svg>
+    </div>
+
+    <!-- ─── Ecosystem ───────────────────────────────────────────────────── -->
+    <section class="ecosystem-section" aria-labelledby="ecosystem-heading">
+      <div class="container">
+        <div class="ecosystem-header fade-up">
+          <span class="section-label">Trusted worldwide</span>
+          <h2 id="ecosystem-heading">The teams who bet on Cassandra</h2>
+          <p>
+            From hyperscale technology companies to fast-moving startups, Cassandra
+            powers some of the most demanding workloads on the planet.
+          </p>
+        </div>
+
+        <!-- Scrolling logo strip -->
+        <div class="logo-strip-wrapper fade-up" aria-label="Companies using Cassandra">
+          <div class="logo-strip" aria-hidden="true">
+            <div class="logo-box">Netflix</div>
+            <div class="logo-box">Apple</div>
+            <div class="logo-box">Bloomberg</div>
+            <div class="logo-box">Spotify</div>
+            <div class="logo-box">Instagram</div>
+            <div class="logo-box">Uber</div>
+            <div class="logo-box">eBay</div>
+            <div class="logo-box">Twitter / X</div>
+            <div class="logo-box">Goldman Sachs</div>
+            <div class="logo-box">Disney+</div>
+            <div class="logo-box">Cisco</div>
+            <div class="logo-box">ING Bank</div>
+            <div class="logo-box">Comcast</div>
+            <div class="logo-box">Sky</div>
+            <!-- Duplicate for infinite scroll -->
+            <div class="logo-box">Netflix</div>
+            <div class="logo-box">Apple</div>
+            <div class="logo-box">Bloomberg</div>
+            <div class="logo-box">Spotify</div>
+            <div class="logo-box">Instagram</div>
+            <div class="logo-box">Uber</div>
+            <div class="logo-box">eBay</div>
+            <div class="logo-box">Twitter / X</div>
+            <div class="logo-box">Goldman Sachs</div>
+            <div class="logo-box">Disney+</div>
+            <div class="logo-box">Cisco</div>
+            <div class="logo-box">ING Bank</div>
+            <div class="logo-box">Comcast</div>
+            <div class="logo-box">Sky</div>
+          </div>
+        </div>
+
+        <!-- Stats row -->
+        <div class="stats-row">
+          <div class="stat-box fade-up fade-up-delay-1">
+            <span class="stat-number">1,400+</span>
+            <span class="stat-label">Contributors on GitHub</span>
+          </div>
+          <div class="stat-box fade-up fade-up-delay-2">
+            <span class="stat-number">10PB+</span>
+            <span class="stat-label">Data under management at single deployments</span>
+          </div>
+          <div class="stat-box fade-up fade-up-delay-3">
+            <span class="stat-number">16yr</span>
+            <span class="stat-label">Years of production hardening</span>
+          </div>
+          <div class="stat-box fade-up fade-up-delay-4">
+            <span class="stat-number">100%</span>
+            <span class="stat-label">Open source, always</span>
+          </div>
+        </div>
+
+        <!-- Testimonial -->
+        <div class="testimonial-card fade-up">
+          <blockquote>
+            "We store all playback events for every Netflix title, in every country,
+            across all devices, in Cassandra. It handles millions of writes per second
+            without breaking a sweat. The operational simplicity at our scale is remarkable."
+          </blockquote>
+          <div class="testimonial-meta">
+            <div class="testimonial-avatar" aria-hidden="true">N</div>
+            <div>
+              <div class="testimonial-name">Netflix Data Engineering Team</div>
+              <div class="testimonial-role">Streaming at 200M+ subscribers · multi-region Cassandra deployment</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ─── Footer ────────────────────────────────────────────────────────── -->
+  <footer class="footer" role="contentinfo">
+    <div class="footer-wave organic-divider" style="margin-top:-2px;" aria-hidden="true">
+      <svg viewBox="0 0 1440 64" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
+        <path d="M0,0 C360,64 720,0 1080,48 C1260,64 1380,16 1440,0 L1440,64 L0,64 Z" fill="#3d2b1f"/>
+      </svg>
+    </div>
+
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <div class="footer-logo">
+            <div class="footer-logo-mark" aria-hidden="true">C</div>
+            <span class="footer-logo-name">Apache Cassandra®</span>
+          </div>
+          <p>
+            The open source distributed database for massive data at epic speed.
+            Built by a community, for a world that never stops.
+          </p>
+          <div class="social-links" aria-label="Social media links">
+            <a href="https://github.com/apache/cassandra" class="social-link" target="_blank" rel="noopener" aria-label="GitHub">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
+            </a>
+            <a href="https://bsky.app/profile/cassandra.apache.org" class="social-link" target="_blank" rel="noopener" aria-label="Bluesky">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.741 8.741 0 01-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.689-.139-1.861-.902-2.204-.659-.298-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z"/></svg>
+            </a>
+            <a href="https://www.linkedin.com/company/apache-cassandra" class="social-link" target="_blank" rel="noopener" aria-label="LinkedIn">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+            </a>
+            <a href="https://www.youtube.com/@ApacheCassandra" class="social-link" target="_blank" rel="noopener" aria-label="YouTube">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+            </a>
+          </div>
+        </div>
+
+        <div class="footer-col">
+          <h5>Documentation</h5>
+          <ul class="footer-links">
+            <li><a href="/doc/latest/">Latest (6.0)</a></li>
+            <li><a href="/doc/5.0/">5.0 Stable</a></li>
+            <li><a href="/doc/4.1/">4.1 LTS</a></li>
+            <li><a href="/doc/latest/getting_started/">Quick Start</a></li>
+            <li><a href="/doc/latest/cql/">CQL Reference</a></li>
+            <li><a href="/doc/latest/architecture/">Architecture</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-col">
+          <h5>Community</h5>
+          <ul class="footer-links">
+            <li><a href="/community/">Overview</a></li>
+            <li><a href="https://s.apache.org/cassandra-slack" target="_blank" rel="noopener">Slack</a></li>
+            <li><a href="https://lists.apache.org/list.html?user@cassandra.apache.org" target="_blank" rel="noopener">Mailing Lists</a></li>
+            <li><a href="/community/meet/">Community Calls</a></li>
+            <li><a href="https://issues.apache.org/jira/browse/CASSANDRA" target="_blank" rel="noopener">Issue Tracker</a></li>
+            <li><a href="/blog/">Blog</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-col">
+          <h5>Project</h5>
+          <ul class="footer-links">
+            <li><a href="/contribute/">Contribute</a></li>
+            <li><a href="/governance/">Governance</a></li>
+            <li><a href="/download/">Downloads</a></li>
+            <li><a href="/doc/latest/faq/">FAQ</a></li>
+            <li><a href="/changelog/">Changelog</a></li>
+            <li><a href="https://cwiki.apache.org/confluence/display/CASSANDRA/" target="_blank" rel="noopener">Wiki</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-col">
+          <h5>Apache</h5>
+          <ul class="footer-links">
+            <li><a href="https://apache.org" target="_blank" rel="noopener">Apache Foundation</a></li>
+            <li><a href="https://apache.org/licenses/" target="_blank" rel="noopener">License v2.0</a></li>
+            <li><a href="https://apache.org/security/" target="_blank" rel="noopener">Security</a></li>
+            <li><a href="https://apache.org/foundation/sponsorship" target="_blank" rel="noopener">Donate to ASF</a></li>
+            <li><a href="https://apache.org/foundation/thanks.html" target="_blank" rel="noopener">Thanks</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <div class="footer-legal">
+          <p>
+            Copyright &copy; 2009–2026 <a href="https://apache.org" target="_blank" rel="noopener">The Apache Software Foundation</a>.
+            Licensed under the <a href="https://apache.org/licenses/LICENSE-2.0" target="_blank" rel="noopener">Apache License, Version 2.0</a>.
+          </p>
+          <p>
+            Apache Cassandra, Apache, the Apache feather logo, and the Apache Cassandra project logo are either
+            registered trademarks or trademarks of The Apache Software Foundation in the United States and other countries.
+          </p>
+          <p>
+            <a href="https://apache.org/privacy" target="_blank" rel="noopener">Privacy Policy</a> ·
+            <a href="https://apache.org/foundation/policies/conduct" target="_blank" rel="noopener">Code of Conduct</a>
+          </p>
+        </div>
+
+        <!-- Decorative leaf SVG -->
+        <svg class="footer-leaf" width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M32 8 C20 12 8 24 10 40 C12 50 22 56 32 56 C42 56 52 50 54 40 C56 24 44 12 32 8Z" fill="var(--terracotta)" opacity="0.6"/>
+          <path d="M32 8 L32 56" stroke="rgba(253,246,236,0.4)" stroke-width="1.5" stroke-linecap="round"/>
+          <path d="M32 20 C28 24 20 28 18 34" stroke="rgba(253,246,236,0.3)" stroke-width="1" stroke-linecap="round"/>
+          <path d="M32 30 C36 34 44 36 46 42" stroke="rgba(253,246,236,0.3)" stroke-width="1" stroke-linecap="round"/>
+        </svg>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // ─── Scroll-triggered fade-in animations ──────────────────────────────
+    const fadeEls = document.querySelectorAll('.fade-up');
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+
+    fadeEls.forEach(el => observer.observe(el));
+
+    // Immediately show elements already in view on load
+    fadeEls.forEach(el => {
+      const rect = el.getBoundingClientRect();
+      if (rect.top < window.innerHeight) {
+        el.classList.add('visible');
+        observer.unobserve(el);
+      }
+    });
+
+    // ─── Mobile nav toggle ────────────────────────────────────────────────
+    const navToggle = document.querySelector('.nav-toggle');
+    const navLinks  = document.querySelector('.nav-links');
+
+    if (navToggle && navLinks) {
+      navToggle.addEventListener('click', () => {
+        const isOpen = navLinks.style.display === 'flex';
+
+        if (isOpen) {
+          navLinks.style.display = '';
+          navToggle.setAttribute('aria-expanded', 'false');
+        } else {
+          // Mobile nav overlay styling
+          navLinks.style.cssText = `
+            display: flex;
+            flex-direction: column;
+            position: fixed;
+            top: 68px;
+            left: 0;
+            right: 0;
+            background: rgba(253,246,236,0.98);
+            backdrop-filter: blur(16px);
+            padding: 16px 24px 24px;
+            border-bottom: 1px solid rgba(61,43,31,0.1);
+            box-shadow: 0 8px 32px rgba(61,43,31,0.12);
+            z-index: 99;
+            gap: 4px;
+          `;
+          navToggle.setAttribute('aria-expanded', 'true');
+        }
+      });
+
+      // Close on outside click
+      document.addEventListener('click', (e) => {
+        if (!navToggle.contains(e.target) && !navLinks.contains(e.target)) {
+          navLinks.style.display = '';
+          navToggle.setAttribute('aria-expanded', 'false');
+        }
+      });
+    }
+
+    // ─── Smooth counter animation for stats ──────────────────────────────
+    function animateCounter(el, target, suffix, duration = 1200) {
+      const start = performance.now();
+      const isDecimal = target % 1 !== 0;
+
+      function update(now) {
+        const elapsed = now - start;
+        const progress = Math.min(elapsed / duration, 1);
+        // Ease out cubic
+        const eased = 1 - Math.pow(1 - progress, 3);
+        const current = eased * target;
+
+        if (target >= 1000) {
+          el.textContent = Math.round(current).toLocaleString() + suffix;
+        } else if (isDecimal) {
+          el.textContent = current.toFixed(1) + suffix;
+        } else {
+          el.textContent = Math.round(current) + suffix;
+        }
+
+        if (progress < 1) requestAnimationFrame(update);
+      }
+
+      requestAnimationFrame(update);
+    }
+
+    // Stat counters
+    const statObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (!entry.isIntersecting) return;
+        const el = entry.target.querySelector('.stat-number');
+        if (!el) return;
+        const raw = el.textContent.trim();
+        // Parse "1,400+", "10PB+", "16yr", "100%"
+        const match = raw.match(/^([\d,]+\.?\d*)(.*)$/);
+        if (match) {
+          const num = parseFloat(match[1].replace(/,/g, ''));
+          const suf = match[2];
+          animateCounter(el, num, suf);
+        }
+        statObserver.unobserve(entry.target);
+      });
+    }, { threshold: 0.5 });
+
+    document.querySelectorAll('.stat-box').forEach(el => statObserver.observe(el));
+
+    // ─── Respect prefers-reduced-motion ──────────────────────────────────
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+    function applyMotionPreference() {
+      if (mediaQuery.matches) {
+        document.documentElement.style.setProperty('--transition', '0.01s');
+        // Stop CSS animations
+        const style = document.createElement('style');
+        style.textContent = `
+          *, *::before, *::after {
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
+          }
+        `;
+        document.head.appendChild(style);
+
+        // Make all fade-ups visible immediately
+        fadeEls.forEach(el => el.classList.add('visible'));
+      }
+    }
+
+    applyMotionPreference();
+    mediaQuery.addEventListener('change', applyMotionPreference);
+  </script>
+</body>
+</html>

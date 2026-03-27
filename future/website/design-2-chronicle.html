@@ -1,0 +1,1792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Apache Cassandra® — The Chronicle</title>
+  <meta name="description" content="Apache Cassandra is the open source NoSQL distributed database trusted by thousands of companies for scalability and high availability without compromising performance.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,700&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;0,8..60,500;0,8..60,600;1,8..60,300;1,8..60,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    /* ============================================================
+       RESET & BASE
+    ============================================================ */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg:          #faf7f2;
+      --ink:         #1a1a2e;
+      --ink-light:   #3d3d52;
+      --ink-muted:   #6b6b7e;
+      --blue:        #1a6cb5;
+      --blue-hover:  #124f87;
+      --red:         #c4453c;
+      --rule:        #d4cfc7;
+      --rule-dark:   #b8b2aa;
+      --code-bg:     #f0ebe3;
+      --col-gap:     2rem;
+      --page-max:    1280px;
+      --page-pad:    clamp(1rem, 4vw, 3rem);
+
+      --ff-display: 'Playfair Display', Georgia, 'Times New Roman', serif;
+      --ff-body:    'Source Serif 4', Georgia, 'Times New Roman', serif;
+      --ff-mono:    'JetBrains Mono', 'Courier New', monospace;
+    }
+
+    html {
+      font-size: 16px;
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--ink);
+      font-family: var(--ff-body);
+      font-size: 1rem;
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+      /* Subtle paper grain */
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23noise)' opacity='0.025'/%3E%3C/svg%3E");
+    }
+
+    a {
+      color: var(--blue);
+      text-decoration: underline;
+      text-decoration-thickness: 1px;
+      text-underline-offset: 2px;
+      transition: color 0.15s ease, text-decoration-color 0.15s ease;
+    }
+
+    a:hover {
+      color: var(--blue-hover);
+      text-decoration-color: var(--blue-hover);
+    }
+
+    /* ============================================================
+       UTILITIES
+    ============================================================ */
+    .container {
+      max-width: var(--page-max);
+      margin: 0 auto;
+      padding: 0 var(--page-pad);
+    }
+
+    .rule-h {
+      border: none;
+      border-top: 1px solid var(--rule);
+      margin: 0;
+    }
+
+    .rule-h--dark {
+      border-top-color: var(--rule-dark);
+    }
+
+    .rule-h--thick {
+      border-top-width: 2px;
+      border-top-color: var(--ink);
+    }
+
+    code, .mono {
+      font-family: var(--ff-mono);
+      font-size: 0.875em;
+      background: var(--code-bg);
+      padding: 0.1em 0.35em;
+      letter-spacing: -0.01em;
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0,0,0,0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .label {
+      font-family: var(--ff-mono);
+      font-size: 0.6875rem;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+    }
+
+    .badge {
+      display: inline-block;
+      font-family: var(--ff-mono);
+      font-size: 0.625rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      background: var(--red);
+      color: #fff;
+      padding: 0.15em 0.55em;
+      vertical-align: middle;
+      margin-right: 0.4rem;
+    }
+
+    .badge--blue {
+      background: var(--blue);
+    }
+
+    /* ============================================================
+       TOP BAR
+    ============================================================ */
+    .topbar {
+      background: var(--ink);
+      color: #c8c4be;
+      font-family: var(--ff-mono);
+      font-size: 0.6875rem;
+      letter-spacing: 0.05em;
+      padding: 0.4rem 0;
+    }
+
+    .topbar .container {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .topbar a {
+      color: #c8c4be;
+      text-decoration: none;
+    }
+
+    .topbar a:hover {
+      color: #fff;
+      text-decoration: underline;
+      text-decoration-thickness: 1px;
+    }
+
+    .topbar__right {
+      display: flex;
+      gap: 1.5rem;
+    }
+
+    /* ============================================================
+       MASTHEAD
+    ============================================================ */
+    .masthead {
+      padding: 1.5rem 0 0;
+    }
+
+    .masthead__inner {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: end;
+      gap: 1rem;
+      padding-bottom: 0.75rem;
+    }
+
+    .masthead__left {
+      font-family: var(--ff-mono);
+      font-size: 0.75rem;
+      color: var(--ink-muted);
+      align-self: end;
+      padding-bottom: 0.2rem;
+    }
+
+    .masthead__title {
+      text-align: center;
+    }
+
+    .masthead__title h1 {
+      font-family: var(--ff-display);
+      font-size: clamp(2.5rem, 7vw, 5.5rem);
+      font-weight: 900;
+      letter-spacing: -0.02em;
+      line-height: 0.95;
+      color: var(--ink);
+      text-transform: none;
+    }
+
+    .masthead__title .registered {
+      font-size: 0.4em;
+      vertical-align: super;
+      font-weight: 400;
+    }
+
+    .masthead__title .tagline {
+      font-family: var(--ff-body);
+      font-size: 0.8125rem;
+      font-style: italic;
+      color: var(--ink-muted);
+      margin-top: 0.25rem;
+      letter-spacing: 0.02em;
+    }
+
+    .masthead__right {
+      font-family: var(--ff-mono);
+      font-size: 0.75rem;
+      color: var(--ink-muted);
+      text-align: right;
+      align-self: end;
+      padding-bottom: 0.2rem;
+    }
+
+    /* Main nav */
+    .main-nav {
+      border-top: 2px solid var(--ink);
+      border-bottom: 1px solid var(--rule-dark);
+    }
+
+    .main-nav__inner {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 0;
+      flex-wrap: wrap;
+    }
+
+    .main-nav a {
+      display: block;
+      padding: 0.55rem 1.1rem;
+      font-family: var(--ff-display);
+      font-size: 0.875rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: var(--ink);
+      text-decoration: none;
+      border-right: 1px solid var(--rule);
+      transition: background 0.12s, color 0.12s;
+    }
+
+    .main-nav a:first-child {
+      border-left: 1px solid var(--rule);
+    }
+
+    .main-nav a:hover {
+      background: var(--ink);
+      color: var(--bg);
+    }
+
+    .main-nav a.nav--active {
+      color: var(--blue);
+    }
+
+    /* ============================================================
+       VERSION TICKER
+    ============================================================ */
+    .version-ticker {
+      background: var(--ink);
+      color: #e8e4de;
+      padding: 0.4rem 0;
+      overflow: hidden;
+    }
+
+    .version-ticker__inner {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      font-family: var(--ff-mono);
+      font-size: 0.75rem;
+      letter-spacing: 0.05em;
+    }
+
+    .version-ticker__label {
+      background: var(--red);
+      color: #fff;
+      padding: 0.2rem 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      font-size: 0.6875rem;
+      white-space: nowrap;
+      flex-shrink: 0;
+      margin-right: 1.5rem;
+    }
+
+    .version-ticker__items {
+      display: flex;
+      gap: 0;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .version-ticker__item {
+      padding: 0 1.25rem;
+      border-right: 1px solid #3d3d52;
+      white-space: nowrap;
+    }
+
+    .version-ticker__item:first-child {
+      padding-left: 0;
+    }
+
+    .version-ticker__item:last-child {
+      border-right: none;
+    }
+
+    .version-ticker__item .ver-name {
+      color: #8888a4;
+      margin-right: 0.4rem;
+    }
+
+    .version-ticker__item .ver-num {
+      color: #fff;
+      font-weight: 600;
+    }
+
+    .version-ticker__item .ver-tag {
+      color: #6fc48c;
+      font-size: 0.65rem;
+      margin-left: 0.3rem;
+    }
+
+    /* ============================================================
+       ABOVE THE FOLD — HERO
+    ============================================================ */
+    .hero {
+      padding: 2.5rem 0 0;
+    }
+
+    .hero__dateline {
+      font-family: var(--ff-mono);
+      font-size: 0.75rem;
+      color: var(--ink-muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .hero__dateline::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--rule);
+    }
+
+    .hero__grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+    }
+
+    .hero__main {
+      padding-right: 2.5rem;
+      border-right: 1px solid var(--rule-dark);
+    }
+
+    .hero__headline {
+      font-family: var(--ff-display);
+      font-size: clamp(2.25rem, 5vw, 3.75rem);
+      font-weight: 900;
+      line-height: 1.05;
+      letter-spacing: -0.02em;
+      color: var(--ink);
+      margin-bottom: 0.5rem;
+    }
+
+    .hero__deck {
+      font-family: var(--ff-body);
+      font-size: 1.125rem;
+      font-weight: 500;
+      line-height: 1.45;
+      color: var(--ink-light);
+      margin-bottom: 1.25rem;
+      font-style: italic;
+    }
+
+    .hero__body {
+      font-size: 1rem;
+      line-height: 1.7;
+      color: var(--ink-light);
+    }
+
+    /* Drop cap on hero body */
+    .hero__body .drop-cap::first-letter {
+      font-family: var(--ff-display);
+      font-size: 3.75rem;
+      font-weight: 900;
+      line-height: 0.85;
+      float: left;
+      margin-right: 0.1em;
+      margin-top: 0.05em;
+      color: var(--ink);
+    }
+
+    .hero__body p + p {
+      margin-top: 0.85rem;
+    }
+
+    .hero__highlights {
+      margin-top: 1.5rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--rule);
+    }
+
+    .hero__highlights .label {
+      margin-bottom: 0.6rem;
+      display: block;
+    }
+
+    .hero__highlights ul {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    .hero__highlights li {
+      font-size: 0.9375rem;
+      padding-left: 1.1rem;
+      position: relative;
+      color: var(--ink-light);
+    }
+
+    .hero__highlights li::before {
+      content: '—';
+      position: absolute;
+      left: 0;
+      color: var(--rule-dark);
+      font-family: var(--ff-mono);
+    }
+
+    /* Sidebar */
+    .hero__sidebar {
+      padding-left: 2.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.75rem;
+    }
+
+    .sidebar-box {
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .sidebar-box:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+
+    .sidebar-box__heading {
+      font-family: var(--ff-display);
+      font-size: 0.875rem;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      text-transform: uppercase;
+      color: var(--ink);
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.4rem;
+      border-bottom: 2px solid var(--ink);
+    }
+
+    .sidebar-box ul {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .sidebar-box ul li a {
+      font-size: 0.9375rem;
+      font-weight: 500;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 0.5rem;
+      text-decoration: none;
+      color: var(--ink);
+      padding: 0.2rem 0;
+      border-bottom: 1px solid transparent;
+      transition: border-color 0.12s;
+    }
+
+    .sidebar-box ul li a:hover {
+      color: var(--blue);
+      border-bottom-color: var(--blue);
+    }
+
+    .sidebar-box ul li a .link-arrow {
+      font-family: var(--ff-mono);
+      font-size: 0.75rem;
+      color: var(--ink-muted);
+      flex-shrink: 0;
+      transition: color 0.12s, transform 0.12s;
+    }
+
+    .sidebar-box ul li a:hover .link-arrow {
+      color: var(--blue);
+      transform: translateX(2px);
+    }
+
+    .quick-install {
+      background: var(--code-bg);
+      border: 1px solid var(--rule-dark);
+      padding: 0.85rem 1rem;
+    }
+
+    .quick-install .label {
+      margin-bottom: 0.4rem;
+      display: block;
+    }
+
+    .quick-install pre {
+      font-family: var(--ff-mono);
+      font-size: 0.8125rem;
+      color: var(--ink);
+      white-space: pre-wrap;
+      word-break: break-all;
+      line-height: 1.5;
+      background: none;
+      padding: 0;
+    }
+
+    /* ============================================================
+       SECTION SPACING & HEADINGS
+    ============================================================ */
+    .section {
+      padding: 2.5rem 0;
+    }
+
+    .section + .section {
+      border-top: 1px solid var(--rule);
+    }
+
+    .section__header {
+      display: flex;
+      align-items: baseline;
+      gap: 1rem;
+      margin-bottom: 1.75rem;
+    }
+
+    .section__title {
+      font-family: var(--ff-display);
+      font-size: clamp(1.5rem, 3vw, 2rem);
+      font-weight: 800;
+      letter-spacing: -0.01em;
+      line-height: 1.1;
+      color: var(--ink);
+    }
+
+    .section__rule {
+      flex: 1;
+      height: 1px;
+      background: var(--rule-dark);
+    }
+
+    /* ============================================================
+       ROUTE BY INTENT — 3-COLUMN
+    ============================================================ */
+    .intent-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 0;
+    }
+
+    .intent-col {
+      padding: 0 2rem;
+      border-right: 1px solid var(--rule);
+    }
+
+    .intent-col:first-child {
+      padding-left: 0;
+    }
+
+    .intent-col:last-child {
+      border-right: none;
+      padding-right: 0;
+    }
+
+    .intent-col__heading {
+      font-family: var(--ff-display);
+      font-size: 1.375rem;
+      font-weight: 800;
+      color: var(--ink);
+      margin-bottom: 0.25rem;
+      padding-bottom: 0.6rem;
+      border-bottom: 2px solid var(--ink);
+    }
+
+    .intent-col__subtitle {
+      font-size: 0.875rem;
+      font-style: italic;
+      color: var(--ink-muted);
+      margin-bottom: 1rem;
+      margin-top: 0.35rem;
+    }
+
+    .intent-col ul {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .intent-col ul li {
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .intent-col ul li a {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.5rem 0;
+      font-size: 0.9375rem;
+      color: var(--ink);
+      text-decoration: none;
+      transition: color 0.12s, padding-left 0.12s;
+    }
+
+    .intent-col ul li a:hover {
+      color: var(--blue);
+      padding-left: 0.25rem;
+    }
+
+    .intent-col ul li a:hover .link-arrow {
+      color: var(--blue);
+    }
+
+    /* ============================================================
+       NEWS & EVENTS — 2-COLUMN
+    ============================================================ */
+    .news-grid {
+      display: grid;
+      grid-template-columns: 3fr 2fr;
+      gap: 0;
+    }
+
+    .news-col {
+      padding-right: 2.5rem;
+      border-right: 1px solid var(--rule-dark);
+    }
+
+    .news-col:last-child {
+      padding-right: 0;
+      padding-left: 2.5rem;
+      border-right: none;
+    }
+
+    .news-col__heading {
+      font-family: var(--ff-display);
+      font-size: 1.125rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: var(--ink);
+      margin-bottom: 1.25rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 2px solid var(--ink);
+    }
+
+    .post-item {
+      padding: 0.85rem 0;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .post-item:last-child {
+      border-bottom: none;
+    }
+
+    .post-item__meta {
+      font-family: var(--ff-mono);
+      font-size: 0.6875rem;
+      color: var(--ink-muted);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 0.25rem;
+    }
+
+    .post-item__title a {
+      font-family: var(--ff-display);
+      font-size: 1.0625rem;
+      font-weight: 700;
+      line-height: 1.25;
+      color: var(--ink);
+      text-decoration: none;
+      transition: color 0.12s;
+    }
+
+    .post-item__title a:hover {
+      color: var(--blue);
+    }
+
+    .post-item__excerpt {
+      font-size: 0.875rem;
+      color: var(--ink-muted);
+      margin-top: 0.25rem;
+      line-height: 1.55;
+    }
+
+    .event-item {
+      padding: 0.85rem 0;
+      border-bottom: 1px solid var(--rule);
+      display: grid;
+      grid-template-columns: 3rem 1fr;
+      gap: 0.75rem;
+      align-start: start;
+    }
+
+    .event-item:last-child {
+      border-bottom: none;
+    }
+
+    .event-date {
+      text-align: center;
+      background: var(--ink);
+      color: var(--bg);
+      padding: 0.3rem 0.1rem;
+      flex-shrink: 0;
+    }
+
+    .event-date__month {
+      font-family: var(--ff-mono);
+      font-size: 0.5625rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      display: block;
+      line-height: 1.2;
+    }
+
+    .event-date__day {
+      font-family: var(--ff-display);
+      font-size: 1.375rem;
+      font-weight: 900;
+      line-height: 1;
+      display: block;
+    }
+
+    .event-info__title {
+      font-family: var(--ff-body);
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: var(--ink);
+      margin-bottom: 0.1rem;
+    }
+
+    .event-info__title a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .event-info__title a:hover {
+      color: var(--blue);
+    }
+
+    .event-info__detail {
+      font-family: var(--ff-mono);
+      font-size: 0.6875rem;
+      color: var(--ink-muted);
+      letter-spacing: 0.04em;
+    }
+
+    /* ============================================================
+       COMMUNITY SECTION
+    ============================================================ */
+    .community-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+    }
+
+    .community-col {
+      padding-right: 2.5rem;
+      border-right: 1px solid var(--rule);
+    }
+
+    .community-col:last-child {
+      padding-right: 0;
+      padding-left: 2.5rem;
+      border-right: none;
+    }
+
+    .community-col__heading {
+      font-family: var(--ff-display);
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: var(--ink);
+      margin-bottom: 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 2px solid var(--ink);
+    }
+
+    .channel-item {
+      display: grid;
+      grid-template-columns: 1fr;
+      padding: 0.75rem 0;
+      border-bottom: 1px solid var(--rule);
+      gap: 0.15rem;
+    }
+
+    .channel-item:last-child {
+      border-bottom: none;
+    }
+
+    .channel-item__name {
+      font-family: var(--ff-body);
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--ink);
+    }
+
+    .channel-item__name a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .channel-item__name a:hover {
+      color: var(--blue);
+    }
+
+    .channel-item__desc {
+      font-size: 0.875rem;
+      color: var(--ink-muted);
+      line-height: 1.5;
+    }
+
+    .contribute-steps {
+      list-style: none;
+      counter-reset: steps;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .contribute-steps li {
+      counter-increment: steps;
+      padding: 0.7rem 0 0.7rem 2.5rem;
+      position: relative;
+      border-bottom: 1px solid var(--rule);
+      font-size: 0.9375rem;
+      line-height: 1.5;
+      color: var(--ink-light);
+    }
+
+    .contribute-steps li:last-child {
+      border-bottom: none;
+    }
+
+    .contribute-steps li::before {
+      content: counter(steps);
+      position: absolute;
+      left: 0;
+      top: 0.7rem;
+      font-family: var(--ff-display);
+      font-size: 1.25rem;
+      font-weight: 900;
+      color: var(--rule-dark);
+      line-height: 1.25;
+      width: 1.75rem;
+      text-align: center;
+    }
+
+    .contribute-steps li strong {
+      font-weight: 600;
+      color: var(--ink);
+    }
+
+    .contribute-steps li a {
+      font-weight: 500;
+    }
+
+    /* ============================================================
+       FEATURE REFERENCE — 2x3 GRID
+    ============================================================ */
+    .features-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      grid-template-rows: auto auto;
+      gap: 0;
+    }
+
+    .feature-item {
+      padding: 1.25rem 1.5rem;
+      border-right: 1px solid var(--rule);
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .feature-item:nth-child(3n) {
+      border-right: none;
+    }
+
+    .feature-item:nth-last-child(-n+3) {
+      border-bottom: none;
+    }
+
+    .feature-item__name {
+      font-family: var(--ff-display);
+      font-size: 1.125rem;
+      font-weight: 800;
+      color: var(--ink);
+      margin-bottom: 0.35rem;
+    }
+
+    .feature-item__desc {
+      font-size: 0.875rem;
+      color: var(--ink-muted);
+      line-height: 1.6;
+    }
+
+    /* ============================================================
+       GOVERNANCE BRIEF
+    ============================================================ */
+    .governance-strip {
+      background: var(--code-bg);
+      border-top: 2px solid var(--ink);
+      border-bottom: 1px solid var(--rule-dark);
+      padding: 1.5rem 0;
+    }
+
+    .governance-strip .container {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 2.5rem;
+      align-items: start;
+    }
+
+    .governance-strip__heading {
+      font-family: var(--ff-display);
+      font-size: 1.125rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: var(--ink);
+      white-space: nowrap;
+      padding-top: 0.1rem;
+    }
+
+    .governance-strip__text {
+      font-size: 0.9375rem;
+      color: var(--ink-muted);
+      line-height: 1.65;
+    }
+
+    .governance-strip__text a {
+      color: var(--blue);
+    }
+
+    /* ============================================================
+       FOOTER
+    ============================================================ */
+    .footer {
+      background: var(--ink);
+      color: #b8b4ae;
+      padding: 2.5rem 0 1.5rem;
+      border-top: 2px solid var(--rule-dark);
+    }
+
+    .footer__grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 1fr;
+      gap: 2rem;
+      padding-bottom: 2rem;
+      margin-bottom: 1.5rem;
+      border-bottom: 1px solid #3d3d52;
+    }
+
+    .footer__col-heading {
+      font-family: var(--ff-display);
+      font-size: 0.875rem;
+      font-weight: 700;
+      color: #e8e4de;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.85rem;
+      padding-bottom: 0.4rem;
+      border-bottom: 1px solid #3d3d52;
+    }
+
+    .footer ul {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+    }
+
+    .footer ul li a {
+      font-size: 0.875rem;
+      color: #b8b4ae;
+      text-decoration: none;
+      transition: color 0.12s;
+    }
+
+    .footer ul li a:hover {
+      color: #fff;
+    }
+
+    .footer__about {
+      font-size: 0.875rem;
+      line-height: 1.65;
+      color: #8888a4;
+    }
+
+    .footer__about .footer-masthead {
+      font-family: var(--ff-display);
+      font-size: 1.5rem;
+      font-weight: 900;
+      color: #e8e4de;
+      display: block;
+      margin-bottom: 0.5rem;
+    }
+
+    .footer__bottom {
+      display: flex;
+      justify-content: space-between;
+      align-items: start;
+      gap: 2rem;
+      flex-wrap: wrap;
+    }
+
+    .footer__legal {
+      font-family: var(--ff-mono);
+      font-size: 0.6875rem;
+      color: #5c5c70;
+      line-height: 1.7;
+      max-width: 55ch;
+    }
+
+    .footer__legal a {
+      color: #8888a4;
+      text-decoration: none;
+    }
+
+    .footer__legal a:hover {
+      color: #b8b4ae;
+    }
+
+    .footer__social {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+    }
+
+    .footer__social a {
+      font-family: var(--ff-mono);
+      font-size: 0.75rem;
+      color: #6b6b7e;
+      text-decoration: none;
+      letter-spacing: 0.04em;
+      padding: 0.3rem 0;
+      border-bottom: 1px solid transparent;
+      transition: color 0.12s, border-color 0.12s;
+    }
+
+    .footer__social a:hover {
+      color: #c8c4be;
+      border-bottom-color: #6b6b7e;
+    }
+
+    /* ============================================================
+       RESPONSIVE
+    ============================================================ */
+    @media (max-width: 900px) {
+      .masthead__inner {
+        grid-template-columns: 1fr;
+        text-align: center;
+      }
+
+      .masthead__left,
+      .masthead__right {
+        display: none;
+      }
+
+      .hero__grid {
+        grid-template-columns: 1fr;
+      }
+
+      .hero__main {
+        border-right: none;
+        padding-right: 0;
+        border-bottom: 1px solid var(--rule-dark);
+        padding-bottom: 2rem;
+      }
+
+      .hero__sidebar {
+        padding-left: 0;
+        padding-top: 2rem;
+      }
+
+      .intent-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .intent-col {
+        padding: 1.5rem 0;
+        border-right: none;
+        border-bottom: 1px solid var(--rule);
+      }
+
+      .intent-col:last-child {
+        border-bottom: none;
+      }
+
+      .news-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .news-col {
+        padding-right: 0;
+        border-right: none;
+        padding-bottom: 2rem;
+        border-bottom: 1px solid var(--rule-dark);
+      }
+
+      .news-col:last-child {
+        padding-left: 0;
+        padding-bottom: 0;
+        border-bottom: none;
+        padding-top: 2rem;
+      }
+
+      .community-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .community-col {
+        padding-right: 0;
+        border-right: none;
+        padding-bottom: 2rem;
+        border-bottom: 1px solid var(--rule);
+      }
+
+      .community-col:last-child {
+        padding-left: 0;
+        padding-top: 2rem;
+        border-bottom: none;
+      }
+
+      .features-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .feature-item:nth-child(3n) {
+        border-right: 1px solid var(--rule);
+      }
+
+      .feature-item:nth-child(2n) {
+        border-right: none;
+      }
+
+      .feature-item:nth-last-child(-n+3) {
+        border-bottom: 1px solid var(--rule);
+      }
+
+      .feature-item:nth-last-child(-n+2) {
+        border-bottom: none;
+      }
+
+      .footer__grid {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .governance-strip .container {
+        grid-template-columns: 1fr;
+        gap: 0.75rem;
+      }
+    }
+
+    @media (max-width: 600px) {
+      .main-nav__inner {
+        justify-content: flex-start;
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        scrollbar-width: none;
+      }
+
+      .main-nav__inner::-webkit-scrollbar {
+        display: none;
+      }
+
+      .features-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .feature-item {
+        border-right: none;
+        border-bottom: 1px solid var(--rule);
+      }
+
+      .feature-item:last-child {
+        border-bottom: none;
+      }
+
+      .footer__grid {
+        grid-template-columns: 1fr;
+      }
+
+      .footer__bottom {
+        flex-direction: column;
+      }
+
+      .version-ticker__items {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+      }
+
+      .topbar .container {
+        flex-direction: column;
+        gap: 0.25rem;
+        align-items: flex-start;
+      }
+
+      .topbar__right {
+        gap: 0.75rem;
+      }
+    }
+
+    /* ============================================================
+       PRINT
+    ============================================================ */
+    @media print {
+      .topbar,
+      .version-ticker,
+      .footer__social { display: none; }
+      body { background: #fff; }
+      .hero__main { border-right: 1px solid #999; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ============================================================
+       TOP BAR
+  ============================================================ -->
+  <div class="topbar" role="banner">
+    <div class="container">
+      <span>
+        <a href="https://www.apache.org/" target="_blank" rel="noopener">An Apache Software Foundation Project</a>
+      </span>
+      <div class="topbar__right">
+        <a href="https://www.apache.org/security/" target="_blank" rel="noopener">Security</a>
+        <a href="https://www.apache.org/licenses/" target="_blank" rel="noopener">License</a>
+        <a href="https://privacy.apache.org/policies/privacy-policy-public.html" target="_blank" rel="noopener">Privacy</a>
+        <a href="https://www.apache.org/foundation/sponsorship.html" target="_blank" rel="noopener">Donate</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       MASTHEAD
+  ============================================================ -->
+  <header class="masthead">
+    <div class="container">
+      <div class="masthead__inner">
+        <div class="masthead__left">
+          <div>Open Source · Distributed Database</div>
+          <div>Since 2008 · Apache License 2.0</div>
+        </div>
+        <div class="masthead__title">
+          <h1>Apache Cassandra<span class="registered">®</span></h1>
+          <p class="tagline">The open source distributed database for mission-critical data</p>
+        </div>
+        <div class="masthead__right">
+          <div>Vol. 16 · March 2026</div>
+          <div>cassandra.apache.org</div>
+        </div>
+      </div>
+    </div>
+
+    <nav class="main-nav" aria-label="Main navigation">
+      <div class="container">
+        <div class="main-nav__inner">
+          <a href="/doc/">Docs</a>
+          <a href="/download/">Downloads</a>
+          <a href="/community/">Community</a>
+          <a href="/contribute/">Contribute</a>
+          <a href="/governance/">Governance</a>
+          <a href="/blog/">Blog</a>
+        </div>
+      </div>
+    </nav>
+  </header>
+
+  <!-- ============================================================
+       VERSION TICKER
+  ============================================================ -->
+  <div class="version-ticker" aria-label="Release versions">
+    <div class="container">
+      <div class="version-ticker__inner">
+        <div class="version-ticker__label">Releases</div>
+        <div class="version-ticker__items">
+          <div class="version-ticker__item">
+            <span class="ver-name">Current</span>
+            <span class="ver-num">6.0.0</span>
+            <span class="ver-tag">&#x25cf; latest</span>
+          </div>
+          <div class="version-ticker__item">
+            <span class="ver-name">Stable</span>
+            <span class="ver-num">5.0.4</span>
+          </div>
+          <div class="version-ticker__item">
+            <span class="ver-name">LTS</span>
+            <span class="ver-num">4.1.8</span>
+          </div>
+          <div class="version-ticker__item">
+            <span class="ver-name">EOL</span>
+            <span class="ver-num">4.0.x</span>
+          </div>
+          <div class="version-ticker__item">
+            <span class="ver-name">Java</span>
+            <span class="ver-num">11, 17</span>
+          </div>
+          <div class="version-ticker__item">
+            <span class="ver-name">Python Driver</span>
+            <span class="ver-num">3.29</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <main>
+    <!-- ============================================================
+         HERO — ABOVE THE FOLD
+    ============================================================ -->
+    <section class="hero section" aria-labelledby="hero-headline">
+      <div class="container">
+        <div class="hero__dateline">
+          <span class="badge">New Release</span>
+          <span>March 2026 &nbsp;·&nbsp; cassandra.apache.org</span>
+        </div>
+
+        <div class="hero__grid">
+          <!-- Main story -->
+          <div class="hero__main">
+            <h2 class="hero__headline" id="hero-headline">Cassandra&nbsp;6.0<br>Released</h2>
+            <p class="hero__deck">Vector search, extended LWT, and unified compaction bring the project's most significant feature release in four years.</p>
+
+            <div class="hero__body">
+              <p class="drop-cap">Apache Cassandra 6.0 marks a significant step forward for one of the most widely deployed distributed databases in production infrastructure. The release introduces native vector search capabilities, making Cassandra a compelling platform for applications that combine operational and AI workloads without requiring a separate vector store.</p>
+
+              <p>The release also delivers extended support for lightweight transactions across a broader set of query patterns, reducing the operational complexity of applications that require conditional writes at scale. Unified compaction, a strategy long in development, consolidates previous strategies under a single adaptive engine that responds to workload characteristics at runtime.</p>
+
+              <p>Upgrading from 5.0 follows a standard rolling upgrade path. Users on 4.1 LTS should review the migration guide for schema and driver compatibility notes before beginning the upgrade sequence.</p>
+            </div>
+
+            <div class="hero__highlights">
+              <span class="label">Highlights in 6.0</span>
+              <ul>
+                <li>Native vector search with ANN indexing via SAI integration</li>
+                <li>Extended lightweight transactions (eLWT) across complex query patterns</li>
+                <li>Unified compaction strategy replaces STCS, LCS, and TWCS tuning</li>
+                <li>Storage-attached indexes promoted to stable for production use</li>
+                <li>Read repair modernization reduces background coordinator load</li>
+                <li>Java 21 virtual thread support in the driver and server runtime</li>
+              </ul>
+            </div>
+          </div>
+
+          <!-- Sidebar -->
+          <aside class="hero__sidebar" aria-label="Quick links">
+
+            <div class="sidebar-box">
+              <div class="sidebar-box__heading">Quick Start</div>
+              <ul>
+                <li><a href="/doc/6.0/getting_started/installing.html">Install Cassandra 6.0 <span class="link-arrow">→</span></a></li>
+                <li><a href="/doc/6.0/getting_started/querying.html">Write your first query <span class="link-arrow">→</span></a></li>
+                <li><a href="https://hub.docker.com/_/cassandra" target="_blank" rel="noopener">Docker image on Hub <span class="link-arrow">↗</span></a></li>
+                <li><a href="/doc/6.0/getting_started/drivers.html">Choose a client driver <span class="link-arrow">→</span></a></li>
+              </ul>
+            </div>
+
+            <div class="sidebar-box">
+              <div class="sidebar-box__heading">6.0 Resources</div>
+              <ul>
+                <li><a href="/doc/6.0/new_features.html">What's new in 6.0 <span class="link-arrow">→</span></a></li>
+                <li><a href="/doc/6.0/upgrade_guide.html">Migration from 5.0 / 4.1 <span class="link-arrow">→</span></a></li>
+                <li><a href="https://github.com/apache/cassandra/blob/cassandra-6.0/CHANGES.txt" target="_blank" rel="noopener">Full release notes <span class="link-arrow">↗</span></a></li>
+                <li><a href="/download/#verify">Verify downloads <span class="link-arrow">→</span></a></li>
+              </ul>
+            </div>
+
+            <div class="sidebar-box">
+              <div class="sidebar-box__heading">Quick Install</div>
+              <div class="quick-install">
+                <span class="label">Homebrew</span>
+                <pre>brew install cassandra</pre>
+              </div>
+              <div class="quick-install" style="margin-top: 0.5rem;">
+                <span class="label">Docker</span>
+                <pre>docker pull cassandra:6.0</pre>
+              </div>
+            </div>
+
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <hr class="rule-h rule-h--thick">
+
+    <!-- ============================================================
+         ROUTE BY INTENT — 3 COLUMNS
+    ============================================================ -->
+    <section class="section" aria-labelledby="intent-heading">
+      <div class="container">
+        <div class="section__header">
+          <h2 class="section__title" id="intent-heading">Where to Begin</h2>
+          <div class="section__rule" aria-hidden="true"></div>
+        </div>
+
+        <div class="intent-grid">
+
+          <div class="intent-col">
+            <h3 class="intent-col__heading">For Operators</h3>
+            <p class="intent-col__subtitle">Running Cassandra in production</p>
+            <ul>
+              <li><a href="/doc/latest/cassandra/configuration/index.html">Configuration reference <span class="link-arrow">→</span></a></li>
+              <li><a href="/doc/latest/cassandra/operating/index.html">Operations guide <span class="link-arrow">→</span></a></li>
+              <li><a href="/doc/latest/cassandra/operating/hardware.html">Hardware recommendations <span class="link-arrow">→</span></a></li>
+              <li><a href="/doc/latest/cassandra/operating/metrics.html">Metrics &amp; monitoring <span class="link-arrow">→</span></a></li>
+              <li><a href="/doc/latest/cassandra/operating/backups.html">Backup &amp; restore <span class="link-arrow">→</span></a></li>
+              <li><a href="/doc/latest/cassandra/troubleshooting/index.html">Troubleshooting <span class="link-arrow">→</span></a></li>
+            </ul>
+          </div>
+
+          <div class="intent-col">
+            <h3 class="intent-col__heading">For Developers</h3>
+            <p class="intent-col__subtitle">Building applications on Cassandra</p>
+            <ul>
+              <li><a href="/doc/latest/cassandra/getting_started/index.html">Getting started <span class="link-arrow">→</span></a></li>
+              <li><a href="/doc/latest/cassandra/cql/index.html">CQL language reference <span class="link-arrow">→</span></a></li>
+              <li><a href="/doc/latest/cassandra/data_modeling/index.html">Data modeling guide <span class="link-arrow">→</span></a></li>
+              <li><a href="/doc/latest/cassandra/getting_started/drivers.html">Client drivers <span class="link-arrow">→</span></a></li>
+              <li><a href="/doc/6.0/cassandra/vector-search.html">Vector search <span class="link-arrow">→</span></a></li>
+              <li><a href="/doc/latest/cassandra/cql/dml.html">Lightweight transactions <span class="link-arrow">→</span></a></li>
+            </ul>
+          </div>
+
+          <div class="intent-col">
+            <h3 class="intent-col__heading">For Contributors</h3>
+            <p class="intent-col__subtitle">Participating in the project</p>
+            <ul>
+              <li><a href="/contribute/">How to contribute <span class="link-arrow">→</span></a></li>
+              <li><a href="https://github.com/apache/cassandra" target="_blank" rel="noopener">Source on GitHub <span class="link-arrow">↗</span></a></li>
+              <li><a href="https://issues.apache.org/jira/projects/CASSANDRA" target="_blank" rel="noopener">Issue tracker (JIRA) <span class="link-arrow">↗</span></a></li>
+              <li><a href="/contribute/review-guidelines.html">Code review guidelines <span class="link-arrow">→</span></a></li>
+              <li><a href="/contribute/docs.html">Docs contribution guide <span class="link-arrow">→</span></a></li>
+              <li><a href="/governance/">Project governance <span class="link-arrow">→</span></a></li>
+            </ul>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <hr class="rule-h">
+
+    <!-- ============================================================
+         NEWS & EVENTS
+    ============================================================ -->
+    <section class="section" aria-labelledby="news-heading">
+      <div class="container">
+        <div class="section__header">
+          <h2 class="section__title" id="news-heading">Project News</h2>
+          <div class="section__rule" aria-hidden="true"></div>
+        </div>
+
+        <div class="news-grid">
+
+          <div class="news-col">
+            <h3 class="news-col__heading">Latest from the Blog</h3>
+
+            <article class="post-item">
+              <div class="post-item__meta">March 19, 2026 &nbsp;·&nbsp; Release</div>
+              <div class="post-item__title"><a href="/blog/2026/03/19/cassandra-6.0-release.html">Apache Cassandra 6.0 is now available</a></div>
+              <p class="post-item__excerpt">The 6.0 release brings native vector search, extended lightweight transactions, and the new unified compaction strategy to production workloads.</p>
+            </article>
+
+            <article class="post-item">
+              <div class="post-item__meta">February 28, 2026 &nbsp;·&nbsp; Deep Dive</div>
+              <div class="post-item__title"><a href="/blog/2026/02/28/unified-compaction.html">Inside Unified Compaction: how the new strategy works</a></div>
+              <p class="post-item__excerpt">A detailed look at the design decisions behind the unified compaction engine, with benchmarks across read-heavy, write-heavy, and time-series workloads.</p>
+            </article>
+
+            <article class="post-item">
+              <div class="post-item__meta">February 14, 2026 &nbsp;·&nbsp; Community</div>
+              <div class="post-item__title"><a href="/blog/2026/02/14/elwt-cassandra-6.html">Extended LWT: conditional writes beyond single partitions</a></div>
+              <p class="post-item__excerpt">How the extended lightweight transaction model in 6.0 enables safe conditional writes across wider CQL patterns without external coordination.</p>
+            </article>
+
+            <article class="post-item">
+              <div class="post-item__meta">January 30, 2026 &nbsp;·&nbsp; Operations</div>
+              <div class="post-item__title"><a href="/blog/2026/01/30/cep-40-guardrails.html">CEP-40: Guardrails configuration in depth</a></div>
+              <p class="post-item__excerpt">Understanding the guardrails subsystem added in 4.0 and expanded in 5.0, and how to configure thresholds for large partitions, tombstones, and queries.</p>
+            </article>
+
+            <div style="margin-top: 1rem;">
+              <a href="/blog/" style="font-family: var(--ff-mono); font-size: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--rule-dark); padding-bottom: 0.1rem;">All blog posts →</a>
+            </div>
+          </div>
+
+          <div class="news-col">
+            <h3 class="news-col__heading">Upcoming Events</h3>
+
+            <div class="event-item">
+              <div class="event-date">
+                <span class="event-date__month">Apr</span>
+                <span class="event-date__day">08</span>
+              </div>
+              <div class="event-info">
+                <div class="event-info__title"><a href="/community/events/">Cassandra Community Meeting</a></div>
+                <div class="event-info__detail">Virtual · Apache Cassandra Zoom</div>
+              </div>
+            </div>
+
+            <div class="event-item">
+              <div class="event-date">
+                <span class="event-date__month">Apr</span>
+                <span class="event-date__day">22</span>
+              </div>
+              <div class="event-info">
+                <div class="event-info__title"><a href="https://www.apachecon.com/" target="_blank" rel="noopener">ApacheCon NA 2026</a></div>
+                <div class="event-info__detail">Denver, CO · Multi-day conference</div>
+              </div>
+            </div>
+
+            <div class="event-item">
+              <div class="event-date">
+                <span class="event-date__month">May</span>
+                <span class="event-date__day">06</span>
+              </div>
+              <div class="event-info">
+                <div class="event-info__title"><a href="/community/events/">Cassandra Summit (virtual)</a></div>
+                <div class="event-info__detail">Virtual · Community-hosted</div>
+              </div>
+            </div>
+
+            <div class="event-item">
+              <div class="event-date">
+                <span class="event-date__month">May</span>
+                <span class="event-date__day">13</span>
+              </div>
+              <div class="event-info">
+                <div class="event-info__title"><a href="/community/events/">Contributor Office Hours</a></div>
+                <div class="event-info__detail">Virtual · Open to all</div>
+              </div>
+            </div>
+
+            <div class="event-item">
+              <div class="event-date">
+                <span class="event-date__month">Jun</span>
+                <span class="event-date__day">17</span>
+              </div>
+              <div class="event-info">
+                <div class="event-info__title"><a href="/community/events/">Berlin Cassandra Meetup</a></div>
+                <div class="event-info__detail">Berlin, DE · In-person</div>
+              </div>
+            </div>
+
+            <div style="margin-top: 1rem;">
+              <a href="/community/events/" style="font-family: var(--ff-mono); font-size: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--rule-dark); padding-bottom: 0.1rem;">All events →</a>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <hr class="rule-h">
+
+    <!-- ============================================================
+         COMMUNITY
+    ============================================================ -->
+    <section class="section" aria-labelledby="community-heading">
+      <div class="container">
+        <div class="section__header">
+          <h2 class="section__title" id="community-heading">The Cassandra Community</h2>
+          <div class="section__rule" aria-hidden="true"></div>
+        </div>
+
+        <div class="community-grid">
+
+          <div class="community-col">
+            <h3 class="community-col__heading">Discussion Channels</h3>
+
+            <div class="channel-item">
+              <div class="channel-item__name"><a href="https://lists.apache.org/list.html?user@cassandra.apache.org" target="_blank" rel="noopener">User Mailing List</a></div>
+              <div class="channel-item__desc">The primary channel for questions about running and developing with Cassandra. Archived and searchable. Subscribe at user-subscribe@cassandra.apache.org.</div>
+            </div>
+
+            <div class="channel-item">
+              <div class="channel-item__name"><a href="https://lists.apache.org/list.html?dev@cassandra.apache.org" target="_blank" rel="noopener">Developer Mailing List</a></div>
+              <div class="channel-item__desc">Project discussion, CEP proposals, release planning, and contributor coordination. Subscribe at dev-subscribe@cassandra.apache.org.</div>
+            </div>
+
+            <div class="channel-item">
+              <div class="channel-item__name"><a href="https://s.apache.org/slack-invite" target="_blank" rel="noopener">ASF Slack — #cassandra</a></div>
+              <div class="channel-item__desc">Real-time discussion in the Apache Software Foundation Slack workspace. Join the <code>#cassandra</code>, <code>#cassandra-dev</code>, and <code>#cassandra-events</code> channels.</div>
+            </div>
+
+            <div class="channel-item">
+              <div class="channel-item__name"><a href="https://stackoverflow.com/questions/tagged/cassandra" target="_blank" rel="noopener">Stack Overflow</a></div>
+              <div class="channel-item__desc">Q&amp;A for specific technical problems. Use the <code>cassandra</code> tag. Good for questions with a clear answer; use the mailing list for open-ended discussion.</div>
+            </div>
+          </div>
+
+          <div class="community-col">
+            <h3 class="community-col__heading">How to Contribute</h3>
+
+            <ol class="contribute-steps">
+              <li><strong>Start with the docs or JIRA.</strong> Good first contributions are often documentation improvements, test coverage, or triage help on open issues.</li>
+              <li><strong>Subscribe to the dev list.</strong> Project decisions happen on the mailing list. Reading the archive gives context before writing code.</li>
+              <li><strong>Read the contributing guide.</strong> Covers code style, commit messages, ticket etiquette, and the review process before you open a patch.</li>
+              <li><strong>Open a JIRA ticket</strong> for any non-trivial change before writing code. Aligns the work with project direction and avoids wasted effort.</li>
+              <li><strong>Submit a GitHub pull request</strong> against <a href="https://github.com/apache/cassandra" target="_blank" rel="noopener">apache/cassandra</a>. Tag the JIRA ticket and request a review on the dev list.</li>
+            </ol>
+
+            <p style="margin-top: 1rem; font-size: 0.875rem; color: var(--ink-muted);">
+              Governance is handled by the <a href="/governance/pmc.html">Project Management Committee (PMC)</a>. New committers are nominated by existing committers and voted in by the PMC. The project operates under the <a href="https://www.apache.org/foundation/how-it-works.html" target="_blank" rel="noopener">Apache Way</a>.
+            </p>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <hr class="rule-h">
+
+    <!-- ============================================================
+         FEATURE REFERENCE
+    ============================================================ -->
+    <section class="section" aria-labelledby="features-heading">
+      <div class="container">
+        <div class="section__header">
+          <h2 class="section__title" id="features-heading">Architectural Properties</h2>
+          <div class="section__rule" aria-hidden="true"></div>
+        </div>
+
+        <div class="features-grid">
+
+          <div class="feature-item">
+            <div class="feature-item__name">Distributed</div>
+            <div class="feature-item__desc">Every node in a Cassandra cluster is identical. There is no single point of failure, no primary node, and no coordination bottleneck for writes or reads.</div>
+          </div>
+
+          <div class="feature-item">
+            <div class="feature-item__name">Fault Tolerant</div>
+            <div class="feature-item__desc">Data is automatically replicated across multiple nodes and optionally across data centers. Node failures are transparent to applications and handled without operator intervention.</div>
+          </div>
+
+          <div class="feature-item">
+            <div class="feature-item__name">Performant</div>
+            <div class="feature-item__desc">Writes and reads are served from memory-resident structures before being persisted. Benchmark consistently shows sub-millisecond p99 latency at sustained throughput.</div>
+          </div>
+
+          <div class="feature-item">
+            <div class="feature-item__name">Scalable</div>
+            <div class="feature-item__desc">Capacity scales linearly by adding nodes. A cluster can grow from three nodes to hundreds without schema changes, downtime, or rebalancing operations.</div>
+          </div>
+
+          <div class="feature-item">
+            <div class="feature-item__name">Elastic</div>
+            <div class="feature-item__desc">Nodes join and leave the cluster transparently. Virtual nodes distribute data automatically, making expansion and contraction operationally straightforward.</div>
+          </div>
+
+          <div class="feature-item">
+            <div class="feature-item__name">Secure</div>
+            <div class="feature-item__desc">Client-to-node and node-to-node TLS encryption, pluggable authentication, role-based authorization, and auditable access controls are available out of the box.</div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         GOVERNANCE BRIEF
+    ============================================================ -->
+    <div class="governance-strip" role="complementary" aria-label="Project governance">
+      <div class="container">
+        <div class="governance-strip__heading">Governance</div>
+        <p class="governance-strip__text">
+          Apache Cassandra is governed by a <a href="/governance/pmc.html">Project Management Committee (PMC)</a> under the
+          <a href="https://www.apache.org/" target="_blank" rel="noopener">Apache Software Foundation</a>.
+          The PMC oversees the release process, committer nominations, and project direction.
+          Development decisions are made by <a href="/governance/consensus.html">consensus on the public mailing list</a>.
+          All committers and PMC members are listed on the
+          <a href="https://people.apache.org/phonebook.cgi?project=cassandra" target="_blank" rel="noopener">ASF phonebook</a>.
+          Cassandra Enhancement Proposals (CEPs) are the mechanism for significant changes to the project;
+          all accepted and in-progress CEPs are tracked in the <a href="/governance/cep/">CEP index</a>.
+        </p>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ============================================================
+       FOOTER
+  ============================================================ -->
+  <footer class="footer" role="contentinfo">
+    <div class="container">
+
+      <div class="footer__grid">
+
+        <div>
+          <span class="footer-masthead">Apache Cassandra<sup style="font-size: 0.45em; font-weight: 400;">®</sup></span>
+          <p class="footer__about">
+            A distributed NoSQL database management system designed to handle large amounts of data across many commodity servers, providing high availability with no single point of failure. A top-level Apache Software Foundation project since 2010.
+          </p>
+        </div>
+
+        <div>
+          <div class="footer__col-heading">Documentation</div>
+          <ul>
+            <li><a href="/doc/6.0/">Cassandra 6.0 Docs</a></li>
+            <li><a href="/doc/5.0/">Cassandra 5.0 Docs</a></li>
+            <li><a href="/doc/4.1/">Cassandra 4.1 LTS Docs</a></li>
+            <li><a href="/doc/latest/cassandra/cql/">CQL Reference</a></li>
+            <li><a href="/doc/latest/cassandra/data_modeling/">Data Modeling</a></li>
+            <li><a href="/doc/latest/cassandra/getting_started/">Getting Started</a></li>
+          </ul>
+        </div>
+
+        <div>
+          <div class="footer__col-heading">Project</div>
+          <ul>
+            <li><a href="/download/">Downloads</a></li>
+            <li><a href="/community/">Community</a></li>
+            <li><a href="/contribute/">Contribute</a></li>
+            <li><a href="/governance/">Governance</a></li>
+            <li><a href="/governance/cep/">CEP Index</a></li>
+            <li><a href="/blog/">Blog</a></li>
+          </ul>
+        </div>
+
+        <div>
+          <div class="footer__col-heading">Foundation</div>
+          <ul>
+            <li><a href="https://www.apache.org/" target="_blank" rel="noopener">Apache Software Foundation</a></li>
+            <li><a href="https://www.apache.org/licenses/" target="_blank" rel="noopener">License</a></li>
+            <li><a href="https://www.apache.org/events/current-event" target="_blank" rel="noopener">ASF Events</a></li>
+            <li><a href="https://www.apache.org/security/" target="_blank" rel="noopener">Security</a></li>
+            <li><a href="https://privacy.apache.org/policies/privacy-policy-public.html" target="_blank" rel="noopener">Privacy</a></li>
+            <li><a href="https://www.apache.org/foundation/sponsorship.html" target="_blank" rel="noopener">Sponsorship</a></li>
+          </ul>
+        </div>
+
+      </div>
+
+      <div class="footer__bottom">
+        <div class="footer__legal">
+          <p>Copyright &copy; 2009&ndash;2026 The Apache Software Foundation. Licensed under the <a href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank" rel="noopener">Apache License, Version 2.0</a>.</p>
+          <p style="margin-top: 0.35rem;">Apache Cassandra, Cassandra, Apache, the Apache feather logo, and the Apache Cassandra logo are trademarks of The Apache Software Foundation. All other trademarks are the property of their respective owners.</p>
+        </div>
+        <div class="footer__social" aria-label="Social and source links">
+          <a href="https://github.com/apache/cassandra" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://bsky.app/profile/cassandra.apache.org" target="_blank" rel="noopener">Bluesky</a>
+          <a href="https://www.linkedin.com/groups/1297775/" target="_blank" rel="noopener">LinkedIn</a>
+          <a href="https://www.youtube.com/@ApacheCassandra" target="_blank" rel="noopener">YouTube</a>
+        </div>
+      </div>
+
+    </div>
+  </footer>
+
+</body>
+</html>

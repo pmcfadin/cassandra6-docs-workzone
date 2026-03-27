@@ -1,0 +1,1453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Apache Cassandra — Distributed Database</title>
+  <meta name="description" content="Apache Cassandra is the open source distributed database for massive-scale, mission-critical data.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+  <style>
+    /* ─── Reset & Base ─────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --white:   #ffffff;
+      --charcoal: #2d2d2d;
+      --teal:    #00838f;
+      --teal-dark: #006570;
+      --yellow:  #ffd600;
+      --gray-bg: #f5f5f5;
+      --border:  #e0e0e0;
+      --text-secondary: #616161;
+      --font-display: 'Instrument Sans', system-ui, sans-serif;
+      --font-body: 'Atkinson Hyperlegible', Georgia, serif;
+    }
+
+    html { font-size: 16px; scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font-body);
+      color: var(--charcoal);
+      background: var(--white);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: var(--teal); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    a:focus-visible {
+      outline: 2px solid var(--teal);
+      outline-offset: 2px;
+      border-radius: 2px;
+    }
+
+    /* ─── Typography Scale ──────────────────────────────────────── */
+    .display {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: clamp(3rem, 6vw, 5.5rem);
+      line-height: 1.05;
+      letter-spacing: -0.03em;
+      color: var(--charcoal);
+    }
+
+    .heading-2 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: clamp(1.5rem, 2.5vw, 2rem);
+      line-height: 1.2;
+      letter-spacing: -0.02em;
+    }
+
+    .heading-3 {
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 1.125rem;
+      line-height: 1.3;
+      letter-spacing: -0.01em;
+    }
+
+    .label {
+      font-family: var(--font-display);
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .body-large {
+      font-size: 1.125rem;
+      line-height: 1.7;
+    }
+
+    .body-small {
+      font-size: 0.875rem;
+      line-height: 1.6;
+    }
+
+    .caption {
+      font-family: var(--font-display);
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      letter-spacing: 0.02em;
+    }
+
+    /* ─── Layout Utilities ──────────────────────────────────────── */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 2rem;
+    }
+
+    .container-wide {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 0 2rem;
+    }
+
+    /* ─── Buttons ───────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 0.9375rem;
+      padding: 0.6875rem 1.5rem;
+      border-radius: 3px;
+      cursor: pointer;
+      transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+      white-space: nowrap;
+      text-decoration: none;
+    }
+
+    .btn:hover { text-decoration: none; }
+
+    .btn-primary {
+      background: var(--yellow);
+      color: var(--charcoal);
+      border: 2px solid var(--yellow);
+    }
+
+    .btn-primary:hover {
+      background: #e6c200;
+      border-color: #e6c200;
+      color: var(--charcoal);
+    }
+
+    .btn-outline {
+      background: transparent;
+      color: var(--charcoal);
+      border: 2px solid var(--charcoal);
+    }
+
+    .btn-outline:hover {
+      background: var(--charcoal);
+      color: var(--white);
+    }
+
+    .btn-teal {
+      background: var(--teal);
+      color: var(--white);
+      border: 2px solid var(--teal);
+    }
+
+    .btn-teal:hover {
+      background: var(--teal-dark);
+      border-color: var(--teal-dark);
+    }
+
+    .btn-nav {
+      background: var(--yellow);
+      color: var(--charcoal);
+      border: 2px solid var(--yellow);
+      padding: 0.4375rem 1rem;
+      font-size: 0.875rem;
+      border-radius: 100px;
+    }
+
+    .btn-nav:hover {
+      background: #e6c200;
+      border-color: #e6c200;
+    }
+
+    /* ─── Navigation ────────────────────────────────────────────── */
+    .site-nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--white);
+      border-bottom: 2px solid var(--teal);
+    }
+
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 2rem;
+    }
+
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      text-decoration: none;
+    }
+
+    .nav-logo:hover { text-decoration: none; }
+
+    .logo-mark {
+      width: 32px;
+      height: 32px;
+      flex-shrink: 0;
+    }
+
+    .logo-text {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 1.0625rem;
+      color: var(--charcoal);
+      line-height: 1.2;
+    }
+
+    .logo-sub {
+      font-family: var(--font-display);
+      font-size: 0.6875rem;
+      font-weight: 400;
+      color: var(--text-secondary);
+      letter-spacing: 0.04em;
+      display: block;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      list-style: none;
+    }
+
+    .nav-links a {
+      font-family: var(--font-display);
+      font-size: 0.9375rem;
+      font-weight: 500;
+      color: var(--charcoal);
+      padding: 0.375rem 0.75rem;
+      border-radius: 3px;
+      transition: background 0.12s ease;
+    }
+
+    .nav-links a:hover {
+      background: var(--gray-bg);
+      text-decoration: none;
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .nav-icon-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 3px;
+      color: var(--charcoal);
+      transition: background 0.12s ease;
+    }
+
+    .nav-icon-btn:hover {
+      background: var(--gray-bg);
+      text-decoration: none;
+    }
+
+    /* ─── Hero ──────────────────────────────────────────────────── */
+    .hero {
+      padding: 5rem 0 4rem;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .hero-inner {
+      display: grid;
+      grid-template-columns: 1fr 420px;
+      gap: 4rem;
+      align-items: center;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 2rem;
+    }
+
+    .hero-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--teal);
+      margin-bottom: 1.5rem;
+    }
+
+    .hero-label::before {
+      content: '';
+      display: block;
+      width: 20px;
+      height: 2px;
+      background: var(--teal);
+    }
+
+    .hero h1 {
+      margin-bottom: 1.25rem;
+    }
+
+    .hero-subtitle {
+      color: var(--text-secondary);
+      margin-bottom: 2.5rem;
+      max-width: 540px;
+    }
+
+    .hero-actions {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    /* Hexagonal background motif */
+    .hex-bg {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .hex-grid-svg {
+      width: 100%;
+      max-width: 420px;
+      height: auto;
+      opacity: 0.08;
+    }
+
+    .hex-center-mark {
+      position: absolute;
+      width: 80px;
+      height: 80px;
+      opacity: 0.5;
+    }
+
+    /* ─── Version Strip ─────────────────────────────────────────── */
+    .version-strip {
+      background: var(--gray-bg);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      padding: 0.875rem 0;
+    }
+
+    .version-strip-inner {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 2rem;
+      flex-wrap: wrap;
+    }
+
+    .version-strip .label {
+      color: var(--text-secondary);
+      margin-right: 0.5rem;
+    }
+
+    .version-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.375rem;
+      font-family: var(--font-display);
+      font-size: 0.8125rem;
+      font-weight: 500;
+      padding: 0.1875rem 0.625rem;
+      border-radius: 100px;
+      border: 1px solid var(--border);
+      color: var(--charcoal);
+      background: var(--white);
+      text-decoration: none;
+      transition: border-color 0.12s;
+    }
+
+    .version-pill:hover {
+      border-color: var(--teal);
+      color: var(--teal);
+      text-decoration: none;
+    }
+
+    .version-pill.current {
+      border-color: var(--teal);
+      background: var(--teal);
+      color: var(--white);
+    }
+
+    .version-pill.current:hover {
+      background: var(--teal-dark);
+    }
+
+    .version-dot {
+      color: var(--border);
+      user-select: none;
+    }
+
+    /* ─── Route by Intent ───────────────────────────────────────── */
+    .section {
+      padding: 5rem 0;
+    }
+
+    .section-alt {
+      background: var(--gray-bg);
+    }
+
+    .section-header {
+      margin-bottom: 3rem;
+    }
+
+    .section-header .label {
+      color: var(--teal);
+      display: block;
+      margin-bottom: 0.75rem;
+    }
+
+    .intent-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.5px;
+      background: var(--border);
+    }
+
+    .intent-card {
+      background: var(--white);
+      padding: 2.25rem;
+      border-left: 4px solid var(--teal);
+      transition: border-left-color 0.15s ease;
+      position: relative;
+    }
+
+    .intent-card:hover {
+      border-left-color: var(--yellow);
+    }
+
+    .intent-icon {
+      width: 40px;
+      height: 40px;
+      margin-bottom: 1.25rem;
+      color: var(--teal);
+    }
+
+    .intent-card h3 {
+      margin-bottom: 0.625rem;
+      font-size: 1.25rem;
+    }
+
+    .intent-card p {
+      color: var(--text-secondary);
+      font-size: 0.9375rem;
+      line-height: 1.65;
+      margin-bottom: 1.5rem;
+    }
+
+    .arrow-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.375rem;
+      font-family: var(--font-display);
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--teal);
+      transition: gap 0.15s ease;
+    }
+
+    .arrow-link:hover {
+      gap: 0.625rem;
+      text-decoration: none;
+    }
+
+    .arrow-link svg {
+      flex-shrink: 0;
+    }
+
+    /* ─── Hexagonal Feature Grid ────────────────────────────────── */
+    .hex-section {
+      padding: 5rem 0;
+      background: var(--charcoal);
+    }
+
+    .hex-section .section-header .label {
+      color: rgba(255,255,255,0.5);
+    }
+
+    .hex-section .heading-2 {
+      color: var(--white);
+    }
+
+    .hex-section .section-header p {
+      color: rgba(255,255,255,0.6);
+    }
+
+    /*
+      Honeycomb layout:
+      Row 1: 3 hexagons centered
+      Row 2: 3 hexagons offset (shifted right by half hex width + gap)
+      We use CSS clip-path for actual hex shape.
+    */
+    .hex-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 180px);
+      gap: 0;
+      justify-content: center;
+      position: relative;
+    }
+
+    .hex-row {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+    }
+
+    .hex-row:nth-child(2) {
+      margin-top: -28px;
+      margin-left: 98px;
+    }
+
+    .hex-item {
+      width: 180px;
+      height: 204px;
+      clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+      background: rgba(255,255,255,0.07);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 2rem 1.5rem;
+      cursor: default;
+      transition: background 0.2s ease;
+      position: relative;
+    }
+
+    .hex-item:hover {
+      background: var(--teal);
+    }
+
+    .hex-item:hover .hex-icon {
+      color: var(--white);
+    }
+
+    .hex-item:hover .hex-title {
+      color: var(--white);
+    }
+
+    .hex-item:hover .hex-desc {
+      color: rgba(255,255,255,0.85);
+    }
+
+    .hex-icon {
+      color: var(--teal);
+      margin-bottom: 0.625rem;
+      transition: color 0.2s ease;
+    }
+
+    .hex-title {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 0.9375rem;
+      letter-spacing: -0.01em;
+      color: var(--white);
+      margin-bottom: 0.375rem;
+      transition: color 0.2s ease;
+    }
+
+    .hex-desc {
+      font-size: 0.75rem;
+      color: rgba(255,255,255,0.45);
+      line-height: 1.5;
+      transition: color 0.2s ease;
+    }
+
+    /* ─── Community Hub ─────────────────────────────────────────── */
+    .community-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      background: var(--border);
+      margin-bottom: 3rem;
+    }
+
+    .community-card {
+      background: var(--white);
+      padding: 1.75rem;
+      transition: background 0.15s ease;
+    }
+
+    .community-card:hover {
+      background: var(--gray-bg);
+    }
+
+    .community-icon {
+      width: 40px;
+      height: 40px;
+      margin-bottom: 1rem;
+      color: var(--teal);
+    }
+
+    .community-card h4 {
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 1rem;
+      margin-bottom: 0.375rem;
+    }
+
+    .community-card p {
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+      margin-bottom: 1rem;
+      line-height: 1.55;
+    }
+
+    .community-cta {
+      margin-top: 2rem;
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+    }
+
+    .governance-note {
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+      padding-top: 0.25rem;
+    }
+
+    /* ─── Project Health Strip ──────────────────────────────────── */
+    .health-strip {
+      background: var(--charcoal);
+      padding: 2.5rem 0;
+    }
+
+    .health-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      background: rgba(255,255,255,0.08);
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .health-item {
+      padding: 1.5rem 2rem;
+      background: var(--charcoal);
+    }
+
+    .health-value {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 2rem;
+      color: var(--white);
+      letter-spacing: -0.03em;
+      line-height: 1;
+      margin-bottom: 0.375rem;
+    }
+
+    .health-label {
+      font-family: var(--font-display);
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: rgba(255,255,255,0.45);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .health-link {
+      display: block;
+      margin-top: 0.5rem;
+      font-size: 0.8125rem;
+      color: var(--teal);
+      text-decoration: none;
+    }
+
+    .health-link:hover {
+      color: #00b0bf;
+      text-decoration: none;
+    }
+
+    /* ─── Footer ────────────────────────────────────────────────── */
+    .site-footer {
+      background: #1a1a1a;
+      padding: 4rem 0 2rem;
+    }
+
+    .footer-grid {
+      display: grid;
+      grid-template-columns: 2fr repeat(4, 1fr);
+      gap: 3rem;
+      margin-bottom: 3rem;
+    }
+
+    .footer-brand h3 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 1rem;
+      color: var(--white);
+      margin-bottom: 0.75rem;
+    }
+
+    .footer-brand p {
+      font-size: 0.875rem;
+      color: rgba(255,255,255,0.45);
+      line-height: 1.7;
+      max-width: 280px;
+      margin-bottom: 1.25rem;
+    }
+
+    .footer-social {
+      display: flex;
+      gap: 0.75rem;
+    }
+
+    .footer-social a {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 3px;
+      color: rgba(255,255,255,0.5);
+      transition: border-color 0.15s, color 0.15s;
+    }
+
+    .footer-social a:hover {
+      border-color: var(--teal);
+      color: var(--teal);
+      text-decoration: none;
+    }
+
+    .footer-col h4 {
+      font-family: var(--font-display);
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.35);
+      margin-bottom: 1rem;
+    }
+
+    .footer-col ul {
+      list-style: none;
+    }
+
+    .footer-col li {
+      margin-bottom: 0.5rem;
+    }
+
+    .footer-col a {
+      font-size: 0.875rem;
+      color: rgba(255,255,255,0.55);
+      transition: color 0.12s;
+    }
+
+    .footer-col a:hover {
+      color: var(--white);
+      text-decoration: none;
+    }
+
+    .footer-bottom {
+      border-top: 1px solid rgba(255,255,255,0.08);
+      padding-top: 1.5rem;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .footer-legal {
+      font-size: 0.8125rem;
+      color: rgba(255,255,255,0.3);
+      line-height: 1.7;
+      max-width: 680px;
+    }
+
+    .footer-legal a {
+      color: rgba(255,255,255,0.4);
+    }
+
+    .footer-legal a:hover {
+      color: rgba(255,255,255,0.7);
+    }
+
+    .footer-asf {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 0.5rem;
+    }
+
+    .asf-feather {
+      opacity: 0.3;
+    }
+
+    /* ─── Responsive ────────────────────────────────────────────── */
+    @media (max-width: 960px) {
+      .hero-inner {
+        grid-template-columns: 1fr;
+      }
+
+      .hex-bg {
+        display: none;
+      }
+
+      .intent-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .community-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .health-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .footer-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 2rem;
+      }
+
+      .footer-brand {
+        grid-column: 1 / -1;
+      }
+
+      .hex-row:nth-child(2) {
+        margin-left: 50px;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .nav-links { display: none; }
+
+      .community-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .health-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .footer-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .hex-row {
+        gap: 8px;
+      }
+
+      .hex-item {
+        width: 130px;
+        height: 148px;
+      }
+
+      .hex-row:nth-child(2) {
+        margin-top: -20px;
+        margin-left: 36px;
+      }
+
+      .footer-asf {
+        align-items: flex-start;
+      }
+
+      .footer-bottom {
+        flex-direction: column;
+      }
+
+      .version-strip-inner {
+        gap: 0.375rem;
+      }
+    }
+
+    /* ─── Subtle hex background motif ──────────────────────────── */
+    .hex-motif {
+      position: absolute;
+      top: -80px;
+      right: -40px;
+      width: 560px;
+      height: 560px;
+      opacity: 0.035;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .hero-content {
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ─── Divider ───────────────────────────────────────────────── */
+    .rule {
+      border: none;
+      border-top: 1px solid var(--border);
+    }
+
+    /* ─── Small tag badge ───────────────────────────────────────── */
+    .badge {
+      display: inline-block;
+      font-family: var(--font-display);
+      font-size: 0.6875rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      background: var(--teal);
+      color: var(--white);
+      padding: 0.125rem 0.5rem;
+      border-radius: 2px;
+      vertical-align: middle;
+    }
+
+    .badge-yellow {
+      background: var(--yellow);
+      color: var(--charcoal);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ─── Navigation ─────────────────────────────────────────── -->
+  <header>
+    <nav class="site-nav" role="navigation" aria-label="Main navigation">
+      <div class="nav-inner">
+
+        <a href="/" class="nav-logo" aria-label="Apache Cassandra home">
+          <svg class="logo-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+            <!-- Simplified hex/ring motif for logo -->
+            <polygon points="16,2 28,9 28,23 16,30 4,23 4,9" fill="none" stroke="#00838f" stroke-width="2"/>
+            <polygon points="16,8 23,12 23,20 16,24 9,20 9,12" fill="#00838f"/>
+            <polygon points="16,11 20,13.5 20,18.5 16,21 12,18.5 12,13.5" fill="white"/>
+          </svg>
+          <span>
+            <span class="logo-text">Apache Cassandra<sup style="font-size:0.6em; vertical-align:super;">®</sup></span>
+            <span class="logo-sub">Apache Software Foundation</span>
+          </span>
+        </a>
+
+        <ul class="nav-links" role="list">
+          <li><a href="/docs/">Docs</a></li>
+          <li><a href="/download/">Downloads</a></li>
+          <li><a href="/community/">Community</a></li>
+          <li><a href="/contributing/">Contribute</a></li>
+          <li><a href="/governance/">Governance</a></li>
+        </ul>
+
+        <div class="nav-actions">
+          <a href="/search/" class="nav-icon-btn" aria-label="Search">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+          </a>
+          <a href="https://github.com/apache/cassandra" class="nav-icon-btn" aria-label="GitHub" target="_blank" rel="noopener">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+            </svg>
+          </a>
+          <a href="/docs/quickstart/" class="btn btn-nav">Get Started</a>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+
+  <main>
+
+    <!-- ─── Hero ───────────────────────────────────────────────── -->
+    <section class="hero" aria-labelledby="hero-heading">
+
+      <!-- Background hex motif (decorative) -->
+      <svg class="hex-motif" viewBox="0 0 560 560" fill="none" aria-hidden="true">
+        <defs>
+          <pattern id="hex-pattern" x="0" y="0" width="60" height="69.28" patternUnits="userSpaceOnUse">
+            <polygon points="30,0 60,17.32 60,51.96 30,69.28 0,51.96 0,17.32" fill="none" stroke="#00838f" stroke-width="1"/>
+          </pattern>
+          <pattern id="hex-pattern-2" x="30" y="34.64" width="60" height="69.28" patternUnits="userSpaceOnUse">
+            <polygon points="30,0 60,17.32 60,51.96 30,69.28 0,51.96 0,17.32" fill="none" stroke="#00838f" stroke-width="1"/>
+          </pattern>
+        </defs>
+        <rect width="560" height="560" fill="url(#hex-pattern)"/>
+        <rect width="560" height="560" fill="url(#hex-pattern-2)"/>
+      </svg>
+
+      <div class="hero-inner">
+        <div class="hero-content">
+          <p class="hero-label label" aria-label="Version 6.0 released March 2026">
+            Version 6.0 — Released March 2026
+          </p>
+
+          <h1 id="hero-heading" class="display">Apache<br>Cassandra</h1>
+
+          <p class="hero-subtitle body-large">
+            The open source distributed database for massive&#8209;scale,<br>mission&#8209;critical data.
+          </p>
+
+          <div class="hero-actions">
+            <a href="/docs/quickstart/" class="btn btn-primary">
+              Quick Start
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+              </svg>
+            </a>
+            <a href="/docs/" class="btn btn-outline">Documentation</a>
+          </div>
+        </div>
+
+        <!-- Hero hex ring illustration -->
+        <div class="hex-bg" aria-hidden="true">
+          <svg viewBox="0 0 400 400" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:100%; max-width:400px;">
+            <!-- Outer ring of hexagons — consistent hashing metaphor -->
+            <!-- Ring positions at angles 0°, 45°, 90°, 135°, 180°, 225°, 270°, 315° -->
+            <g opacity="0.08">
+              <!-- Large background hex grid -->
+              <defs>
+                <pattern id="hp2" x="0" y="0" width="46" height="53.07" patternUnits="userSpaceOnUse">
+                  <polygon points="23,1 45,13.5 45,39.5 23,52 1,39.5 1,13.5" fill="none" stroke="#00838f" stroke-width="1.5"/>
+                </pattern>
+                <pattern id="hp2b" x="23" y="26.5" width="46" height="53.07" patternUnits="userSpaceOnUse">
+                  <polygon points="23,1 45,13.5 45,39.5 23,52 1,39.5 1,13.5" fill="none" stroke="#00838f" stroke-width="1.5"/>
+                </pattern>
+              </defs>
+              <rect width="400" height="400" fill="url(#hp2)"/>
+              <rect width="400" height="400" fill="url(#hp2b)"/>
+            </g>
+            <!-- Central ring motif — more visible -->
+            <g opacity="0.5">
+              <!-- Outer ring -->
+              <circle cx="200" cy="200" r="120" fill="none" stroke="#00838f" stroke-width="1" stroke-dasharray="4 6"/>
+              <!-- Node circles on ring -->
+              <circle cx="200" cy="80" r="8" fill="#00838f" opacity="0.3"/>
+              <circle cx="304" cy="140" r="8" fill="#00838f" opacity="0.3"/>
+              <circle cx="304" cy="260" r="8" fill="#00838f" opacity="0.3"/>
+              <circle cx="200" cy="320" r="8" fill="#00838f" opacity="0.3"/>
+              <circle cx="96" cy="260" r="8" fill="#00838f" opacity="0.3"/>
+              <circle cx="96" cy="140" r="8" fill="#00838f" opacity="0.3"/>
+              <!-- Active node highlight -->
+              <circle cx="200" cy="80" r="8" fill="#00838f"/>
+              <!-- Center hex -->
+              <polygon points="200,168 224,181 224,207 200,220 176,207 176,181" fill="#00838f" opacity="0.12" stroke="#00838f" stroke-width="1.5"/>
+              <!-- Spokes -->
+              <line x1="200" y1="88" x2="200" y2="168" stroke="#00838f" stroke-width="1" opacity="0.3"/>
+              <line x1="296" y1="148" x2="224" y2="181" stroke="#00838f" stroke-width="1" opacity="0.3"/>
+              <line x1="296" y1="252" x2="224" y2="207" stroke="#00838f" stroke-width="1" opacity="0.3"/>
+              <line x1="200" y1="312" x2="200" y2="220" stroke="#00838f" stroke-width="1" opacity="0.3"/>
+              <line x1="104" y1="252" x2="176" y2="207" stroke="#00838f" stroke-width="1" opacity="0.3"/>
+              <line x1="104" y1="148" x2="176" y2="181" stroke="#00838f" stroke-width="1" opacity="0.3"/>
+            </g>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── Version Strip ──────────────────────────────────────── -->
+    <div class="version-strip" role="complementary" aria-label="Release versions">
+      <div class="version-strip-inner">
+        <span class="label">Releases</span>
+        <a href="/download/6.0/" class="version-pill current">
+          <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><circle cx="4" cy="4" r="4" fill="currentColor"/></svg>
+          6.0 current
+        </a>
+        <span class="version-dot" aria-hidden="true">·</span>
+        <a href="/download/5.0/" class="version-pill">5.0.4 stable</a>
+        <span class="version-dot" aria-hidden="true">·</span>
+        <a href="/download/4.1/" class="version-pill">4.1.8 LTS</a>
+        <span class="version-dot" aria-hidden="true">·</span>
+        <a href="/download/" class="arrow-link" style="margin-left:0.25rem;">
+          All releases
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+          </svg>
+        </a>
+      </div>
+    </div>
+
+    <!-- ─── Route by Intent ────────────────────────────────────── -->
+    <section class="section" aria-labelledby="intent-heading">
+      <div class="container">
+        <div class="section-header">
+          <span class="label">Start Here</span>
+          <h2 id="intent-heading" class="heading-2">Where do you want to go?</h2>
+        </div>
+
+        <div class="intent-grid" role="list">
+
+          <article class="intent-card" role="listitem">
+            <svg class="intent-icon" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <!-- Server stack icon -->
+              <rect x="6" y="8" width="28" height="8" rx="2"/>
+              <rect x="6" y="20" width="28" height="8" rx="2"/>
+              <rect x="6" y="32" width="28" height="4" rx="2"/>
+              <circle cx="32" cy="12" r="1.5" fill="currentColor" stroke="none"/>
+              <circle cx="32" cy="24" r="1.5" fill="currentColor" stroke="none"/>
+            </svg>
+            <h3 class="heading-3">Operate</h3>
+            <p>Deploy, configure, monitor, and scale Cassandra clusters. Installation, tuning, backup, and production operations.</p>
+            <a href="/docs/operation/" class="arrow-link">
+              Operations guide
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+              </svg>
+            </a>
+          </article>
+
+          <article class="intent-card" role="listitem">
+            <svg class="intent-icon" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <!-- Code brackets -->
+              <polyline points="14,10 6,20 14,30"/>
+              <polyline points="26,10 34,20 26,30"/>
+              <line x1="18" y1="6" x2="22" y2="34"/>
+            </svg>
+            <h3 class="heading-3">Develop</h3>
+            <p>Build applications using Cassandra drivers and CQL. Schema design, data modeling, query patterns, and client libraries.</p>
+            <a href="/docs/developer/" class="arrow-link">
+              Developer guide
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+              </svg>
+            </a>
+          </article>
+
+          <article class="intent-card" role="listitem">
+            <svg class="intent-icon" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <!-- People/community icon -->
+              <circle cx="15" cy="13" r="5"/>
+              <circle cx="27" cy="13" r="5"/>
+              <path d="M5 32c0-5.523 4.477-10 10-10h10c5.523 0 10 4.477 10 10"/>
+            </svg>
+            <h3 class="heading-3">Contribute</h3>
+            <p>Join the development effort — review code, fix bugs, improve documentation, and help shape the project roadmap.</p>
+            <a href="/contributing/" class="arrow-link">
+              Contribution guide
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+              </svg>
+            </a>
+          </article>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── Hexagonal Feature Grid ────────────────────────────── -->
+    <section class="hex-section" aria-labelledby="features-heading">
+      <div class="container">
+        <div class="section-header" style="margin-bottom:3.5rem;">
+          <span class="label">Architecture</span>
+          <h2 id="features-heading" class="heading-2" style="color:white; margin-top:0.5rem;">
+            Built for the demands<br>of production at scale.
+          </h2>
+          <p style="margin-top:1rem; max-width:480px;">
+            Every design decision in Cassandra reflects a commitment to operational reliability, linear scalability, and no single point of failure.
+          </p>
+        </div>
+
+        <!-- Honeycomb row 1: 3 hexagons -->
+        <div aria-label="Feature highlights">
+          <div class="hex-row" role="list">
+            <div class="hex-item" role="listitem" tabindex="0">
+              <svg class="hex-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="2" y1="12" x2="22" y2="12"/>
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+              </svg>
+              <span class="hex-title">Distributed</span>
+              <span class="hex-desc">Masterless peer-to-peer architecture across any number of nodes</span>
+            </div>
+
+            <div class="hex-item" role="listitem" tabindex="0">
+              <svg class="hex-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              </svg>
+              <span class="hex-title">Fault Tolerant</span>
+              <span class="hex-desc">Data replicated across multiple nodes and data centers</span>
+            </div>
+
+            <div class="hex-item" role="listitem" tabindex="0">
+              <svg class="hex-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+              </svg>
+              <span class="hex-title">Performant</span>
+              <span class="hex-desc">Sub-millisecond writes optimized for high-throughput workloads</span>
+            </div>
+          </div>
+
+          <!-- Honeycomb row 2: 3 hexagons offset -->
+          <div class="hex-row" role="list">
+            <div class="hex-item" role="listitem" tabindex="0">
+              <svg class="hex-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+              </svg>
+              <span class="hex-title">Scalable</span>
+              <span class="hex-desc">Linear throughput growth as nodes are added to the cluster</span>
+            </div>
+
+            <div class="hex-item" role="listitem" tabindex="0">
+              <svg class="hex-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M18 20V10"/>
+                <path d="M12 20V4"/>
+                <path d="M6 20v-6"/>
+              </svg>
+              <span class="hex-title">Elastic</span>
+              <span class="hex-desc">Add or remove capacity without downtime or rebalancing</span>
+            </div>
+
+            <div class="hex-item" role="listitem" tabindex="0">
+              <svg class="hex-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+              <span class="hex-title">Secure</span>
+              <span class="hex-desc">TLS encryption, role-based authentication, and audit logging</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ─── Community Hub ──────────────────────────────────────── -->
+    <section class="section" aria-labelledby="community-heading">
+      <div class="container">
+        <div class="section-header">
+          <span class="label">Community</span>
+          <h2 id="community-heading" class="heading-2">Join the community.</h2>
+          <p style="margin-top:0.75rem; max-width:520px; color:var(--text-secondary);">
+            Cassandra is built and maintained by a global community of contributors. Discussion happens in the open, across several channels.
+          </p>
+        </div>
+
+        <div class="community-grid" role="list">
+
+          <article class="community-card" role="listitem">
+            <svg class="community-icon" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="5" y="10" width="30" height="22" rx="3"/>
+              <polyline points="5,14 20,24 35,14"/>
+            </svg>
+            <h4>Mailing Lists</h4>
+            <p>The primary venue for development discussion, announcements, and project decisions.</p>
+            <a href="https://cassandra.apache.org/_/community.html" class="arrow-link">
+              Subscribe
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+              </svg>
+            </a>
+          </article>
+
+          <article class="community-card" role="listitem">
+            <svg class="community-icon" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M8,30 C4,30 4,22 8,18 C8,10 14,6 20,6 C26,6 32,10 32,18 C36,22 36,30 32,30 L8,30Z"/>
+              <line x1="14" y1="22" x2="26" y2="22"/>
+              <line x1="14" y1="17" x2="22" y2="17"/>
+            </svg>
+            <h4>Slack</h4>
+            <p>Real-time conversation with contributors, users, and committers. Ask questions, share ideas.</p>
+            <a href="https://the-asf.slack.com/app_redirect?channel=cassandra" class="arrow-link" target="_blank" rel="noopener">
+              Join #cassandra
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+              </svg>
+            </a>
+          </article>
+
+          <article class="community-card" role="listitem">
+            <svg class="community-icon" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <!-- Stack Overflow logo-ish -->
+              <rect x="10" y="26" width="20" height="3" rx="1"/>
+              <rect x="10" y="30" width="20" height="4" rx="1" fill="none"/>
+              <line x1="13" y1="23" x2="27" y2="24.5" stroke="currentColor"/>
+              <line x1="14" y1="18" x2="27" y2="21" stroke="currentColor"/>
+              <line x1="17" y1="14" x2="28" y2="19" stroke="currentColor"/>
+            </svg>
+            <h4>Stack Overflow</h4>
+            <p>Technical questions and answers. Use the <code style="font-size:0.8em; background:var(--gray-bg); padding:0.1em 0.3em; border-radius:2px;">cassandra</code> tag for best reach.</p>
+            <a href="https://stackoverflow.com/questions/tagged/cassandra" class="arrow-link" target="_blank" rel="noopener">
+              Browse questions
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+              </svg>
+            </a>
+          </article>
+
+          <article class="community-card" role="listitem">
+            <svg class="community-icon" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="20" cy="20" r="14"/>
+              <path d="M14 27c0-3.314 2.686-6 6-6s6 2.686 6 6"/>
+              <circle cx="20" cy="17" r="4"/>
+            </svg>
+            <h4>GitHub Discussions</h4>
+            <p>Feature proposals, long-form design discussions, and community announcements.</p>
+            <a href="https://github.com/apache/cassandra/discussions" class="arrow-link" target="_blank" rel="noopener">
+              Open discussions
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+              </svg>
+            </a>
+          </article>
+
+        </div>
+
+        <div class="community-cta">
+          <a href="/contributing/" class="btn btn-teal">
+            Contribution guide
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+            </svg>
+          </a>
+          <p class="governance-note">
+            Apache Cassandra is governed under the <a href="https://www.apache.org/foundation/how-it-works.html">Apache Software Foundation meritocracy model</a>.
+            See the <a href="/governance/">project governance page</a> for PMC members, committers, and decision-making process.
+          </p>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ─── Project Health Strip ───────────────────────────────── -->
+    <div class="health-strip" role="complementary" aria-label="Project health metrics">
+      <div class="health-grid">
+        <div class="health-item">
+          <div class="health-value">17+</div>
+          <div class="health-label">Years in production</div>
+          <a href="/history/" class="health-link">Project timeline</a>
+        </div>
+        <div class="health-item">
+          <div class="health-value">450+</div>
+          <div class="health-label">Contributors</div>
+          <a href="https://github.com/apache/cassandra/graphs/contributors" class="health-link" target="_blank" rel="noopener">View on GitHub</a>
+        </div>
+        <div class="health-item">
+          <div class="health-value">9.2k</div>
+          <div class="health-label">GitHub stars</div>
+          <a href="https://github.com/apache/cassandra" class="health-link" target="_blank" rel="noopener">apache/cassandra</a>
+        </div>
+        <div class="health-item">
+          <div class="health-value">Mar 2026</div>
+          <div class="health-label">Latest release</div>
+          <a href="/download/" class="health-link">Release notes</a>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ─── Footer ────────────────────────────────────────────────── -->
+  <footer class="site-footer" role="contentinfo">
+    <div class="container">
+
+      <div class="footer-grid">
+
+        <div class="footer-brand">
+          <h3>Apache Cassandra<sup style="font-size:0.65em; vertical-align:super;">®</sup></h3>
+          <p>
+            An open source distributed NoSQL database managed by thousands of contributors and The Apache Software Foundation. Released under the Apache License 2.0.
+          </p>
+          <div class="footer-social" aria-label="Social links">
+            <a href="https://github.com/apache/cassandra" aria-label="GitHub" target="_blank" rel="noopener">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+              </svg>
+            </a>
+            <a href="https://twitter.com/cassandra" aria-label="X / Twitter" target="_blank" rel="noopener">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+              </svg>
+            </a>
+            <a href="https://www.youtube.com/c/ApacheCassandra" aria-label="YouTube" target="_blank" rel="noopener">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+              </svg>
+            </a>
+          </div>
+        </div>
+
+        <div class="footer-col">
+          <h4>Project</h4>
+          <ul>
+            <li><a href="/about/">About</a></li>
+            <li><a href="/download/">Downloads</a></li>
+            <li><a href="/docs/">Documentation</a></li>
+            <li><a href="/changelog/">Changelog</a></li>
+            <li><a href="/security/">Security</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-col">
+          <h4>Community</h4>
+          <ul>
+            <li><a href="/community/">Overview</a></li>
+            <li><a href="/community/mailing-lists/">Mailing lists</a></li>
+            <li><a href="/community/slack/">Slack</a></li>
+            <li><a href="/community/events/">Events</a></li>
+            <li><a href="/blog/">Blog</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-col">
+          <h4>Resources</h4>
+          <ul>
+            <li><a href="/docs/quickstart/">Quick Start</a></li>
+            <li><a href="/docs/cql/">CQL Reference</a></li>
+            <li><a href="/docs/drivers/">Drivers</a></li>
+            <li><a href="/contributing/">Contribute</a></li>
+            <li><a href="/governance/">Governance</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-col">
+          <h4>Apache</h4>
+          <ul>
+            <li><a href="https://www.apache.org/" target="_blank" rel="noopener">Apache Software Foundation</a></li>
+            <li><a href="https://www.apache.org/licenses/" target="_blank" rel="noopener">License</a></li>
+            <li><a href="https://www.apache.org/security/" target="_blank" rel="noopener">Security</a></li>
+            <li><a href="https://www.apache.org/foundation/sponsorship.html" target="_blank" rel="noopener">Sponsorship</a></li>
+            <li><a href="https://www.apache.org/foundation/thanks.html" target="_blank" rel="noopener">Thanks</a></li>
+          </ul>
+        </div>
+
+      </div>
+
+      <div class="footer-bottom">
+        <div class="footer-legal">
+          <p>
+            Copyright &copy; 2009–2026 The Apache Software Foundation. Licensed under the
+            <a href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank" rel="noopener">Apache License, Version 2.0</a>.
+          </p>
+          <p style="margin-top:0.375rem;">
+            Apache Cassandra, Cassandra, Apache, the Apache feather logo, and the Apache Cassandra project logo are trademarks of The Apache Software Foundation.
+            <a href="https://www.apache.org/foundation/policies/privacy.html" target="_blank" rel="noopener">Privacy policy.</a>
+          </p>
+        </div>
+
+        <div class="footer-asf">
+          <!-- ASF feather, text-based fallback -->
+          <svg class="asf-feather" width="36" height="50" viewBox="0 0 36 50" fill="white" aria-label="Apache Software Foundation" role="img">
+            <path d="M18,2 C18,2 30,12 30,26 C30,38 22,46 18,48 C14,46 6,38 6,26 C6,12 18,2 18,2 Z"/>
+            <line x1="18" y1="10" x2="18" y2="48" stroke="#1a1a1a" stroke-width="1.5" opacity="0.4"/>
+            <line x1="12" y1="18" x2="18" y2="26" stroke="#1a1a1a" stroke-width="1" opacity="0.3"/>
+            <line x1="24" y1="18" x2="18" y2="26" stroke="#1a1a1a" stroke-width="1" opacity="0.3"/>
+            <line x1="10" y1="28" x2="18" y2="34" stroke="#1a1a1a" stroke-width="1" opacity="0.3"/>
+            <line x1="26" y1="28" x2="18" y2="34" stroke="#1a1a1a" stroke-width="1" opacity="0.3"/>
+          </svg>
+        </div>
+      </div>
+
+    </div>
+  </footer>
+
+</body>
+</html>

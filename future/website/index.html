@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Apache Cassandra — Homepage Design Concepts</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg: #0f0f0f;
+            --surface: #1a1a1a;
+            --surface-hover: #242424;
+            --border: #2a2a2a;
+            --border-hover: #3a3a3a;
+            --text: #e8e8e8;
+            --text-muted: #888;
+            --accent: #00d4aa;
+            --accent-dim: rgba(0, 212, 170, 0.1);
+        }
+
+        html {
+            font-size: 16px;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        body {
+            font-family: 'Instrument Sans', sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Subtle grid background */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+            background-size: 60px 60px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .container {
+            position: relative;
+            z-index: 1;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 2rem;
+        }
+
+        /* Header */
+        header {
+            padding: 2rem 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .header-inner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .logo {
+            font-family: 'DM Mono', monospace;
+            font-size: 0.8rem;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+        }
+
+        .logo span {
+            color: var(--accent);
+        }
+
+        .meta {
+            font-family: 'DM Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        /* Hero */
+        .hero {
+            padding: 6rem 0 4rem;
+            max-width: 800px;
+        }
+
+        .hero-label {
+            font-family: 'DM Mono', monospace;
+            font-size: 0.75rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--accent);
+            margin-bottom: 1.5rem;
+            opacity: 0;
+            animation: fadeUp 0.6s ease forwards;
+        }
+
+        .hero h1 {
+            font-size: clamp(2.5rem, 5vw, 3.5rem);
+            font-weight: 700;
+            line-height: 1.15;
+            letter-spacing: -0.02em;
+            margin-bottom: 1.5rem;
+            opacity: 0;
+            animation: fadeUp 0.6s ease 0.1s forwards;
+        }
+
+        .hero p {
+            font-size: 1.15rem;
+            line-height: 1.7;
+            color: var(--text-muted);
+            max-width: 600px;
+            opacity: 0;
+            animation: fadeUp 0.6s ease 0.2s forwards;
+        }
+
+        /* Design Grid */
+        .designs-section {
+            padding: 2rem 0 6rem;
+        }
+
+        .section-label {
+            font-family: 'DM Mono', monospace;
+            font-size: 0.75rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .designs-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1.5rem;
+        }
+
+        .design-card {
+            display: grid;
+            grid-template-columns: auto 1fr auto;
+            align-items: start;
+            gap: 2rem;
+            padding: 2rem;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            text-decoration: none;
+            color: inherit;
+            transition: all 0.3s ease;
+            opacity: 0;
+            animation: fadeUp 0.5s ease forwards;
+        }
+
+        .design-card:nth-child(1) { animation-delay: 0.3s; }
+        .design-card:nth-child(2) { animation-delay: 0.4s; }
+        .design-card:nth-child(3) { animation-delay: 0.5s; }
+        .design-card:nth-child(4) { animation-delay: 0.6s; }
+        .design-card:nth-child(5) { animation-delay: 0.7s; }
+
+        .design-card:hover {
+            background: var(--surface-hover);
+            border-color: var(--border-hover);
+            transform: translateY(-2px);
+        }
+
+        .design-card:hover .card-number {
+            color: var(--accent);
+        }
+
+        .design-card:hover .card-arrow {
+            transform: translateX(4px);
+            color: var(--accent);
+        }
+
+        .card-number {
+            font-family: 'DM Mono', monospace;
+            font-size: 2rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            transition: color 0.3s ease;
+            line-height: 1;
+            padding-top: 0.15rem;
+        }
+
+        .card-content {
+            min-width: 0;
+        }
+
+        .card-title {
+            font-size: 1.4rem;
+            font-weight: 600;
+            margin-bottom: 0.35rem;
+            letter-spacing: -0.01em;
+        }
+
+        .card-subtitle {
+            font-family: 'DM Mono', monospace;
+            font-size: 0.8rem;
+            color: var(--accent);
+            margin-bottom: 0.75rem;
+            letter-spacing: 0.05em;
+        }
+
+        .card-description {
+            font-size: 0.95rem;
+            line-height: 1.6;
+            color: var(--text-muted);
+            margin-bottom: 1rem;
+        }
+
+        .card-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        .tag {
+            font-family: 'DM Mono', monospace;
+            font-size: 0.65rem;
+            letter-spacing: 0.05em;
+            padding: 0.3rem 0.7rem;
+            background: var(--accent-dim);
+            color: var(--accent);
+            border-radius: 2px;
+        }
+
+        .card-arrow {
+            font-size: 1.5rem;
+            color: var(--text-muted);
+            transition: all 0.3s ease;
+            padding-top: 0.25rem;
+        }
+
+        /* Color swatches */
+        .card-colors {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 1rem;
+        }
+
+        .swatch {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        /* Footer */
+        footer {
+            padding: 3rem 0;
+            border-top: 1px solid var(--border);
+        }
+
+        .footer-inner {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .footer-text {
+            font-family: 'DM Mono', monospace;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            line-height: 1.8;
+        }
+
+        .footer-text a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        /* Animations */
+        @keyframes fadeUp {
+            from {
+                opacity: 0;
+                transform: translateY(12px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .design-card {
+                grid-template-columns: auto 1fr;
+                gap: 1.25rem;
+                padding: 1.5rem;
+            }
+
+            .card-arrow {
+                display: none;
+            }
+
+            .header-inner {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 0.5rem;
+            }
+
+            .hero {
+                padding: 4rem 0 3rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-inner">
+                <div class="logo"><span>&gt;</span> cassandra_redesign</div>
+                <div class="meta">March 2026 &middot; PMC Design Review</div>
+            </div>
+        </header>
+
+        <section class="hero">
+            <div class="hero-label">Apache Cassandra &middot; Website Redesign</div>
+            <h1>Five Directions for a Community-First Homepage</h1>
+            <p>Each concept implements the same community-first information architecture — Docs, Downloads, Community, Contribute, and Governance as peers — with a radically different aesthetic. Click any design to explore it.</p>
+        </section>
+
+        <section class="designs-section">
+            <div class="section-label">Design Concepts</div>
+            <div class="designs-grid">
+
+                <a href="design-1-constellation.html" class="design-card">
+                    <div class="card-number">01</div>
+                    <div class="card-content">
+                        <div class="card-title">Constellation</div>
+                        <div class="card-subtitle">Dark Geometric Network</div>
+                        <div class="card-colors">
+                            <div class="swatch" style="background: #0a0e1a;"></div>
+                            <div class="swatch" style="background: #00d4aa;"></div>
+                            <div class="swatch" style="background: #ff6b4a;"></div>
+                            <div class="swatch" style="background: #f0ede8;"></div>
+                        </div>
+                        <div class="card-description">Deep space dark theme with animated node-constellation visualization. Technical authority meets living infrastructure. Pulsing nodes represent the distributed cluster topology.</div>
+                        <div class="card-tags">
+                            <span class="tag">Dark Theme</span>
+                            <span class="tag">Animated SVG</span>
+                            <span class="tag">Outfit + DM Sans</span>
+                        </div>
+                    </div>
+                    <div class="card-arrow">&rarr;</div>
+                </a>
+
+                <a href="design-2-chronicle.html" class="design-card">
+                    <div class="card-number">02</div>
+                    <div class="card-content">
+                        <div class="card-title">Chronicle</div>
+                        <div class="card-subtitle">Editorial Newspaper</div>
+                        <div class="card-colors">
+                            <div class="swatch" style="background: #faf7f2;"></div>
+                            <div class="swatch" style="background: #1a1a2e;"></div>
+                            <div class="swatch" style="background: #1a6cb5;"></div>
+                            <div class="swatch" style="background: #c4453c;"></div>
+                        </div>
+                        <div class="card-description">Light, editorial newspaper layout with multi-column grid and typographic hierarchy. Calm, authoritative, information-rich. Typography is the design — every weight and spacing matters.</div>
+                        <div class="card-tags">
+                            <span class="tag">Light Theme</span>
+                            <span class="tag">Multi-Column</span>
+                            <span class="tag">Playfair + Source Serif</span>
+                        </div>
+                    </div>
+                    <div class="card-arrow">&rarr;</div>
+                </a>
+
+                <a href="design-3-hexagon.html" class="design-card">
+                    <div class="card-number">03</div>
+                    <div class="card-content">
+                        <div class="card-title">Hexagon</div>
+                        <div class="card-subtitle">Swiss Precision Grid</div>
+                        <div class="card-colors">
+                            <div class="swatch" style="background: #ffffff; border-color: #ccc;"></div>
+                            <div class="swatch" style="background: #2d2d2d;"></div>
+                            <div class="swatch" style="background: #00838f;"></div>
+                            <div class="swatch" style="background: #ffd600;"></div>
+                        </div>
+                        <div class="card-description">Ultra-clean Swiss/International style with hexagonal grid motifs referencing Cassandra's ring architecture. Precise, accessible, engineering-forward. Left-aligned everything.</div>
+                        <div class="card-tags">
+                            <span class="tag">Light Theme</span>
+                            <span class="tag">Hex Grid</span>
+                            <span class="tag">Instrument Sans + Atkinson</span>
+                        </div>
+                    </div>
+                    <div class="card-arrow">&rarr;</div>
+                </a>
+
+                <a href="design-4-terracotta.html" class="design-card">
+                    <div class="card-number">04</div>
+                    <div class="card-content">
+                        <div class="card-title">Terracotta</div>
+                        <div class="card-subtitle">Warm Organic Modernism</div>
+                        <div class="card-colors">
+                            <div class="swatch" style="background: #fdf6ec;"></div>
+                            <div class="swatch" style="background: #c4654a;"></div>
+                            <div class="swatch" style="background: #2d5016;"></div>
+                            <div class="swatch" style="background: #4a90d9;"></div>
+                        </div>
+                        <div class="card-description">Warm, earthy, organic modernism with soft shapes and natural palette. Welcoming and human. Open source that invites you in — craft workshop energy for planet-scale databases.</div>
+                        <div class="card-tags">
+                            <span class="tag">Warm Theme</span>
+                            <span class="tag">Organic Shapes</span>
+                            <span class="tag">Fraunces + Plus Jakarta</span>
+                        </div>
+                    </div>
+                    <div class="card-arrow">&rarr;</div>
+                </a>
+
+                <a href="design-5-terminal.html" class="design-card">
+                    <div class="card-number">05</div>
+                    <div class="card-content">
+                        <div class="card-title">Terminal</div>
+                        <div class="card-subtitle">Retro-Futuristic CLI Luxury</div>
+                        <div class="card-colors">
+                            <div class="swatch" style="background: #0d1117;"></div>
+                            <div class="swatch" style="background: #39ff14;"></div>
+                            <div class="swatch" style="background: #ffb627;"></div>
+                            <div class="swatch" style="background: #e6edf3;"></div>
+                        </div>
+                        <div class="card-description">Dark terminal aesthetic elevated to luxury. Monospace meets modern with phosphor glow effects. Animated CQL terminal in the hero. Hacker elegance for practitioners who live in the shell.</div>
+                        <div class="card-tags">
+                            <span class="tag">Dark Theme</span>
+                            <span class="tag">Terminal Animation</span>
+                            <span class="tag">IBM Plex Mono + Inter</span>
+                        </div>
+                    </div>
+                    <div class="card-arrow">&rarr;</div>
+                </a>
+
+            </div>
+        </section>
+
+        <footer>
+            <div class="footer-inner">
+                <div class="footer-text">
+                    Apache Cassandra&reg; Homepage Redesign Concepts<br>
+                    Prepared for the Cassandra PMC &middot; March 2026<br>
+                    Based on research from <a href="community-first-websites.md">community-first-websites.md</a>
+                </div>
+                <div class="footer-text" style="text-align: right;">
+                    All designs implement<br>
+                    community-first IA<br>
+                    from the research doc
+                </div>
+            </div>
+        </footer>
+    </div>
+</body>
+</html>

@@ -1,0 +1,1637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Apache Cassandra — The Distributed Database for Planet-Scale Applications</title>
+  <meta name="description" content="Apache Cassandra is an open source distributed database management system designed to handle large amounts of data across many commodity servers, providing high availability with no single point of failure.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+  <style>
+    /* ============================================================
+       RESET & BASE
+    ============================================================ */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg:         #0a0e1a;
+      --bg-2:       #0e1325;
+      --bg-3:       #131829;
+      --teal:       #00d4aa;
+      --teal-dim:   #00a882;
+      --teal-glow:  rgba(0, 212, 170, 0.18);
+      --coral:      #ff6b4a;
+      --coral-dim:  #d4522f;
+      --text:       #f0ede8;
+      --text-muted: #9aa0c0;
+      --muted:      #3a3f5c;
+      --muted-2:    #252a40;
+      --font-display: 'Outfit', sans-serif;
+      --font-body:    'DM Sans', sans-serif;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-body);
+      font-size: 16px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    /* Grain texture overlay */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 9999;
+      opacity: 0.4;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    ul {
+      list-style: none;
+    }
+
+    /* ============================================================
+       TYPOGRAPHY
+    ============================================================ */
+    .display-font {
+      font-family: var(--font-display);
+    }
+
+    /* ============================================================
+       NAVIGATION
+    ============================================================ */
+    .nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 2rem;
+      height: 64px;
+      background: rgba(10, 14, 26, 0.85);
+      backdrop-filter: blur(16px) saturate(180%);
+      border-bottom: 1px solid rgba(58, 63, 92, 0.4);
+      transition: background 0.3s ease;
+    }
+
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 1rem;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+    }
+
+    .nav-logo .feather {
+      width: 28px;
+      height: 28px;
+      fill: var(--teal);
+      flex-shrink: 0;
+    }
+
+    .nav-logo .logo-apache {
+      color: var(--text-muted);
+      font-weight: 400;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      display: block;
+      line-height: 1;
+    }
+
+    .nav-logo .logo-cassandra {
+      color: var(--text);
+      font-weight: 800;
+      font-size: 1.05rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      display: block;
+      line-height: 1.1;
+    }
+
+    .nav-logo .logo-reg {
+      color: var(--teal);
+      font-size: 0.55rem;
+      vertical-align: super;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+
+    .nav-links a {
+      font-family: var(--font-body);
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      padding: 0.4rem 0.75rem;
+      border-radius: 6px;
+      transition: color 0.2s, background 0.2s;
+      letter-spacing: 0.01em;
+    }
+
+    .nav-links a:hover {
+      color: var(--text);
+      background: rgba(255,255,255,0.05);
+    }
+
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .nav-github {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      color: var(--text-muted);
+      border-radius: 8px;
+      transition: color 0.2s, background 0.2s;
+    }
+
+    .nav-github:hover {
+      color: var(--text);
+      background: rgba(255,255,255,0.05);
+    }
+
+    .nav-github svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-family: var(--font-body);
+      font-weight: 600;
+      font-size: 0.875rem;
+      padding: 0.5rem 1.25rem;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      letter-spacing: 0.01em;
+      text-decoration: none;
+    }
+
+    .btn-primary {
+      background: var(--teal);
+      color: #0a0e1a;
+      box-shadow: 0 0 20px rgba(0, 212, 170, 0.3);
+    }
+
+    .btn-primary:hover {
+      background: #00e8bc;
+      box-shadow: 0 0 32px rgba(0, 212, 170, 0.5);
+      transform: translateY(-1px);
+    }
+
+    .btn-outline {
+      background: transparent;
+      color: var(--text);
+      border: 1.5px solid var(--muted);
+    }
+
+    .btn-outline:hover {
+      border-color: var(--teal);
+      color: var(--teal);
+      background: rgba(0, 212, 170, 0.05);
+      transform: translateY(-1px);
+    }
+
+    .btn-lg {
+      font-size: 1rem;
+      padding: 0.75rem 1.75rem;
+      border-radius: 10px;
+    }
+
+    /* ============================================================
+       HERO
+    ============================================================ */
+    .hero {
+      position: relative;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 7rem 2rem 4rem;
+      overflow: hidden;
+    }
+
+    /* Constellation canvas */
+    #constellation-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    /* Radial gradient backdrop */
+    .hero::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 70% 60% at 50% 40%, rgba(0, 212, 170, 0.06) 0%, transparent 70%),
+        radial-gradient(ellipse 40% 40% at 80% 20%, rgba(255, 107, 74, 0.04) 0%, transparent 60%);
+      pointer-events: none;
+    }
+
+    .hero-content {
+      position: relative;
+      z-index: 2;
+      max-width: 860px;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-family: var(--font-body);
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--teal);
+      background: rgba(0, 212, 170, 0.1);
+      border: 1px solid rgba(0, 212, 170, 0.25);
+      border-radius: 100px;
+      padding: 0.35rem 1rem;
+      margin-bottom: 2rem;
+      opacity: 0;
+      animation: fadeUp 0.6s ease 0.2s forwards;
+    }
+
+    .hero-badge::before {
+      content: '';
+      width: 7px;
+      height: 7px;
+      background: var(--teal);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--teal);
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; box-shadow: 0 0 8px var(--teal); }
+      50% { opacity: 0.5; box-shadow: 0 0 14px var(--teal); }
+    }
+
+    .hero-headline {
+      font-family: var(--font-display);
+      font-size: clamp(2.4rem, 6vw, 4.2rem);
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      margin-bottom: 1.25rem;
+      opacity: 0;
+      animation: fadeUp 0.7s ease 0.4s forwards;
+    }
+
+    .hero-headline .accent {
+      color: var(--teal);
+      text-shadow: 0 0 40px rgba(0, 212, 170, 0.4);
+    }
+
+    .hero-subhead {
+      font-size: 1.1rem;
+      font-weight: 400;
+      color: var(--text-muted);
+      max-width: 580px;
+      margin: 0 auto 2.5rem;
+      line-height: 1.7;
+      opacity: 0;
+      animation: fadeUp 0.7s ease 0.55s forwards;
+    }
+
+    .hero-ctas {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 2.5rem;
+      opacity: 0;
+      animation: fadeUp 0.7s ease 0.7s forwards;
+    }
+
+    .hero-versions {
+      font-family: var(--font-body);
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      opacity: 0;
+      animation: fadeUp 0.7s ease 0.85s forwards;
+    }
+
+    .hero-versions span {
+      display: inline-block;
+      margin: 0 0.5rem;
+    }
+
+    .hero-versions a {
+      color: var(--teal);
+      font-weight: 500;
+      transition: opacity 0.2s;
+    }
+
+    .hero-versions a:hover {
+      opacity: 0.8;
+    }
+
+    .version-sep {
+      color: var(--muted);
+    }
+
+    /* Scroll indicator */
+    .scroll-indicator {
+      position: absolute;
+      bottom: 2.5rem;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.4rem;
+      opacity: 0;
+      animation: fadeUp 0.6s ease 1.2s forwards;
+      z-index: 2;
+    }
+
+    .scroll-indicator span {
+      font-size: 0.7rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .scroll-line {
+      width: 1px;
+      height: 40px;
+      background: linear-gradient(to bottom, var(--muted), transparent);
+      animation: scrollLine 1.8s ease-in-out infinite;
+    }
+
+    @keyframes scrollLine {
+      0%   { transform: scaleY(0); transform-origin: top; opacity: 0; }
+      40%  { transform: scaleY(1); transform-origin: top; opacity: 1; }
+      60%  { transform: scaleY(1); transform-origin: bottom; opacity: 1; }
+      100% { transform: scaleY(0); transform-origin: bottom; opacity: 0; }
+    }
+
+    /* ============================================================
+       ANIMATIONS
+    ============================================================ */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .reveal {
+      opacity: 0;
+      transform: translateY(28px);
+      transition: opacity 0.65s ease, transform 0.65s ease;
+    }
+
+    .reveal.visible {
+      opacity: 1;
+      transform: none;
+    }
+
+    /* ============================================================
+       SECTION SHARED
+    ============================================================ */
+    section {
+      padding: 6rem 2rem;
+    }
+
+    .container {
+      max-width: 1120px;
+      margin: 0 auto;
+    }
+
+    .section-label {
+      font-family: var(--font-body);
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--teal);
+      margin-bottom: 0.75rem;
+    }
+
+    .section-title {
+      font-family: var(--font-display);
+      font-size: clamp(1.8rem, 4vw, 2.6rem);
+      font-weight: 700;
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      margin-bottom: 1rem;
+    }
+
+    .section-desc {
+      font-size: 1rem;
+      color: var(--text-muted);
+      max-width: 520px;
+      line-height: 1.7;
+    }
+
+    /* ============================================================
+       ROUTE BY INTENT
+    ============================================================ */
+    .intent {
+      background: var(--bg);
+      border-top: 1px solid rgba(58, 63, 92, 0.3);
+    }
+
+    .intent-header {
+      text-align: center;
+      margin-bottom: 3.5rem;
+    }
+
+    .intent-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .intent-card {
+      position: relative;
+      background: var(--bg-2);
+      border: 1px solid var(--muted-2);
+      border-radius: 16px;
+      padding: 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      transition: border-color 0.25s, transform 0.25s, box-shadow 0.25s;
+      overflow: hidden;
+    }
+
+    .intent-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, var(--teal-glow) 0%, transparent 60%);
+      opacity: 0;
+      transition: opacity 0.3s;
+      border-radius: inherit;
+    }
+
+    .intent-card:hover {
+      border-color: rgba(0, 212, 170, 0.35);
+      transform: translateY(-4px);
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4), 0 0 24px rgba(0, 212, 170, 0.08);
+    }
+
+    .intent-card:hover::before {
+      opacity: 1;
+    }
+
+    .intent-card.coral-card::before {
+      background: linear-gradient(135deg, rgba(255, 107, 74, 0.12) 0%, transparent 60%);
+    }
+
+    .intent-card.coral-card:hover {
+      border-color: rgba(255, 107, 74, 0.35);
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4), 0 0 24px rgba(255, 107, 74, 0.08);
+    }
+
+    .intent-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.4rem;
+      background: rgba(0, 212, 170, 0.08);
+      border: 1px solid rgba(0, 212, 170, 0.15);
+      flex-shrink: 0;
+      position: relative;
+    }
+
+    .intent-icon.coral {
+      background: rgba(255, 107, 74, 0.08);
+      border-color: rgba(255, 107, 74, 0.15);
+    }
+
+    .intent-card-title {
+      font-family: var(--font-display);
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.01em;
+    }
+
+    .intent-card-desc {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+      flex: 1;
+    }
+
+    .intent-card-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--teal);
+      transition: gap 0.2s;
+      margin-top: 0.25rem;
+    }
+
+    .intent-card-link:hover {
+      gap: 0.65rem;
+    }
+
+    .intent-card.coral-card .intent-card-link {
+      color: var(--coral);
+    }
+
+    /* ============================================================
+       FEATURES
+    ============================================================ */
+    .features {
+      background: var(--bg-2);
+      border-top: 1px solid rgba(58, 63, 92, 0.2);
+      border-bottom: 1px solid rgba(58, 63, 92, 0.2);
+    }
+
+    .features-header {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2rem;
+      align-items: end;
+      margin-bottom: 3.5rem;
+    }
+
+    @media (max-width: 640px) {
+      .features-header {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1px;
+      background: var(--muted-2);
+      border: 1px solid var(--muted-2);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+
+    .feature-card {
+      background: var(--bg-2);
+      padding: 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      transition: background 0.25s;
+      position: relative;
+    }
+
+    .feature-card:hover {
+      background: var(--bg-3);
+    }
+
+    .feature-card::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--teal), transparent);
+      opacity: 0;
+      transition: opacity 0.25s;
+    }
+
+    .feature-card:hover::after {
+      opacity: 1;
+    }
+
+    .feature-icon {
+      font-size: 1.6rem;
+      line-height: 1;
+      margin-bottom: 0.25rem;
+    }
+
+    .feature-title {
+      font-family: var(--font-display);
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: 0.01em;
+    }
+
+    .feature-desc {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    /* ============================================================
+       COMMUNITY
+    ============================================================ */
+    .community {
+      background: var(--bg);
+    }
+
+    .community-inner {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4rem;
+      align-items: start;
+    }
+
+    @media (max-width: 768px) {
+      .community-inner {
+        grid-template-columns: 1fr;
+        gap: 3rem;
+      }
+    }
+
+    .community-channels {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      margin-top: 2rem;
+    }
+
+    .community-link {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 1rem 1.25rem;
+      background: var(--bg-2);
+      border: 1px solid var(--muted-2);
+      border-radius: 12px;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+
+    .community-link:hover {
+      border-color: rgba(0, 212, 170, 0.3);
+      transform: translateX(4px);
+    }
+
+    .community-link-icon {
+      font-size: 1.2rem;
+      width: 36px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+
+    .community-link-body {
+      flex: 1;
+    }
+
+    .community-link-title {
+      font-weight: 600;
+      font-size: 0.9rem;
+      color: var(--text);
+      margin-bottom: 0.15rem;
+    }
+
+    .community-link-desc {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .community-link-arrow {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      transition: color 0.2s, transform 0.2s;
+    }
+
+    .community-link:hover .community-link-arrow {
+      color: var(--teal);
+      transform: translateX(2px);
+    }
+
+    /* Contributor stats */
+    .contributor-box {
+      background: var(--bg-2);
+      border: 1px solid var(--muted-2);
+      border-radius: 16px;
+      padding: 2rem;
+      margin-top: 2rem;
+    }
+
+    .contributor-box-title {
+      font-family: var(--font-display);
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 1.25rem;
+    }
+
+    .contrib-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .contrib-stat {
+      text-align: center;
+    }
+
+    .contrib-stat-num {
+      font-family: var(--font-display);
+      font-size: 1.8rem;
+      font-weight: 800;
+      color: var(--teal);
+      line-height: 1;
+      text-shadow: 0 0 20px rgba(0, 212, 170, 0.3);
+    }
+
+    .contrib-stat-label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 0.3rem;
+      letter-spacing: 0.05em;
+    }
+
+    .contrib-paths {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .contrib-path {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-size: 0.875rem;
+      color: var(--text-muted);
+    }
+
+    .contrib-path::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      background: var(--teal);
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .contrib-path a {
+      color: var(--teal);
+      font-weight: 500;
+      transition: opacity 0.2s;
+    }
+
+    .contrib-path a:hover {
+      opacity: 0.8;
+    }
+
+    /* ============================================================
+       GOVERNANCE
+    ============================================================ */
+    .governance {
+      background: var(--bg-2);
+      border-top: 1px solid rgba(58, 63, 92, 0.2);
+    }
+
+    .governance-inner {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 3rem;
+      align-items: center;
+    }
+
+    @media (max-width: 640px) {
+      .governance-inner {
+        grid-template-columns: 1fr;
+        gap: 1.5rem;
+      }
+    }
+
+    .governance-text p {
+      font-size: 0.95rem;
+      color: var(--text-muted);
+      line-height: 1.7;
+      margin-bottom: 1rem;
+    }
+
+    .governance-text p:last-child {
+      margin-bottom: 0;
+    }
+
+    .governance-text a {
+      color: var(--teal);
+      font-weight: 500;
+      transition: opacity 0.2s;
+    }
+
+    .governance-text a:hover {
+      opacity: 0.8;
+    }
+
+    .governance-links {
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+      white-space: nowrap;
+    }
+
+    .governance-link {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      padding: 0.6rem 1rem;
+      background: var(--bg-3);
+      border: 1px solid var(--muted-2);
+      border-radius: 8px;
+      transition: all 0.2s;
+    }
+
+    .governance-link:hover {
+      color: var(--teal);
+      border-color: rgba(0, 212, 170, 0.3);
+      background: rgba(0, 212, 170, 0.04);
+    }
+
+    /* ============================================================
+       FOOTER
+    ============================================================ */
+    .footer {
+      background: var(--bg);
+      border-top: 1px solid rgba(58, 63, 92, 0.4);
+      padding: 4rem 2rem 2rem;
+    }
+
+    .footer-top {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 1fr;
+      gap: 3rem;
+      margin-bottom: 3rem;
+      padding-bottom: 3rem;
+      border-bottom: 1px solid rgba(58, 63, 92, 0.3);
+    }
+
+    @media (max-width: 900px) {
+      .footer-top {
+        grid-template-columns: 1fr 1fr;
+        gap: 2rem;
+      }
+    }
+
+    @media (max-width: 540px) {
+      .footer-top {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .footer-brand .nav-logo {
+      margin-bottom: 1rem;
+    }
+
+    .footer-brand p {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+      max-width: 300px;
+    }
+
+    .footer-social {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 1.25rem;
+    }
+
+    .social-link {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: var(--muted-2);
+      border: 1px solid var(--muted);
+      color: var(--text-muted);
+      transition: all 0.2s;
+      font-size: 0.95rem;
+    }
+
+    .social-link svg {
+      width: 16px;
+      height: 16px;
+      fill: currentColor;
+    }
+
+    .social-link:hover {
+      color: var(--teal);
+      border-color: rgba(0, 212, 170, 0.35);
+      background: rgba(0, 212, 170, 0.05);
+    }
+
+    .footer-col-title {
+      font-family: var(--font-display);
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text);
+      margin-bottom: 1rem;
+    }
+
+    .footer-col-links {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .footer-col-links a {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      transition: color 0.2s;
+    }
+
+    .footer-col-links a:hover {
+      color: var(--teal);
+    }
+
+    .footer-bottom {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 2rem;
+      flex-wrap: wrap;
+    }
+
+    .footer-legal {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      line-height: 1.7;
+      max-width: 680px;
+    }
+
+    .footer-legal a {
+      color: var(--text-muted);
+      text-decoration: underline;
+      text-decoration-color: rgba(154, 160, 192, 0.3);
+      transition: color 0.2s;
+    }
+
+    .footer-legal a:hover {
+      color: var(--teal);
+    }
+
+    .footer-asf-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      margin-top: 0.75rem;
+    }
+
+    .footer-asf-links a {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      transition: color 0.2s;
+    }
+
+    .footer-asf-links a:hover {
+      color: var(--teal);
+    }
+
+    /* ============================================================
+       RESPONSIVE NAV
+    ============================================================ */
+    .nav-hamburger {
+      display: none;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0.4rem;
+      color: var(--text-muted);
+    }
+
+    @media (max-width: 900px) {
+      .nav-links {
+        display: none;
+      }
+      .nav-hamburger {
+        display: block;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .nav-right .btn {
+        display: none;
+      }
+    }
+
+    /* ============================================================
+       DIVIDER
+    ============================================================ */
+    .section-divider {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--muted) 30%, var(--muted) 70%, transparent);
+      opacity: 0.3;
+    }
+
+  </style>
+</head>
+<body>
+
+  <!-- ============================================================
+       NAVIGATION
+  ============================================================ -->
+  <nav class="nav" role="navigation" aria-label="Main navigation">
+    <a href="/" class="nav-logo" aria-label="Apache Cassandra home">
+      <svg class="feather" viewBox="0 0 32 32" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+        <path d="M16 2C9.373 2 4 7.373 4 14c0 3.74 1.637 7.09 4.23 9.4L16 30l7.77-6.6C26.363 21.09 28 17.74 28 14c0-6.627-5.373-12-12-12zm0 3c1.38 0 2.69.277 3.884.778L16 8.5l-3.884-2.722A8.944 8.944 0 0116 5zm-5.5 2.89L14 11H8.36A8.971 8.971 0 0110.5 7.89zM21.5 7.89A8.971 8.971 0 0123.64 11H18l3.5-3.11zM8.03 13h6.47l-4 6.5A9.003 9.003 0 018.03 13zm9.5 0h6.44a9.003 9.003 0 01-2.44 6.5L17.53 13zm-3.06 0h3.06l2.5 4.06L16 22.5l-3.03-5.44L14.47 13z"/>
+      </svg>
+      <span>
+        <span class="logo-apache">Apache</span>
+        <span class="logo-cassandra">Cassandra<span class="logo-reg">®</span></span>
+      </span>
+    </a>
+
+    <ul class="nav-links" role="list">
+      <li><a href="/docs/">Docs</a></li>
+      <li><a href="/download/">Downloads</a></li>
+      <li><a href="/community/">Community</a></li>
+      <li><a href="/contribute/">Contribute</a></li>
+      <li><a href="/governance/">Governance</a></li>
+      <li><a href="/blog/">Blog</a></li>
+    </ul>
+
+    <div class="nav-right">
+      <a href="https://github.com/apache/cassandra" class="nav-github" aria-label="Apache Cassandra on GitHub">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path fill="currentColor" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
+        </svg>
+      </a>
+      <a href="/docs/getting-started/" class="btn btn-primary">Get Started</a>
+      <button class="nav-hamburger" aria-label="Open navigation menu" aria-expanded="false">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="2" y="5" width="18" height="1.8" rx="0.9" fill="currentColor"/>
+          <rect x="2" y="10.1" width="18" height="1.8" rx="0.9" fill="currentColor"/>
+          <rect x="2" y="15.2" width="18" height="1.8" rx="0.9" fill="currentColor"/>
+        </svg>
+      </button>
+    </div>
+  </nav>
+
+  <!-- ============================================================
+       HERO
+  ============================================================ -->
+  <section class="hero" aria-label="Hero">
+    <canvas id="constellation-canvas" aria-hidden="true"></canvas>
+
+    <div class="hero-content">
+      <div class="hero-badge" role="status">
+        Cassandra 6.0 — Now Available
+      </div>
+
+      <h1 class="hero-headline display-font">
+        The Distributed Database<br>for <span class="accent">Planet-Scale</span> Applications
+      </h1>
+
+      <p class="hero-subhead">
+        Apache Cassandra is an open source NoSQL distributed database. It handles massive amounts of data across many commodity servers with no single point of failure — built for the demands of always-on applications.
+      </p>
+
+      <div class="hero-ctas">
+        <a href="/docs/getting-started/" class="btn btn-primary btn-lg">
+          Quick Start
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </a>
+        <a href="/docs/" class="btn btn-outline btn-lg">Read the Docs</a>
+      </div>
+
+      <p class="hero-versions">
+        <span>Current: <a href="/download/6.0/">6.0</a></span>
+        <span class="version-sep">|</span>
+        <span>Stable: <a href="/download/5.0/">5.0.4</a></span>
+        <span class="version-sep">|</span>
+        <span>LTS: <a href="/download/4.1/">4.1.8</a></span>
+      </p>
+    </div>
+
+    <div class="scroll-indicator" aria-hidden="true">
+      <span>Explore</span>
+      <div class="scroll-line"></div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       ROUTE BY INTENT
+  ============================================================ -->
+  <section class="intent" aria-labelledby="intent-heading">
+    <div class="container">
+      <div class="intent-header reveal">
+        <p class="section-label">Where do you want to go?</p>
+        <h2 class="section-title" id="intent-heading">Start From Where You Are</h2>
+        <p class="section-desc">Whether you're running a cluster in production, building an application, or improving Cassandra itself — the right path is a single click away.</p>
+      </div>
+
+      <div class="intent-grid">
+        <article class="intent-card reveal" style="transition-delay: 0.05s">
+          <div class="intent-icon" aria-hidden="true">⚙️</div>
+          <h3 class="intent-card-title">Operate Cassandra</h3>
+          <p class="intent-card-desc">Deploy, configure, tune, and manage production clusters. Installation guides, hardware recommendations, monitoring, and operational runbooks.</p>
+          <a href="/docs/operating/" class="intent-card-link" aria-label="Operator documentation">
+            Operator docs
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </a>
+        </article>
+
+        <article class="intent-card reveal" style="transition-delay: 0.1s">
+          <div class="intent-icon" aria-hidden="true">💻</div>
+          <h3 class="intent-card-title">Develop with Cassandra</h3>
+          <p class="intent-card-desc">Build applications using CQL, drivers, and the Cassandra data model. Client libraries, schema design, and query optimization guidance.</p>
+          <a href="/docs/developing/" class="intent-card-link" aria-label="Developer documentation">
+            Developer docs
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </a>
+        </article>
+
+        <article class="intent-card coral-card reveal" style="transition-delay: 0.15s">
+          <div class="intent-icon coral" aria-hidden="true">🤝</div>
+          <h3 class="intent-card-title">Contribute to Cassandra</h3>
+          <p class="intent-card-desc">Submit patches, report bugs, review JIRAs, improve documentation, or join the PMC process. The project runs on contributors.</p>
+          <a href="/contribute/" class="intent-card-link" aria-label="Contributor guide">
+            Contributor guide
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </a>
+        </article>
+
+        <article class="intent-card reveal" style="transition-delay: 0.2s">
+          <div class="intent-icon" aria-hidden="true">📖</div>
+          <h3 class="intent-card-title">Browse the Docs</h3>
+          <p class="intent-card-desc">Full reference documentation for CQL, configuration, architecture, security, tools, and the Apache Cassandra source tree.</p>
+          <a href="/docs/" class="intent-card-link" aria-label="Full documentation">
+            Full reference
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </a>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       KEY FEATURES
+  ============================================================ -->
+  <section class="features" aria-labelledby="features-heading">
+    <div class="container">
+      <div class="features-header reveal">
+        <div>
+          <p class="section-label">Why Cassandra</p>
+          <h2 class="section-title" id="features-heading">Built for the Hardest Problems</h2>
+        </div>
+        <p class="section-desc">Cassandra was purpose-built at Facebook for inbox search — the kind of workload where failure is not an option and scale is non-negotiable. That DNA shows.</p>
+      </div>
+
+      <div class="features-grid reveal">
+        <div class="feature-card">
+          <div class="feature-icon" aria-hidden="true">◎</div>
+          <h3 class="feature-title">Distributed by Design</h3>
+          <p class="feature-desc">Every node is equal. No master, no single points of failure. Data is distributed and replicated across the cluster transparently.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon" aria-hidden="true">◈</div>
+          <h3 class="feature-title">Fault Tolerant</h3>
+          <p class="feature-desc">Replication across multiple data centers keeps your application running through hardware failures, network partitions, and full datacenter outages.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon" aria-hidden="true">⟁</div>
+          <h3 class="feature-title">High Performance</h3>
+          <p class="feature-desc">Cassandra consistently outperforms alternatives at scale. Writes in particular are extremely fast — the log-structured storage engine is optimized for throughput.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon" aria-hidden="true">⊞</div>
+          <h3 class="feature-title">Linearly Scalable</h3>
+          <p class="feature-desc">Add capacity by adding nodes. Throughput scales linearly with cluster size. Some of the largest Cassandra deployments run thousands of nodes.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon" aria-hidden="true">⟳</div>
+          <h3 class="feature-title">Elastic Operations</h3>
+          <p class="feature-desc">Expand or contract the cluster without downtime. Cassandra rebalances data automatically as you add or remove nodes.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon" aria-hidden="true">⊛</div>
+          <h3 class="feature-title">Enterprise Security</h3>
+          <p class="feature-desc">TLS encryption in transit, authentication, authorization, and auditing. Node-to-node encryption and client-to-node encryption are configurable independently.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       COMMUNITY
+  ============================================================ -->
+  <section class="community" aria-labelledby="community-heading">
+    <div class="container">
+      <div class="community-inner">
+        <div class="reveal">
+          <p class="section-label">Open Community</p>
+          <h2 class="section-title" id="community-heading">Join the Cassandra Community</h2>
+          <p class="section-desc" style="margin-bottom: 0">Cassandra is developed entirely in the open. Every design decision, every release vote, and every commit happens in public forums that anyone can read and participate in.</p>
+
+          <div class="community-channels" role="list">
+            <a href="https://lists.apache.org/list.html?user@cassandra.apache.org" class="community-link" role="listitem">
+              <span class="community-link-icon" aria-hidden="true">✉</span>
+              <div class="community-link-body">
+                <div class="community-link-title">Mailing Lists</div>
+                <div class="community-link-desc">user@, dev@, commits@ — the primary project forums</div>
+              </div>
+              <span class="community-link-arrow" aria-hidden="true">→</span>
+            </a>
+            <a href="https://the-asf.slack.com/archives/CJZLTF2E8" class="community-link" role="listitem">
+              <span class="community-link-icon" aria-hidden="true">#</span>
+              <div class="community-link-body">
+                <div class="community-link-title">ASF Slack — #cassandra</div>
+                <div class="community-link-desc">Real-time discussion with committers and users</div>
+              </div>
+              <span class="community-link-arrow" aria-hidden="true">→</span>
+            </a>
+            <a href="https://stackoverflow.com/questions/tagged/cassandra" class="community-link" role="listitem">
+              <span class="community-link-icon" aria-hidden="true">◎</span>
+              <div class="community-link-body">
+                <div class="community-link-title">Stack Overflow</div>
+                <div class="community-link-desc">Q&amp;A tagged [cassandra] — searchable archive</div>
+              </div>
+              <span class="community-link-arrow" aria-hidden="true">→</span>
+            </a>
+            <a href="/community/meetings/" class="community-link" role="listitem">
+              <span class="community-link-icon" aria-hidden="true">◷</span>
+              <div class="community-link-body">
+                <div class="community-link-title">Community Meetings</div>
+                <div class="community-link-desc">Monthly video calls — open to all, agendas posted</div>
+              </div>
+              <span class="community-link-arrow" aria-hidden="true">→</span>
+            </a>
+          </div>
+        </div>
+
+        <div class="reveal" style="transition-delay: 0.15s">
+          <p class="section-label">Get involved</p>
+          <h3 class="section-title" style="font-size: clamp(1.4rem, 3vw, 1.9rem)">Become a Contributor</h3>
+          <p class="section-desc" style="margin-bottom: 0">Cassandra is governed as an Apache Software Foundation project. Contribution is the path to committership.</p>
+
+          <div class="contributor-box">
+            <div class="contributor-box-title">Project at a glance</div>
+            <div class="contrib-stats" role="list">
+              <div class="contrib-stat" role="listitem">
+                <div class="contrib-stat-num">500+</div>
+                <div class="contrib-stat-label">Contributors</div>
+              </div>
+              <div class="contrib-stat" role="listitem">
+                <div class="contrib-stat-num">17+</div>
+                <div class="contrib-stat-label">Years active</div>
+              </div>
+              <div class="contrib-stat" role="listitem">
+                <div class="contrib-stat-num">PMC</div>
+                <div class="contrib-stat-label">ASF governed</div>
+              </div>
+            </div>
+            <div class="contrib-paths">
+              <div class="contrib-path"><a href="/contribute/code/">Contribute code on GitHub</a></div>
+              <div class="contrib-path"><a href="/contribute/docs/">Improve the documentation</a></div>
+              <div class="contrib-path"><a href="https://issues.apache.org/jira/projects/CASSANDRA">Review and triage issues (JIRA)</a></div>
+              <div class="contrib-path"><a href="/governance/becoming-a-committer/">Path to committership</a></div>
+              <div class="contrib-path"><a href="https://cwiki.apache.org/confluence/display/CASSANDRA/CEP">Cassandra Enhancement Proposals (CEPs)</a></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       GOVERNANCE
+  ============================================================ -->
+  <section class="governance" aria-labelledby="governance-heading">
+    <div class="container">
+      <div class="reveal">
+        <p class="section-label">Project structure</p>
+        <h2 class="section-title" id="governance-heading">How Cassandra Is Run</h2>
+      </div>
+      <div class="governance-inner reveal" style="transition-delay: 0.1s">
+        <div class="governance-text">
+          <p>Apache Cassandra is a top-level project of the <a href="https://www.apache.org/">Apache Software Foundation</a> (ASF). The project is overseen by a Project Management Committee (PMC) elected by existing committers. All binding project decisions are made through consensus on the public <a href="https://lists.apache.org/list.html?dev@cassandra.apache.org">dev@ mailing list</a>.</p>
+          <p>Releases follow the <a href="https://www.apache.org/legal/release-policy.html">ASF release policy</a>. All release artifacts are voted on publicly. The voting thread, signing keys, and checksums are available for every release. Cassandra versioning follows a major.minor.patch scheme with documented <a href="/download/upgrade-guide/">upgrade paths</a> between versions.</p>
+        </div>
+        <nav class="governance-links" aria-label="Governance links">
+          <a href="/governance/" class="governance-link">
+            <span aria-hidden="true">⊞</span> Governance overview
+          </a>
+          <a href="/governance/pmc/" class="governance-link">
+            <span aria-hidden="true">◎</span> PMC members
+          </a>
+          <a href="https://www.apache.org/foundation/how-it-works.html" class="governance-link">
+            <span aria-hidden="true">⟁</span> How the ASF works
+          </a>
+          <a href="/download/" class="governance-link">
+            <span aria-hidden="true">↓</span> Release history
+          </a>
+        </nav>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       FOOTER
+  ============================================================ -->
+  <footer class="footer" role="contentinfo">
+    <div class="container">
+      <div class="footer-top">
+        <div class="footer-brand">
+          <a href="/" class="nav-logo" aria-label="Apache Cassandra home">
+            <svg class="feather" viewBox="0 0 32 32" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+              <path d="M16 2C9.373 2 4 7.373 4 14c0 3.74 1.637 7.09 4.23 9.4L16 30l7.77-6.6C26.363 21.09 28 17.74 28 14c0-6.627-5.373-12-12-12zm0 3c1.38 0 2.69.277 3.884.778L16 8.5l-3.884-2.722A8.944 8.944 0 0116 5zm-5.5 2.89L14 11H8.36A8.971 8.971 0 0110.5 7.89zM21.5 7.89A8.971 8.971 0 0123.64 11H18l3.5-3.11zM8.03 13h6.47l-4 6.5A9.003 9.003 0 018.03 13zm9.5 0h6.44a9.003 9.003 0 01-2.44 6.5L17.53 13zm-3.06 0h3.06l2.5 4.06L16 22.5l-3.03-5.44L14.47 13z"/>
+            </svg>
+            <span>
+              <span class="logo-apache">Apache</span>
+              <span class="logo-cassandra">Cassandra<span class="logo-reg">®</span></span>
+            </span>
+          </a>
+          <p>An open source distributed NoSQL database management system. Built for scale, designed for reliability.</p>
+          <nav class="footer-social" aria-label="Social media links">
+            <a href="https://github.com/apache/cassandra" class="social-link" aria-label="GitHub">
+              <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
+            </a>
+            <a href="https://bsky.app/profile/cassandra.apache.org" class="social-link" aria-label="Bluesky">
+              <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.741 8.741 0 01-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.689-.139-1.861-.902-2.204-.659-.299-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z"/></svg>
+            </a>
+            <a href="https://www.linkedin.com/company/apache-cassandra" class="social-link" aria-label="LinkedIn">
+              <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+            </a>
+            <a href="https://www.youtube.com/@ApacheCassandra" class="social-link" aria-label="YouTube">
+              <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+            </a>
+          </nav>
+        </div>
+
+        <div>
+          <div class="footer-col-title">Project</div>
+          <nav class="footer-col-links" aria-label="Project links">
+            <a href="/docs/">Documentation</a>
+            <a href="/download/">Downloads</a>
+            <a href="/blog/">Blog</a>
+            <a href="/community/events/">Events</a>
+            <a href="/news/">News</a>
+          </nav>
+        </div>
+
+        <div>
+          <div class="footer-col-title">Community</div>
+          <nav class="footer-col-links" aria-label="Community links">
+            <a href="/community/">Overview</a>
+            <a href="https://lists.apache.org/list.html?user@cassandra.apache.org">Mailing Lists</a>
+            <a href="https://the-asf.slack.com/archives/CJZLTF2E8">Slack</a>
+            <a href="https://stackoverflow.com/questions/tagged/cassandra">Stack Overflow</a>
+            <a href="/community/meetings/">Meetings</a>
+          </nav>
+        </div>
+
+        <div>
+          <div class="footer-col-title">Foundation</div>
+          <nav class="footer-col-links" aria-label="Foundation links">
+            <a href="/governance/">Governance</a>
+            <a href="/governance/pmc/">PMC</a>
+            <a href="/contribute/">Contribute</a>
+            <a href="https://www.apache.org/">Apache Software Foundation</a>
+            <a href="https://www.apache.org/security/">Security</a>
+          </nav>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <div>
+          <p class="footer-legal">
+            Copyright &copy; 2009&ndash;2026 The Apache Software Foundation under the terms of the <a href="https://www.apache.org/licenses/LICENSE-2.0">Apache License 2.0</a>.
+            Apache Cassandra, Cassandra, Apache, the Apache feather logo, and the Apache Cassandra project logo are either registered trademarks or trademarks of the Apache Software Foundation in the United States and other countries.
+          </p>
+          <nav class="footer-asf-links" aria-label="Apache Software Foundation policy links">
+            <a href="https://www.apache.org/">Foundation</a>
+            <a href="https://www.apache.org/licenses/">License</a>
+            <a href="https://www.apache.org/events/current-event.html">Events</a>
+            <a href="https://www.apache.org/security/">Security</a>
+            <a href="https://privacy.apache.org/policies/privacy-policy-public.html">Privacy</a>
+            <a href="https://www.apache.org/foundation/sponsorship.html">Sponsorship</a>
+            <a href="https://www.apache.org/foundation/thanks.html">Thanks</a>
+          </nav>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ============================================================
+       SCRIPTS: Constellation + Scroll Reveal
+  ============================================================ -->
+  <script>
+    /* -------------------------------------------------------
+       CONSTELLATION ANIMATION
+    ------------------------------------------------------- */
+    (function () {
+      const canvas = document.getElementById('constellation-canvas');
+      const ctx = canvas.getContext('2d');
+
+      const TEAL = '#00d4aa';
+      const CORAL = '#ff6b4a';
+      const NODE_COLOR = '#00d4aa';
+
+      let W, H, nodes, mouse;
+
+      const CONFIG = {
+        nodeCount: 52,
+        maxDist: 180,
+        nodeRadius: { min: 1.8, max: 4.5 },
+        speed: { min: 0.08, max: 0.28 },
+        pulseSpeed: 0.018,
+        lineOpacityMax: 0.22,
+        nodeOpacityMax: 0.85,
+        mouseInfluence: 140,
+      };
+
+      function resize() {
+        W = canvas.offsetWidth;
+        H = canvas.offsetHeight;
+        canvas.width  = W * devicePixelRatio;
+        canvas.height = H * devicePixelRatio;
+        ctx.scale(devicePixelRatio, devicePixelRatio);
+      }
+
+      function randomNode() {
+        const r = CONFIG.nodeRadius.min + Math.random() * (CONFIG.nodeRadius.max - CONFIG.nodeRadius.min);
+        const speed = CONFIG.speed.min + Math.random() * (CONFIG.speed.max - CONFIG.speed.min);
+        const angle = Math.random() * Math.PI * 2;
+        const isCoral = Math.random() < 0.12;
+        return {
+          x:     Math.random() * W,
+          y:     Math.random() * H,
+          vx:    Math.cos(angle) * speed,
+          vy:    Math.sin(angle) * speed,
+          r,
+          pulse: Math.random() * Math.PI * 2,
+          isCoral,
+          color: isCoral ? CORAL : NODE_COLOR,
+        };
+      }
+
+      function init() {
+        resize();
+        mouse = { x: W / 2, y: H / 2 };
+        nodes = Array.from({ length: CONFIG.nodeCount }, randomNode);
+      }
+
+      function drawLine(x1, y1, x2, y2, opacity, color) {
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.strokeStyle = color || TEAL;
+        ctx.globalAlpha = opacity;
+        ctx.lineWidth = 0.7;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+
+      function frame() {
+        ctx.clearRect(0, 0, W, H);
+
+        CONFIG.pulseSpeed && nodes.forEach(n => { n.pulse += CONFIG.pulseSpeed; });
+
+        // Move nodes
+        nodes.forEach(n => {
+          n.x += n.vx;
+          n.y += n.vy;
+          if (n.x < -20) n.x = W + 20;
+          if (n.x > W + 20) n.x = -20;
+          if (n.y < -20) n.y = H + 20;
+          if (n.y > H + 20) n.y = -20;
+        });
+
+        // Draw connections
+        for (let i = 0; i < nodes.length; i++) {
+          for (let j = i + 1; j < nodes.length; j++) {
+            const a = nodes[i], b = nodes[j];
+            const dx = a.x - b.x, dy = a.y - b.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < CONFIG.maxDist) {
+              const opacity = (1 - dist / CONFIG.maxDist) * CONFIG.lineOpacityMax;
+              const color = (a.isCoral || b.isCoral) ? CORAL : TEAL;
+              drawLine(a.x, a.y, b.x, b.y, opacity, color);
+            }
+          }
+        }
+
+        // Draw nodes
+        nodes.forEach(n => {
+          const pulse = 0.5 + 0.5 * Math.sin(n.pulse);
+          const radius = n.r + pulse * 1.2;
+          const opacity = 0.5 + pulse * 0.35;
+
+          // Glow
+          const grd = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, radius * 4);
+          grd.addColorStop(0, n.color + '50');
+          grd.addColorStop(1, n.color + '00');
+          ctx.beginPath();
+          ctx.arc(n.x, n.y, radius * 4, 0, Math.PI * 2);
+          ctx.fillStyle = grd;
+          ctx.globalAlpha = opacity * 0.4;
+          ctx.fill();
+          ctx.globalAlpha = 1;
+
+          // Core dot
+          ctx.beginPath();
+          ctx.arc(n.x, n.y, radius, 0, Math.PI * 2);
+          ctx.fillStyle = n.color;
+          ctx.globalAlpha = opacity * CONFIG.nodeOpacityMax;
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        });
+
+        requestAnimationFrame(frame);
+      }
+
+      window.addEventListener('resize', () => {
+        resize();
+      });
+
+      window.addEventListener('mousemove', e => {
+        const rect = canvas.getBoundingClientRect();
+        mouse.x = e.clientX - rect.left;
+        mouse.y = e.clientY - rect.top;
+      });
+
+      init();
+      frame();
+    })();
+
+    /* -------------------------------------------------------
+       SCROLL REVEAL
+    ------------------------------------------------------- */
+    (function () {
+      const observer = new IntersectionObserver(
+        entries => {
+          entries.forEach(e => {
+            if (e.isIntersecting) {
+              e.target.classList.add('visible');
+              observer.unobserve(e.target);
+            }
+          });
+        },
+        { threshold: 0.12, rootMargin: '0px 0px -40px 0px' }
+      );
+
+      document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+    })();
+  </script>
+
+</body>
+</html>
