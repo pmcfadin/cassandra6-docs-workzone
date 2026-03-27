@@ -1,0 +1,30 @@
+# Antora playbook for Cassandra 6 Docs Workzone
+# This builds a local preview of draft documentation.
+# It is NOT the official Cassandra docs build.
+#
+# Usage:
+#   npx antora antora-playbook.yml
+#
+# Output: build/site/
+
+site:
+  title: 'Apache Cassandra 6 Docs — Preview'
+  url: ~
+  start_page: cassandra-6-draft::index.adoc
+
+content:
+  sources:
+    - url: .
+      start_path: content
+      branches: HEAD
+
+ui:
+  bundle:
+    url: https://gitlab.com/antora/antora-ui-default/-/jobs/artifacts/HEAD/raw/build/ui-bundle.zip?job=bundle-stable
+    snapshot: true
+
+output:
+  dir: ./build/site
+
+runtime:
+  fetch: true

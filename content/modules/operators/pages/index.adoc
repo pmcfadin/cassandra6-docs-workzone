@@ -1,0 +1,8 @@
+= Operating Cassandra
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+This section covers deployment, configuration, monitoring, maintenance, and upgrade topics for Apache Cassandra 6 operators.

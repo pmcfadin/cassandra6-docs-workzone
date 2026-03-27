@@ -1,0 +1,8 @@
+= Developing with Cassandra
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+This section covers CQL, drivers, data modeling, and application patterns for Apache Cassandra 6 developers.

@@ -1,0 +1,21 @@
+= Apache Cassandra 6 Documentation (Draft)
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+
+This site is a *draft preview* of proposed Apache Cassandra 6 documentation.
+It is maintained in the https://github.com/patrickdmccarthy/cassandra6-docs-workzone[cassandra6-docs-workzone] repository and is *not* an official Apache Software Foundation publication.
+
+Approved content will be migrated to the official https://cassandra.apache.org/doc/[Apache Cassandra documentation] through the standard ASF review process.
+====
+
+== Sections
+
+Operators:: xref:operators:index.adoc[Operating Cassandra] — deployment, configuration, monitoring, maintenance, and upgrades.
+
+Developers:: xref:developers:index.adoc[Developing with Cassandra] — CQL, drivers, data modeling, and application patterns.
+
+Contributors:: xref:contributors:index.adoc[Contributing to Cassandra] — building from source, testing, and the contribution workflow.
+
+Reference:: xref:reference:index.adoc[Reference] — configuration reference, metrics, virtual tables, and generated documentation.

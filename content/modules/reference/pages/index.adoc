@@ -1,0 +1,8 @@
+= Reference
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+This section covers configuration reference, metrics, virtual tables, and generated documentation for Apache Cassandra 6.
