@@ -33,6 +33,7 @@
 *** xref:cassandra:developing/cql/security.adoc[]
 *** xref:cassandra:developing/cql/triggers.adoc[]
 *** xref:cassandra:developing/cql/constraints.adoc[]
+*** xref:cassandra:developing/cql/txn-reference.adoc[BEGIN TRANSACTION Reference]
 *** xref:cassandra:developing/cql/changes.adoc[]
 *** xref:cassandra:developing/cql/SASI.adoc[]
 *** xref:cassandra:developing/cql/cql_singlefile.adoc[]
