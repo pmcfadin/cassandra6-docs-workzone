@@ -1,5 +1,10 @@
 = Virtual Tables
 
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
 Apache Cassandra 4.0 implements virtual tables (https://issues.apache.org/jira/browse/CASSANDRA-7622[CASSANDRA-7622]).
 Virtual tables are tables backed by an API instead of data explicitly managed and stored as SSTables.
 Apache Cassandra 4.0 implements a virtual keyspace interface for virtual tables.
@@ -112,6 +117,46 @@ cqlsh> select * from system_metrics.all_groups  ;
 
 ----
 
+The `system_metrics` keyspace is new in Cassandra 6.0 (https://issues.apache.org/jira/browse/CASSANDRA-14572[CASSANDRA-14572]).
+It exposes every registered Dropwizard metric as a queryable CQL virtual table, replacing the JMX-only path for metric inspection.
+The older per-table metric virtual tables in `system_views` (such as `local_read_latency` and `disk_usage`) remain available for backward compatibility.
+
+Each metric group has a dedicated virtual table named `<group_name>_group` (for example, `compaction_group`, `table_group`).
+In addition to per-group tables, four cross-cutting type tables allow querying all metrics of a given Dropwizard type:
+
+[width="98%",cols="25%,75%",]
+|===
+|Virtual Table |Description
+
+|`all_groups` |Index table mapping `group_name` to `virtual_table`. Query this first to discover available metric groups at runtime.
+
+|`type_counter` |All registered Counter metrics across all groups. Columns: `name` (text), `count` (bigint).
+
+|`type_gauge` |All registered Gauge metrics across all groups. Columns: `name` (text), `value` (varies by gauge type).
+
+|`type_histogram` |All registered Histogram metrics. Columns: `name` (text), `count` (bigint), `max` (bigint), `mean` (double), `min` (bigint), `p75th` (double), `p95th` (double), `p98th` (double), `p99th` (double), `p999th` (double).
+
+|`type_meter` |All registered Meter metrics. Columns: `name` (text), `count` (bigint), `fifteen_minute_rate` (double), `five_minute_rate` (double), `mean_rate` (double), `one_minute_rate` (double).
+
+|`type_timer` |All registered Timer metrics. Columns: `name` (text), `count` (bigint), rate columns, plus full snapshot distribution: `max` (double), `mean` (double), `min` (double), `p75th` (double), `p95th` (double), `p98th` (double), `p99th` (double), `p999th` (double). The `min`, `mean`, `max`, `p75th`, and `p95th` columns were added in Cassandra 6.0 (https://issues.apache.org/jira/browse/CASSANDRA-20466[CASSANDRA-20466]).
+|===
+
+Source: `src/java/org/apache/cassandra/metrics/CassandraMetricsRegistry.java`, `src/java/org/apache/cassandra/db/virtual/model/TimerMetricRow.java`
+
+To query all compaction metrics:
+
+[source,cql]
+----
+SELECT * FROM system_metrics.compaction_group;
+----
+
+To find all timer metrics with a high p99 latency:
+
+[source,cql]
+----
+SELECT name, p99th FROM system_metrics.type_timer WHERE p99th > 100 ALLOW FILTERING;
+----
+
 === Virtual Tables _system_views_ Keyspace
 
 Each of the virtual tables in the `system_views` virtual keyspace contain different information.
@@ -151,9 +196,17 @@ recent_hit_rate_per_second, recent_request_rate_per_second, request_count, and s
 
 |max_partition_size |A table metric for maximum partition size.
 
+|partition_key_statistics |Lists partition keys with token values, size estimates, and SSTable counts for a given keyspace and table. New in Cassandra 6.0 (https://issues.apache.org/jira/browse/CASSANDRA-20161[CASSANDRA-20161]).
+
+|pending_hints |Lists pending hints with counts, sizes, and corrupted file information per target node. Cassandra 6.0 adds `total_size` and `total_corrupted_files_size` columns (https://issues.apache.org/jira/browse/CASSANDRA-19486[CASSANDRA-19486]).
+
+|purgeable_tombstones_per_read |Records histogram of purgeable tombstones scanned during reads. Requires `tombstone_read_purgeable_metric_granularity` to be enabled in `cassandra.yaml`. New in Cassandra 6.0 (https://issues.apache.org/jira/browse/CASSANDRA-20132[CASSANDRA-20132]).
+
 |rows_per_read |Records counts, keyspace_name, tablek_name, max, and median for rows read.
 
 |settings |Displays configuration settings in cassandra.yaml.
+
+|slow_queries |Records slow query operations from the in-memory ring buffer, including timing and query text. New in Cassandra 6.0 (https://issues.apache.org/jira/browse/CASSANDRA-13001[CASSANDRA-13001]).
 
 |sstable_tasks |Lists currently running tasks and progress on SSTables, for operations like compaction and upgrade.
 
@@ -164,6 +217,8 @@ recent_hit_rate_per_second, recent_request_rate_per_second, request_count, and s
 |thread_pools |Lists metrics for each thread pool.
 
 |tombstones_per_read |Records counts, keyspace_name, tablek_name, max, and median for tombstones.
+
+|uncaught_exceptions |Captures unhandled JVM exceptions with count, last message, last stack trace, and last occurrence timestamp. New in Cassandra 6.0 (https://issues.apache.org/jira/browse/CASSANDRA-20858[CASSANDRA-20858]).
 |===
 
 For improved usability, from https://issues.apache.org/jira/browse/CASSANDRA-18238[CASSANDRA-18238],
@@ -542,10 +597,41 @@ SELECT total - progress AS remaining
 FROM system_views.sstable_tasks;
 ----
 
-=== Virtual table for primary id's
+=== Partition Key Statistics Virtual Table
 
-Since https://issues.apache.org/jira/browse/CASSANDRA-20161[CASSANDRA-20161], there is
-a virtual table `system_views.partition_key_statistics` to allow users to query partition keys and related metadata for a specific table within a keyspace. This feature provides insights into SSTable-level details, such as token values, size estimates, and SSTable counts, without requiring expensive disk-based operations.
+From Cassandra 6.0 (https://issues.apache.org/jira/browse/CASSANDRA-20161[CASSANDRA-20161]),
+the `system_views.partition_key_statistics` virtual table allows operators to query partition keys
+and related SSTable-level metadata for a specific keyspace and table combination.
+It exposes token values, size estimates, and SSTable counts without requiring expensive disk-based operations such as full compaction or repair.
+
+Source: `src/java/org/apache/cassandra/db/virtual/PartitionKeyStatsTable.java`
+
+.Schema
+[source,cql]
+----
+VIRTUAL TABLE system_views.partition_key_statistics (
+  keyspace_name text,    -- partition key (composite)
+  table_name    text,    -- partition key (composite)
+  token_value   varint,  -- clustering
+  key           text,    -- clustering
+  size_estimate counter,
+  sstables      counter,
+  PRIMARY KEY ((keyspace_name, table_name), token_value, key)
+)
+----
+
+`size_estimate` is the estimated partition size in bytes, calculated from SSTable index position deltas.
+`sstables` is the number of SSTables containing this partition key.
+For composite partition keys, values are separated by `:` in the `key` column (for example, `'val1:val2'`).
+
+.Query constraints
+NOTE: Both `keyspace_name` and `table_name` must be specified — range queries without both components are rejected.
+The `key` column supports only equality filtering (`WHERE key = '...'`); range operators on `key` are not permitted.
+Reversed queries are not supported.
+Tables using a partitioner that does not support splitting (such as `ByteOrderedPartitioner` or `LocalPartitioner`) cannot be queried and return an `InvalidRequestException`.
+
+NOTE: `size_estimate` values reflect raw SSTable index position deltas and may vary significantly before and after compaction.
+When a partition key spans multiple SSTables, the value shown is the sum across all SSTables.
 
 [source,console]
 ----
@@ -588,6 +674,157 @@ cassandra@cqlsh> select * from partition_key_statistics where keyspace_name = 'k
 The value in `sstables` column means how many SSTables a particular key is located in.
 
 If there is a composite partition key, you can separate the values by a colon for `key`.
+
+=== Slow Queries Virtual Table
+
+From Cassandra 6.0 (https://issues.apache.org/jira/browse/CASSANDRA-13001[CASSANDRA-13001]),
+the `slow_queries` virtual table records slow query events from `MonitoringTask` into an in-memory ring buffer
+and exposes them via CQL. This provides cluster-wide slow query visibility without log file access.
+
+Source: `src/java/org/apache/cassandra/db/virtual/SlowQueriesTable.java`
+
+.Schema
+[source,cql]
+----
+VIRTUAL TABLE system_views.slow_queries (
+  keyspace_name text,    -- partition key
+  table_name    text,    -- clustering
+  timestamp     timestamp,  -- clustering
+  query         text,    -- clustering
+  avg_ms        bigint,
+  cross_node    boolean,
+  max_ms        bigint,
+  min_ms        bigint,
+  times_reported int,
+  PRIMARY KEY (keyspace_name, table_name, timestamp, query)
+)
+----
+
+`cross_node` indicates whether the query involved cross-node coordination (as opposed to a local single-node execution).
+Timing values (`min_ms`, `max_ms`, `avg_ms`) are in milliseconds.
+`times_reported` reflects how many times a matching query at the same keyspace/table/timestamp was aggregated into a single row.
+
+The buffer holds up to 10,000 rows by default (configurable up to 100,000 via the JVM property
+`-Dcassandra.virtual.slow_queries.max.rows`).
+Rows are stored only in memory and reset on node restart.
+
+Slow queries populate this table when they exceed the `slow_query_log_timeout_in_ms` threshold configured in `cassandra.yaml`.
+
+To inspect slow queries for a specific keyspace:
+
+[source,cql]
+----
+SELECT * FROM system_views.slow_queries WHERE keyspace_name = 'my_keyspace';
+----
+
+To clear all entries for a keyspace (partition-level delete):
+
+[source,cql]
+----
+DELETE FROM system_views.slow_queries WHERE keyspace_name = 'my_keyspace';
+----
+
+NOTE: Row-level deletes are not supported. Only partition-level (`WHERE keyspace_name = '...'`) deletes are permitted.
+
+[NOTE]
+====
+.Open questions for technical review
+- Confirm the exact relationship between `slow_query_log_timeout_in_ms` and the threshold that populates this table (see `MonitoringTask.java`).
+- Confirm whether `cross_node` means coordinator-only vs. cross-node reads, or another distinction.
+====
+
+=== Uncaught Exceptions Virtual Table
+
+From Cassandra 6.0 (https://issues.apache.org/jira/browse/CASSANDRA-20858[CASSANDRA-20858]),
+the `uncaught_exceptions` virtual table captures unhandled JVM exceptions thrown during node operation.
+Each distinct exception class and location pair is tracked as a single row, aggregating repeated occurrences.
+
+This table is particularly useful in managed environments where log file access is restricted,
+enabling programmatic health monitoring and alerting on exception frequency via standard CQL.
+
+Source: `src/java/org/apache/cassandra/db/virtual/ExceptionsTable.java`
+
+.Schema
+[source,cql]
+----
+VIRTUAL TABLE system_views.uncaught_exceptions (
+  exception_class    text,     -- partition key
+  exception_location text,     -- clustering
+  count              int,
+  last_message       text,
+  last_occurrence    timestamp,
+  last_stacktrace    list<text>,
+  PRIMARY KEY (exception_class, exception_location)
+)
+----
+
+`exception_class` is the fully qualified Java class name of the root cause exception.
+`exception_location` is the first stack frame of the root cause (for example, `ClassName.methodName(FileName.java:42)`).
+When the same exception recurs at the same location, `count` is incremented and the `last_*` columns are updated in place.
+
+The buffer holds up to 1,000 distinct exception entries. When full, the oldest entry (by `last_occurrence`) is evicted.
+
+Exceptions that occur before the virtual table initializes are buffered and flushed once the table is ready,
+so early-startup exceptions are captured.
+
+To inspect all recorded exceptions:
+
+[source,cql]
+----
+SELECT exception_class, exception_location, count, last_occurrence
+FROM system_views.uncaught_exceptions;
+----
+
+To look up a specific exception class:
+
+[source,cql]
+----
+SELECT * FROM system_views.uncaught_exceptions
+WHERE exception_class = 'java.lang.NullPointerException';
+----
+
+To clear all entries:
+
+[source,cql]
+----
+TRUNCATE system_views.uncaught_exceptions;
+----
+
+[NOTE]
+====
+.Open questions for technical review
+- Confirm which Cassandra code paths call `ExceptionsTable.persist()` to document the scope of exception capture (global uncaught-exception handler vs. explicit instrumentation).
+- Confirm whether `exception_location` is always a real stack frame or can be `"unknown"` when the stack trace is empty.
+====
+
+=== Pending Hints Virtual Table (Updated in Cassandra 6.0)
+
+The `pending_hints` virtual table lists pending hints with per-target-node details.
+
+From Cassandra 6.0 (https://issues.apache.org/jira/browse/CASSANDRA-19486[CASSANDRA-19486]),
+two size columns have been added alongside the existing file count columns:
+
+* `total_size` (bigint) -- total bytes of all hint files for the target node
+* `total_corrupted_files_size` (bigint) -- total bytes of corrupted hint files for the target node
+
+Source: `src/java/org/apache/cassandra/db/virtual/PendingHintsTable.java`
+
+The complete column set is: `host_id` (uuid, partition key), `address` (inet), `port` (int), `rack` (text), `dc` (text), `status` (text), `files` (int), `total_size` (bigint), `corrupted_files` (int), `total_corrupted_files_size` (bigint), `newest` (timestamp), `oldest` (timestamp).
+
+=== Purgeable Tombstones Virtual Table
+
+From Cassandra 6.0 (https://issues.apache.org/jira/browse/CASSANDRA-20132[CASSANDRA-20132]),
+the `purgeable_tombstones_per_read` virtual table records a histogram of purgeable tombstones
+scanned during read operations at the table level.
+
+This table is only populated when `tombstone_read_purgeable_metric_granularity` is configured
+in `cassandra.yaml` with a value other than `disabled` (the default):
+
+* `disabled` -- metric not collected (default)
+* `row` -- tracks partition-level, range-level, and row-level tombstones (approximately 1% CPU overhead for CPU-bound workloads)
+* `cell` -- tracks all tombstone types including cell-level (approximately 5% CPU overhead for CPU-bound workloads)
+
+Source: `src/java/org/apache/cassandra/db/virtual/TableMetricTables.java`, `conf/cassandra.yaml`
 
 === Other Virtual Tables
 
