@@ -1,0 +1,7 @@
+= compressiondictionary
+
+== Usage
+[source,plaintext]
+----
+include::cassandra:example$TEXT/NODETOOL/compressiondictionary.txt[]
+----

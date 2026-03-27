@@ -1,0 +1,7 @@
+= accord
+
+== Usage
+[source,plaintext]
+----
+include::cassandra:example$TEXT/NODETOOL/accord.txt[]
+----

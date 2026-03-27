@@ -1,0 +1,7 @@
+= altertopology
+
+== Usage
+[source,plaintext]
+----
+include::cassandra:example$TEXT/NODETOOL/altertopology.txt[]
+----

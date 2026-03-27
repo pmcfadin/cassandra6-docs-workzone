@@ -1,0 +1,7 @@
+= profile
+
+== Usage
+[source,plaintext]
+----
+include::cassandra:example$TEXT/NODETOOL/profile.txt[]
+----

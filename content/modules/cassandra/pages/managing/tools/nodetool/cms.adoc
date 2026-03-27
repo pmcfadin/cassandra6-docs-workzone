@@ -1,0 +1,7 @@
+= cms
+
+== Usage
+[source,plaintext]
+----
+include::cassandra:example$TEXT/NODETOOL/cms.txt[]
+----
