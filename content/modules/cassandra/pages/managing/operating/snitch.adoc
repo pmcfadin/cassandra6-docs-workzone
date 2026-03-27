@@ -1,5 +1,10 @@
 = Snitch
 
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
 In cassandra, the snitch has two functions:
 
 * it teaches Cassandra enough about your network topology to route
@@ -9,6 +14,25 @@ correlated failures. It does this by grouping machines into
 "datacenters" and "racks." Cassandra will do its best not to have more
 than one replica on the same "rack" (which may not actually be a
 physical location).
+
+[NOTE]
+====
+*Cassandra 6.0 — IEndpointSnitch Deprecation*
+
+`IEndpointSnitch` is deprecated in Cassandra 6.0 (CASSANDRA-19488).
+Its responsibilities have been decomposed into four focused interfaces and classes in `org.apache.cassandra.locator`:
+
+* `Locator` — datacenter/rack lookups, reads from ClusterMetadata (not user-configurable)
+* `InitialLocationProvider` — one-time DC/rack registration when a new node first joins
+* `NodeProximity` — replica list sorting and request routing
+* `NodeAddressConfig` — public/private address configuration
+
+The legacy `endpoint_snitch` YAML setting continues to work without changes via a `SnitchAdapter` bridge class.
+*No operator action is required at upgrade time.*
+The new YAML settings (`initial_location_provider`, `node_proximity`, `addresses_config`, `prefer_local_connections`) are optional and preferred for new deployments.
+See <<new-topology-settings>> and <<upgrade-notes>> for details.
+Source: `conf/cassandra.yaml` lines 1484–1661; `src/java/org/apache/cassandra/locator/`.
+====
 
 == Dynamic snitching
 
@@ -44,14 +68,21 @@ GossipingPropertyFileSnitch::
   cassandra-rackdc.properties and propagated to other nodes via gossip.
   If `cassandra-topology.properties` exists, it is used as a fallback,
   allowing migration from the PropertyFileSnitch.
+  *Cassandra 6.0 equivalent:* `initial_location_provider: RackDCFileLocationProvider`
+  (CASSANDRA-19488; source: `src/java/org/apache/cassandra/locator/RackDCFileLocationProvider.java`).
 SimpleSnitch::
   Treats Strategy order as proximity. This can improve cache locality
   when disabling read repair. Only appropriate for single-datacenter
   deployments.
+  *Cassandra 6.0 equivalent:* `initial_location_provider: SimpleLocationProvider`
+  (CASSANDRA-19488; source: `src/java/org/apache/cassandra/locator/SimpleLocationProvider.java`).
 PropertyFileSnitch::
   Proximity is determined by rack and data center, which are explicitly
   configured in `cassandra-topology.properties`.
+  *Cassandra 6.0 equivalent:* `initial_location_provider: TopologyFileLocationProvider`
+  (CASSANDRA-19488; source: `src/java/org/apache/cassandra/locator/TopologyFileLocationProvider.java`).
 Ec2Snitch::
+  _Deprecated in Cassandra 6.0._
   Appropriate for EC2 deployments in a single Region, or in multiple
   regions with inter-region VPC enabled (available since the end of
   2017, see
@@ -60,15 +91,247 @@ Ec2Snitch::
   the EC2 API. The Region is treated as the datacenter, and the
   Availability Zone as the rack. Only private IPs are used, so this will
   work across multiple regions only if inter-region VPC is enabled.
+  *Cassandra 6.0 equivalent:* `initial_location_provider: Ec2LocationProvider`
+  (CASSANDRA-19488; source: `src/java/org/apache/cassandra/locator/Ec2LocationProvider.java`).
 Ec2MultiRegionSnitch::
+  _Deprecated in Cassandra 6.0._
   Uses public IPs as broadcast_address to allow cross-region
   connectivity (thus, you should set seed addresses to the public IP as
   well). You will need to open the `storage_port` or `ssl_storage_port`
   on the public IP firewall (For intra-Region traffic, Cassandra will
   switch to the private IP after establishing a connection).
+  *Cassandra 6.0 equivalent:* `initial_location_provider: Ec2LocationProvider`
+  combined with `addresses_config: Ec2MultiRegionAddressConfig`
+  (CASSANDRA-19488; source: `src/java/org/apache/cassandra/locator/Ec2MultiRegionAddressConfig.java`).
 RackInferringSnitch::
   Proximity is determined by rack and data center, which are assumed to
   correspond to the 3rd and 2nd octet of each node's IP address,
   respectively. Unless this happens to match your deployment
   conventions, this is best used as an example of writing a custom
   Snitch class and is provided in that spirit.
+
+[NOTE]
+====
+The following cloud snitches were removed from Cassandra 6.0 source and are no longer available:
+`GoogleCloudSnitch`, `CloudstackSnitch`.
+The `AlibabaCloudSnitch` and `AzureSnitch` have Cassandra 6.0 equivalents
+`AlibabaCloudLocationProvider` and `AzureCloudLocationProvider` respectively
+(CASSANDRA-19488; source: `src/java/org/apache/cassandra/locator/`).
+Operators previously using these snitches must migrate to the new `initial_location_provider` settings.
+====
+
+[#new-topology-settings]
+== New topology settings (Cassandra 6.0)
+
+Cassandra 6.0 introduces four new `cassandra.yaml` settings that replace the monolithic `endpoint_snitch` approach with composable, single-responsibility configuration (CASSANDRA-19488; source: `conf/cassandra.yaml` lines 1572–1661).
+These settings are optional. When `endpoint_snitch` is configured, it continues to work via `SnitchAdapter`. The new settings take precedence when both are present.
+
+`initial_location_provider`::
+  Replaces the DC/rack determination role of `endpoint_snitch`.
+  Used exactly once when a new node first joins the cluster.
+  After first join, DC/rack is persisted in and sourced from ClusterMetadata — the snitch is no longer consulted for location.
+  Available implementations: `SimpleLocationProvider`, `RackDCFileLocationProvider`, `TopologyFileLocationProvider`,
+  `Ec2LocationProvider`, `AlibabaCloudLocationProvider`, `AzureCloudLocationProvider`, `GoogleCloudLocationProvider`.
+  Example:
++
+[source,yaml]
+----
+initial_location_provider: RackDCFileLocationProvider
+----
+
+`node_proximity`::
+  Replaces the request-routing/proximity role of `endpoint_snitch`.
+  Controls replica list sorting and read request routing.
+  Two options: `NoOpProximity` (equivalent to SimpleSnitch — ignores topology) or
+  `NetworkTopologyProximity` (equivalent to topology-aware snitches — prefers local DC/rack).
+  Example:
++
+[source,yaml]
+----
+node_proximity: NetworkTopologyProximity
+----
+
+`addresses_config`::
+  Replaces the address-configuration role previously hard-coded in `Ec2MultiRegionSnitch`.
+  Only needed for deployments that require separate public/private addresses (multi-region EC2 with public broadcast).
+  Default is a no-op. Available implementation: `Ec2MultiRegionAddressConfig`.
+  Example:
++
+[source,yaml]
+----
+addresses_config: Ec2MultiRegionAddressConfig
+----
+
+`prefer_local_connections`::
+  Replaces the `prefer_local` property from `cassandra-rackdc.properties` and the hard-coded behavior previously in `Ec2MultiRegionSnitch`.
+  When `true`, Cassandra prefers intra-DC connections over cross-DC connections.
+  Defaults to `false`.
+  Example:
++
+[source,yaml]
+----
+prefer_local_connections: true
+----
+
+=== Typical new-deployment configurations
+
+The following examples show how to configure the new settings for common deployment patterns.
+
+Single datacenter (replaces `SimpleSnitch`):
+
+[source,yaml]
+----
+initial_location_provider: SimpleLocationProvider
+node_proximity: NoOpProximity
+----
+
+Multi-datacenter on-premises (replaces `GossipingPropertyFileSnitch`):
+
+[source,yaml]
+----
+initial_location_provider: RackDCFileLocationProvider
+node_proximity: NetworkTopologyProximity
+----
+
+Multi-region AWS (replaces `Ec2MultiRegionSnitch`):
+
+[source,yaml]
+----
+initial_location_provider: Ec2LocationProvider
+node_proximity: NetworkTopologyProximity
+addresses_config: Ec2MultiRegionAddressConfig
+----
+
+[#altertopology]
+== Changing DC or rack on a live node (nodetool altertopology)
+
+Cassandra 6.0 introduces the `nodetool altertopology` command, which allows operators to change the datacenter and/or rack assignment of live nodes without decommissioning and recommissioning them (CASSANDRA-20528; source: `src/java/org/apache/cassandra/tools/nodetool/AlterTopology.java`).
+
+This operation is only possible because Cassandra 6.0 uses Transactional Cluster Metadata (TCM) as the single source of truth for topology (CASSANDRA-18330 / CEP-21). The change commits atomically through TCM and propagates to `system.local`, `system.peers_v2`, and gossip state on all nodes.
+
+=== Syntax
+
+[source,bash]
+----
+nodetool altertopology <node>=<dc>:<rack> [<node>=<dc>:<rack> ...]
+----
+
+Node identifiers can be any of:
+
+* Numeric node ID (from `nodetool ring`)
+* UUID host ID (from `nodetool info`)
+* Broadcast IP address (with or without port)
+
+Multiple nodes can be reassigned atomically in a single command invocation. The JMX interface accepts comma-delimited pairs: `StorageServiceMBean.alterTopology("node1=dc1:rack1,node2=dc2:rack2")`.
+
+=== Examples
+
+Rename a rack for a single node:
+
+[source,bash]
+----
+nodetool altertopology 192.168.1.10=datacenter1:rack2
+----
+
+Reassign multiple nodes atomically:
+
+[source,bash]
+----
+nodetool altertopology 1=dc1:rack1 2=dc1:rack2 3=dc2:rack1
+----
+
+=== Safety validation
+
+The command is safety-gated: it is rejected whenever the proposed changes would alter data placements (replica distribution) or violate consistency guarantees.
+Source: `src/java/org/apache/cassandra/tcm/transformations/AlterTopology.java`; `src/java/org/apache/cassandra/tcm/ownership/DataPlacements.java` (`equivalentTo()` method).
+
+The operation is *permitted* when:
+
+* Rack renames do not change which racks replicas land on (e.g., each node is in its own unique rack with `NetworkTopologyStrategy`)
+* All nodes in a DC are reassigned simultaneously and placements are unaffected
+* A DC is renamed when it is not referenced in any `NetworkTopologyStrategy` replication parameters
+* All keyspaces use `SimpleStrategy` (which ignores DC names)
+
+The operation is *rejected* with a descriptive error in these cases:
+
+* The proposed changes would cause any change to data placements: `"Proposed updates modify data placements, violating consistency guarantees"`
+* Ongoing range movements (bootstrap, decommission, move) are in progress: `"The requested topology changes cannot be executed while there are ongoing range movements"`
+* Any specified node ID is not found in the cluster directory
+
+[WARNING]
+====
+Before running `nodetool altertopology`, verify that no range movements are in progress using `nodetool ring` or `nodetool status`.
+The operation will be rejected — not rolled back — if ongoing movements are detected at the time of the call.
+====
+
+[#upgrade-notes]
+== Upgrade notes: migrating from Cassandra 5.0 snitch configuration
+
+When upgrading from Cassandra 5.0 to 6.0:
+
+* *No action is required.* The `endpoint_snitch` YAML setting and all existing `IEndpointSnitch` implementations continue to work via the `SnitchAdapter` bridge class.
+  Source: `src/java/org/apache/cassandra/locator/SnitchAdapter.java`; NEWS.txt (6.0 section, line 216).
+
+* The `cassandra-rackdc.properties` and `cassandra-topology.properties` files continue to be read by the legacy snitch classes.
+  When migrating to the new `initial_location_provider` model, these files are still used by `RackDCFileLocationProvider` and `TopologyFileLocationProvider` respectively.
+
+* DC/rack values are now persisted in ClusterMetadata after a node's first join.
+  *Editing `cassandra-rackdc.properties` or `cassandra-topology.properties` on a running node does not change its registered topology in Cassandra 6.0.*
+  Use `nodetool altertopology` to change a live node's DC or rack assignment (see <<altertopology>>).
+
+The following table maps legacy `endpoint_snitch` values to the equivalent Cassandra 6.0 new-model settings:
+
+[cols="2,2,2,2", options="header"]
+|===
+| Legacy endpoint_snitch | initial_location_provider | node_proximity | addresses_config
+
+| `SimpleSnitch`
+| `SimpleLocationProvider`
+| `NoOpProximity`
+| _(none)_
+
+| `GossipingPropertyFileSnitch`
+| `RackDCFileLocationProvider`
+| `NetworkTopologyProximity`
+| _(none)_
+
+| `PropertyFileSnitch`
+| `TopologyFileLocationProvider`
+| `NetworkTopologyProximity`
+| _(none)_
+
+| `Ec2Snitch`
+| `Ec2LocationProvider`
+| `NetworkTopologyProximity`
+| _(none)_
+
+| `Ec2MultiRegionSnitch`
+| `Ec2LocationProvider`
+| `NetworkTopologyProximity`
+| `Ec2MultiRegionAddressConfig`
+
+| `RackInferringSnitch`
+| _(no direct equivalent)_
+| `NetworkTopologyProximity`
+| _(none)_
+
+| `AlibabaCloudSnitch`
+| `AlibabaCloudLocationProvider`
+| `NetworkTopologyProximity`
+| _(none)_
+
+| `AzureSnitch`
+| `AzureCloudLocationProvider`
+| `NetworkTopologyProximity`
+| _(none)_
+|===
+
+[NOTE]
+====
+*Open questions for technical review:*
+
+1. The canonical YAML key for the address configuration setting should be confirmed against trunk `conf/cassandra.yaml` line 1649 — the research notes a discrepancy between `addresses_config` (YAML) and `address_config` (NEWS.txt singular form).
+2. Whether `RackInferringSnitch` has a direct `InitialLocationProvider` equivalent should be verified against trunk source.
+3. Whether `GoogleCloudSnitch` and `CloudstackSnitch` are fully removed from trunk source or only deprecated should be confirmed before marking them as removed.
+4. Timeline for removal of `IEndpointSnitch` support is not yet documented; this affects how urgently migration guidance should be presented to operators.
+====

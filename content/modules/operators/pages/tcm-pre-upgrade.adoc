@@ -1,0 +1,476 @@
+= TCM Pre-Upgrade Prerequisites
+:description: Version requirements, cluster state prerequisites, and a readiness assessment checklist before enabling Transactional Cluster Metadata.
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+This page covers everything you must verify before starting the TCM upgrade.
+The xref:tcm-upgrade-procedure.adoc[Upgrade Procedure] describes how to execute the upgrade itself.
+
+Do not skim this page.
+The transition to Transactional Cluster Metadata is not a routine patch — it is a fundamental
+change to how your cluster manages its own identity.
+TCM initialization fails loudly when preconditions are not met,
+and the errors are specific and actionable.
+
+== Version Prerequisites
+
+TCM was introduced in Cassandra 6.0 as part of CEP-21.
+It is not available in 4.x or 5.x.
+
+=== Supported Upgrade Path
+
+[source]
+----
+4.0 / 4.1 / 5.0  ──►  6.0  ──►  Initialize CMS
+----
+
+If you are on Cassandra 3.x, you must first upgrade to the latest 4.0 release before proceeding
+to 6.0.
+Direct jumps from 3.x to 6.0 are not supported.
+
+=== Why 6.0 Is the Threshold
+
+The `NodeVersion` class defines the 6.0 boundary:
+
+[source,java]
+----
+private static final CassandraVersion SINCE_VERSION = CassandraVersion.CASSANDRA_6_0;
+public static final Version CURRENT_METADATA_VERSION = Version.V8;
+
+public boolean isUpgraded() {
+    return serializationVersion >= Version.V0.asInt();
+}
+----
+
+During CMS initialization, every non-LEFT node in the cluster must pass `isUpgraded()`,
+which returns `true` only for nodes reporting Cassandra 6.0 or later.
+Pre-6.0 nodes are tagged as `Version.OLD`.
+There is no override for this check.
+
+Source: `src/java/org/apache/cassandra/tcm/membership/NodeVersion.java`
+
+=== Messaging Version Boundary
+
+Schema mutations have historically only been sent to nodes running the same messaging version.
+
+[cols="2,1"]
+|===
+| Cassandra Version | Messaging Version
+
+| 3.0 | 10
+| 4.0 | 12
+| 5.0 | 13
+| 6.0 | 14
+|===
+
+During a rolling upgrade, the two halves of the cluster run different messaging versions.
+A schema change issued on an upgraded node will not be disseminated to non-upgraded nodes.
+The upgraded node does not log an error.
+**This is why schema changes are prohibited during the mixed-version window.**
+
+== Network and State Prerequisites
+
+=== All Nodes Must Be Up
+
+All nodes in the cluster should be up and running the same version before you initialize CMS.
+During initialization, the initiating node contacts every known peer to verify that their
+metadata matches.
+A down node cannot respond and initialization will report a mismatch.
+
+Options for down nodes:
+
+* Bring the node up on the new version before initializing.
+* Use the `--ignore` flag to explicitly exclude permanently down nodes
+  (see xref:tcm-upgrade-procedure.adoc[Upgrade Procedure]).
+
+The `--ignore` flag is not a shortcut for skipping nodes you haven't upgraded yet.
+It exists for nodes that are genuinely unreachable — hardware failures,
+decommissioned-but-not-yet-removed nodes.
+
+=== What "Agreement" Means
+
+During CMS initialization, the `Election.PrepareHandler` runs three checks against every peer:
+
+**Directory match.**
+The initiating node's view of the cluster directory — every node ID, its state,
+and its endpoint address — must be identical to the peer's view.
+
+**TokenMap match.**
+The token-to-node mapping must be identical.
+
+**Schema digest match.**
+Both nodes compute a digest of their schema using `SchemaKeyspace.calculateSchemaDigest()`.
+
+If any check fails:
+
+----
+Got mismatching cluster metadatas. Check logs on peers ([/10.0.1.42:7000])
+----
+
+The peer's logs will contain the specific diff.
+
+Source: `src/java/org/apache/cassandra/tcm/migration/Election.java`
+
+== Prohibited Operations During the Upgrade Window
+
+Between starting the rolling upgrade and completing CMS initialization,
+the following metadata-changing operations must not be performed:
+
+* Schema changes (CREATE, ALTER, DROP for keyspaces, tables, types, functions, aggregates)
+* Node bootstrap (adding new nodes)
+* Node decommission (removing existing nodes)
+* Node move (reassigning tokens)
+* Node replacement (replacing a dead node with a new one)
+* Assassinate (forcibly removing a node from the ring)
+
+[TIP]
+====
+If you have automation that can trigger any of these operations — auto-scaling policies,
+scheduled maintenance scripts, orchestration systems — **disable it** before starting the
+rolling upgrade.
+Re-enable it only after CMS initialization completes.
+====
+
+== Schema Changes During Upgrades
+
+=== Why Schema Changes Fail During Rolling Upgrades
+
+Schema mutations are only sent to nodes running the same messaging version.
+During a rolling upgrade — when half your nodes are on version N and the other half are on N+1 —
+a schema change issued on an upgraded node will not be disseminated to non-upgraded nodes.
+The upgraded node does not log an error.
+The non-upgraded nodes do not know they missed anything.
+The schema silently diverges.
+
+**TCM does not change this fundamental constraint.**
+What TCM changes is the failure mode: instead of silently not propagating the mutation,
+TCM actively rejects the commit.
+You will see an error message rather than silent divergence.
+
+=== Creating Tables with New Parameters During Upgrade
+
+Under TCM, the `AlterSchema` transformation includes a compatibility check:
+
+[source,java]
+----
+public boolean eligibleToCommit(ClusterMetadata metadata) {
+    return schemaTransformation.compatibleWith(metadata);
+}
+----
+
+The `compatibleWith` method inspects the cluster's minimum version
+(tracked in the `Directory` as `clusterMinVersion`) and rejects the transformation
+if any node in the cluster cannot support it.
+
+**The practical rule:** Do not make schema changes until all nodes are on the same version
+and CMS has been initialized.
+
+Source: `src/java/org/apache/cassandra/tcm/transformations/AlterSchema.java`
+
+== The `system_cluster_metadata` Keyspace
+
+When CMS is initialized, Cassandra creates the `system_cluster_metadata` keyspace.
+The primary table is `distributed_metadata_log`:
+
+[source,cql]
+----
+CREATE TABLE system_cluster_metadata.distributed_metadata_log (
+    epoch bigint PRIMARY KEY,
+    entry_id bigint,
+    transformation blob,
+    kind int
+)
+----
+
+Each row represents one epoch — one atomic metadata change.
+The table uses Time-Window Compaction Strategy with one-day windows.
+
+At initialization, this keyspace is created with `SimpleStrategy` and a replication factor of 1
+on the initiating node.
+After initialization, reconfigure it for production resilience using `nodetool cms reconfigure`.
+
+Source: `src/java/org/apache/cassandra/schema/SchemaConstants.java`
+
+== Configuration Reference
+
+TCM introduces these properties in `cassandra.yaml`.
+
+[NOTE]
+====
+As of trunk, these properties are defined in `Config.java` but are NOT present in
+the default `cassandra.yaml`.
+Operators must add them manually if overriding defaults.
+(CASSANDRA-18330 open question: whether this is intentional.)
+====
+
+[cols="2,1,3"]
+|===
+| Property | Default | Purpose
+
+| `unsafe_tcm_mode` | `false` | Enables unsafe operations for recovery and debugging.
+  Leave `false` in production.
+| `progress_barrier_default_consistency_level` | `EACH_QUORUM` | Consistency level for verifying metadata propagation
+| `progress_barrier_timeout` | `3600000 ms` | Maximum wait for propagation to complete
+| `progress_barrier_backoff` | `1000 ms` | Retry interval when waiting for propagation
+| `discovery_timeout` | `30 s` | Timeout for initial peer discovery. // TODO: verify default against trunk Config.java
+|===
+
+CMS replication factor is **not** configured in `cassandra.yaml`.
+It is managed dynamically via `nodetool cms reconfigure` and can be changed without a restart.
+
+Source: `src/java/org/apache/cassandra/config/Config.java`
+
+== The Five-Gate Readiness Model
+
+CMS initialization runs through five validation gates in sequence.
+If any gate fails, the process stops and reports the reason.
+
+----
+Gate 1          Gate 2          Gate 3          Gate 4          Gate 5
+Can I run    ─► Are ignored  ─► Am I fully  ─► Is everyone  ─► Is CMS
+this from       endpoints       JOINED?        upgraded?       uninitialized?
+here?           real?
+----
+
+=== Gate 1: Verify the Initiating Node
+
+The initiating node must be in JOINED state.
+
+[source,bash]
+----
+$ nodetool status
+----
+
+Look for `UN` (Up/Normal).
+If the node shows `UJ` (joining), `UL` (leaving), or `UM` (moving), initialization will fail:
+
+----
+Initial CMS node needs to be fully joined, not: BOOTSTRAPPING
+----
+
+=== Gate 2: Check All Nodes Are Up and Upgraded
+
+Every non-LEFT node must be running Cassandra 6.0 or later.
+
+[source,bash]
+----
+$ nodetool version
+----
+
+Run this on every node.
+If a non-ignored, non-LEFT node is on an older version:
+
+----
+All nodes are not yet upgraded - /10.0.1.11:7000 is running <old-version>
+----
+
+=== Gate 3: Confirm No In-Progress Topology Operations
+
+TCM tracks multi-step topology operations through `InProgressSequences`.
+If any of these operations is in flight, CMS initialization cannot proceed.
+
+[source,bash]
+----
+$ nodetool status
+----
+
+Look for any node not in `UN` state.
+A node showing `UJ`, `UL`, or `UM` indicates an in-progress operation.
+
+=== Gate 4: Confirm No Locked Ranges
+
+Locked ranges and in-progress sequences are closely correlated.
+If Gate 3 passes, Gate 4 almost certainly passes.
+Verify explicitly if in doubt:
+
+[source,bash]
+----
+$ nodetool cms describe
+----
+
+=== Gate 5: Verify Schema Convergence
+
+This gate catches operators off guard most often, because schema disagreement
+can exist silently for weeks without visible impact.
+
+[source,bash]
+----
+$ nodetool describecluster
+----
+
+In a healthy cluster, you see a single schema UUID with all nodes listed under it:
+
+----
+Schema versions:
+    a1b2c3d4-e5f6-7890-abcd-ef1234567890: [10.0.1.10, 10.0.1.11, 10.0.1.12]
+----
+
+Multiple UUIDs indicate schema disagreement.
+During initialization, the initiating node computes an MD5 digest of all eight `system_schema`
+tables and sends it to every peer.
+A mismatch produces:
+
+----
+Got mismatching cluster metadatas. Check logs on peers ([/10.0.1.12:7000])
+----
+
+==== Resolving Schema Disagreement
+
+**A DDL statement was run during the rolling upgrade.**
+Resolve: complete the upgrade to get all nodes on the same version, then run the DDL again.
+
+**A node was down during a schema change.**
+Resolve: restart the node.
+On startup, it will pull the current schema from its peers.
+
+**Persistent disagreement despite restarts.**
+Resolve: run `nodetool resetlocalschema` on the affected node.
+This drops the node's local schema and rebuilds it from its peers.
+Use with caution — it triggers a full schema reload.
+
+=== Gate 6 (Implicit): Gossip Settled
+
+Gossip must be in a stable state before CMS initialization.
+Cassandra checks this automatically at startup via `Gossiper.waitToSettle()`:
+wait a minimum of 5 seconds, poll the known endpoint count every second,
+require 3 consecutive polls with the same count.
+
+[NOTE]
+====
+Never set the `cassandra.skip_wait_for_gossip_to_settle` system property before CMS initialization.
+The gossip state is the starting point from which TCM builds its initial snapshot —
+if gossip has not converged, the snapshot will be inconsistent.
+====
+
+=== Repair State (Manual Check)
+
+TCM does not check for in-progress repairs.
+The `upgradeFromGossip` validation chain checks node versions, node states, and schema —
+but not the repair service.
+
+[source,bash]
+----
+$ nodetool repair --list
+----
+
+Finish or cancel all repairs before starting the rolling upgrade.
+
+== Error Reference
+
+[cols="3,2,3"]
+|===
+| Error Message | Cause | Resolution
+
+| `Can't ignore local host %s when doing CMS migration`
+| Your own IP is in the `--ignore` list
+| Remove your IP from `--ignore`
+
+| `Ignored host(s) %s don't exist in the cluster`
+| An `--ignore` address is not in the directory
+| Verify the IP address; check `nodetool status`
+
+| `Initial CMS node needs to be fully joined, not: %s`
+| Initiating node is not JOINED
+| Wait for the node to complete its current operation
+
+| `All nodes are not yet upgraded - %s is running %s`
+| A non-LEFT node is on a pre-6.0 version
+| Upgrade that node to 6.0+
+
+| `Can't upgrade from gossip since CMS is already initialized`
+| CMS is already active
+| No action needed — you are already on TCM
+
+| `Migration already initiated by %s`
+| Another node started initialization
+| Run `nodetool cms abortinitialization --initiator <ip>`
+
+| `Did not get response from %s`
+| A peer is unreachable
+| Bring the peer up or add to `--ignore`
+
+| `Got mismatching cluster metadatas`
+| Peer disagrees on directory, tokens, or schema
+| Check peer logs for specific diff; resolve and retry
+|===
+
+Source: `src/java/org/apache/cassandra/tcm/migration/Election.java`
+
+== What TCM Checks Automatically vs. What You Must Check
+
+**TCM checks automatically:**
+
+* Initiating node state (must be JOINED)
+* Node version compatibility (must be 6.0+)
+* CMS initialization state (must not already be initialized)
+* Directory agreement (verified during election)
+* Token map agreement (verified during election)
+* Schema digest agreement (verified during election)
+* Ignored endpoint validity (must exist in cluster)
+
+**You must check manually:**
+
+* Active repair sessions (no automated check)
+* Gossip settlement (happens at startup, but verify via logs)
+* Automation and cron jobs (TCM cannot see your external systems)
+* Network connectivity between all nodes
+* Whether a node in the `--ignore` list is truly unrecoverable
+
+== Pre-Upgrade Checklist
+
+Work through every item before starting the rolling upgrade.
+
+=== Cluster-Level Checks
+
+* [ ] All nodes are on 4.0, 4.1, 5.0, or 5.x.
+  If on 3.x, upgrade to latest 4.0 first.
+* [ ] All nodes are up and healthy.
+  `nodetool status` shows `UN` for every node on every node.
+* [ ] All nodes are running the same version.
+  No mixed-version state before the rolling upgrade begins.
+* [ ] Schema is converged.
+  `nodetool describecluster` shows a single schema version across all nodes.
+* [ ] No topology operations are in flight.
+  No ongoing bootstraps, decommissions, or moves.
+* [ ] No repairs are in progress.
+  Complete or cancel any active repair sessions.
+* [ ] Automation is disabled.
+  Auto-scaling, scheduled topology changes, and automated schema migrations are paused.
+* [ ] You have a rollback plan.
+  Know how to revert nodes to the previous version if the upgrade encounters problems.
+
+=== Initiating-Node Checks
+
+* [ ] Node is in JOINED state. `nodetool status` shows `UN` for this node.
+* [ ] Node is stable.
+  Recently restarted or recently-bootstrapped nodes should be avoided.
+* [ ] Node has network connectivity to all peers.
+  Port 7000 (inter-node) is reachable from this node to every other.
+
+=== Operational Checks
+
+* [ ] You have identified any nodes to ignore.
+  Dead nodes that will not return should be listed for the `--ignore` flag.
+* [ ] You have a rollback plan.
+  If initialization fails, you know how to abort and retry.
+* [ ] You have scheduled a maintenance window.
+  The surrounding upgrade process requires a period of no metadata changes.
+
+== Related Pages
+
+* xref:tcm-overview.adoc[TCM Overview and Concepts]
+* xref:tcm-upgrade-procedure.adoc[TCM Upgrade Procedure]
+* xref:tcm-operations.adoc[TCM Operations]
+* xref:tcm-troubleshooting.adoc[TCM Troubleshooting]
+
+== Unresolved Questions
+
+* The 9 CMS configuration properties are defined in `Config.java` but absent from the default
+  `cassandra.yaml` on trunk.
+  Documentation should clarify whether these are intended as advanced-only knobs or
+  standard configuration.
+* The exact interplay between gossip settlement timing and CMS initialization success rate
+  on very large clusters (100+ nodes) has not been quantified in public documentation.

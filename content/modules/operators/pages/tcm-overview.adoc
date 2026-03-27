@@ -1,0 +1,458 @@
+= Transactional Cluster Metadata: Overview and Concepts
+:description: What TCM is, what changes when it is enabled, and a glossary of key terms.
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Transactional Cluster Metadata (TCM) is the most significant architectural change in Apache Cassandra 6.0.
+It replaces gossip as the authority for cluster membership, token ownership, and schema,
+replacing eventually-consistent propagation with a linearized, Paxos-backed distributed log.
+
+This page explains what changes, what stays the same, and the core concepts you need to
+operate a TCM-enabled cluster.
+For upgrade instructions, see xref:tcm-pre-upgrade.adoc[Pre-Upgrade Prerequisites] and
+xref:tcm-upgrade-procedure.adoc[Upgrade Procedure].
+For day-2 operations, see xref:tcm-operations.adoc[TCM Operations].
+
+== What TCM Is
+
+TCM was introduced in Cassandra 6.0 as CEP-21.
+Every metadata change — a node joining, a table being created, a decommission step —
+is now a _transformation_ committed to a distributed log at a new _epoch_.
+A small subset of nodes called the Cluster Metadata Service (CMS) serializes all commits
+using Paxos consensus.
+Every node maintains a local copy of the log and applies entries in strict epoch order.
+
+Source references:
+
+* Core package: `src/java/org/apache/cassandra/tcm/`
+* In-tree design document: `src/java/org/apache/cassandra/tcm/TransactionalClusterMetadata.md`
+* JIRA: https://issues.apache.org/jira/browse/CASSANDRA-18330[CASSANDRA-18330]
+* CEP: https://cwiki.apache.org/confluence/display/CASSANDRA/CEP-21%3A+Transactional+Cluster+Metadata[CEP-21]
+
+== What Changes When You Enable TCM
+
+=== What Gossip Stops Doing
+
+Before TCM, gossip propagated three critical categories of metadata:
+
+* **Token ownership** — which node owns which token ranges
+* **Node lifecycle state** — joining, leaving, moving, normal
+* **Schema** — keyspace, table, type, and function definitions
+
+All three are now managed by the TCM log.
+
+==== Token Ownership
+
+Under gossip, different coordinators could receive token-assignment announcements at different times,
+creating a window where quorums were computed against divergent token maps.
+Under TCM, the `TokenMap` class maintains an authoritative `SortedBiMultiValMap<Token, NodeId>` updated
+atomically as part of an epoch transition.
+Every node applies the same sequence of transformations in the same order.
+There is no window for divergence.
+
+Source: `src/java/org/apache/cassandra/tcm/ClusterMetadata.java`
+
+==== Node Lifecycle State
+
+The old model used gossip `STATUS` updates: `BOOTSTRAPPING`, `NORMAL`, `LEAVING`, `LEFT`, `MOVING`.
+TCM replaces this with a multi-step transformation sequence.
+A node join, for example, progresses through:
+
+[cols="1,2,3"]
+|===
+| Step | Transformation | What Happens
+
+| 1 | `Register` | Node registers in the cluster directory
+| 2 | `PrepareJoin` | Token ranges are assigned and locked
+| 3 | `StartJoin` | Streaming begins
+| 4 | `MidJoin` | Data transfer progresses
+| 5 | `FinishJoin` | Node becomes a full member
+|===
+
+Each step is a committed entry in the metadata log.
+The cluster cannot advance to the next step until the current one is committed and applied.
+
+Source: `src/java/org/apache/cassandra/tcm/sequences/` (18 classes)
+
+==== Schema
+
+Schema mutations are now `AlterSchema` transformations committed to the distributed log.
+They arrive at every node in the same order, at the same epoch.
+The `DistributedSchema` class wraps keyspace definitions in an immutable snapshot tagged with its epoch.
+If a schema change would be incompatible with a node running an older version,
+the commit is rejected before it is applied.
+
+Source: `src/java/org/apache/cassandra/tcm/transformations/` (25+ types)
+
+=== What Gossip Still Does
+
+Gossip is not removed.
+It continues to serve two vital functions:
+
+* **Failure detection.** Gossip heartbeats remain the mechanism by which nodes detect
+  that a peer is unreachable.
+  The `FailureDetector` consumes gossip `HeartBeatState` updates and calculates
+  phi-accrual failure suspicion levels exactly as before.
+* **Transient, non-correctness-impacting state.** Gossip continues to disseminate
+  RPC readiness, storage load, severity, and similar signals.
+
+=== The Compatibility Bridge
+
+All gossip `ApplicationState` slots (`TOKENS`, `STATUS_WITH_PORT`, `SCHEMA`, etc.) remain in the
+gossip state table.
+The `LegacyStateListener` — a change listener attached to the local metadata log — intercepts
+every epoch transition and writes the corresponding values into local gossip state.
+Any system reading gossip (monitoring agents, older sidecar processes, mixed-version peers during
+rolling upgrade) sees exactly what it expects.
+
+Source: `src/java/org/apache/cassandra/tcm/migration/`
+
+=== What Stays the Same for Operators
+
+[cols="2,3"]
+|===
+| Aspect | Status under TCM
+
+| `nodetool` commands | Fully preserved; output is sourced from the same application states
+| Gossip application states | Present for compatibility via `LegacyStateListener`
+| Client drivers | Unaffected; `system.peers`, `system.local`, and topology events unchanged
+| Storage format | Unchanged; TCM is format-agnostic
+| Repair, compaction, streaming | Unchanged; these are consumers of metadata, not producers
+|===
+
+== The Epoch Model
+
+An _epoch_ is a monotonically increasing integer that identifies a specific version of
+cluster metadata.
+Every metadata change advances the epoch by one.
+Epoch 1 is assigned at CMS initialization.
+
+[cols="2,2,3"]
+|===
+| Constant | Value | Meaning
+
+| `EMPTY` | 0 | No TCM metadata exists; pre-initialization state
+| `FIRST` | 1 | First valid epoch; assigned at CMS initialization
+| `UPGRADE_STARTUP` | Long.MIN_VALUE | Transitional value during gossip-to-TCM upgrade at startup
+| `UPGRADE_GOSSIP` | Long.MIN_VALUE + 1 | Transitional value during gossip-to-TCM upgrade in gossip processing
+|===
+
+When a node reports "I am at epoch 47," it means it has applied the first 47 metadata
+transformations, in order, and its view of token ownership, schema, and membership reflects
+all of those changes.
+
+If every node reports the same epoch, every node has the same metadata.
+If a node is behind, it will catch up by fetching and applying missing entries in order.
+
+Source: `src/java/org/apache/cassandra/tcm/Epoch.java`
+
+== What Disappears
+
+Several operational realities that Cassandra administrators have accepted for years
+cease to exist once TCM is enabled:
+
+**Split-brain metadata.**
+In a gossip-driven cluster, coordinators can disagree about token ownership during topology changes,
+causing transient data loss that is nearly impossible to detect after the fact.
+With TCM, every coordinator operates on the same epoch.
+The split-brain class of bugs is structurally eliminated.
+
+**Ring-settle waits.**
+The manual or scripted waiting period after a topology change — "give gossip time to propagate" —
+is no longer necessary.
+Once a transformation is committed, affected nodes are confirmed via a progress barrier before
+the next operation begins.
+
+**Silent schema divergence.**
+The situation where two nodes end up with different schema versions
+— because a gossip message was dropped, or because a migration ran during a mixed-version window —
+cannot happen when schema is applied through an ordered, replicated log.
+
+**Non-deterministic topology operations.**
+Range locking (`LockedRanges`) prevents conflicting topology changes from overlapping.
+The `InProgressSequences` tracker ensures that multi-step operations complete before new ones begin.
+
+Source: `src/java/org/apache/cassandra/tcm/ClusterMetadata.java`
+
+== Before / After Comparison
+
+[cols="2,2,2"]
+|===
+| Aspect | Before TCM (Gossip) | After TCM
+
+| Token ownership | Gossip propagation | Distributed log (epoch-ordered)
+| Schema distribution | Gossip + messaging service | Distributed log (epoch-ordered)
+| Node lifecycle states | Gossip STATUS updates | Multi-step transformations
+| Failure detection | Gossip heartbeats | Gossip heartbeats (unchanged)
+| Transient state (load, etc.) | Gossip | Gossip (unchanged)
+| Client driver impact | — | None
+| Storage format impact | — | None
+| Consistency model | Eventual (probabilistic) | Linearizable (Paxos-backed)
+| Split-brain risk | Present | Eliminated
+| Ring-settle wait | Required | Not needed
+| `nodetool` compatibility | — | Fully preserved
+|===
+
+== Glossary
+
+The following terms are used throughout the TCM documentation.
+
+=== A
+
+**Accord**::
+Cassandra's distributed transaction subsystem.
+In TCM contexts, certain topology operations may wait for Accord metadata readiness before finalizing.
+
+**AlterSchema**::
+A TCM transformation type that applies schema changes through the metadata log.
+Replaces gossip-era, eventually consistent schema propagation with ordered commits.
+Source: `src/java/org/apache/cassandra/tcm/transformations/`
+
+**ApplicationState**::
+Gossip key/value state slots (for example `TOKENS`, `STATUS_WITH_PORT`, `SCHEMA`).
+Under TCM, many of these states are still published for compatibility,
+even though authoritative metadata comes from the log.
+
+**Assassinate**::
+A forceful node-removal operation (`nodetool assassinate`) historically used as a last resort.
+High risk during upgrade windows; avoid unless explicitly required by incident procedure.
+
+=== B
+
+**Bootstrap**::
+The process of adding a node and streaming its owned ranges.
+Under TCM, bootstrap is a tracked multi-step operation with explicit metadata transitions.
+
+**BTI format**::
+A Cassandra SSTable format option.
+TCM is storage-format agnostic and works regardless of BTI/BIG usage.
+
+=== C
+
+**Cassandra 6.0 threshold**::
+The minimum Cassandra version required to initialize TCM (CEP-21 implementation boundary).
+Nodes below this version block CMS initialization unless intentionally ignored.
+
+**`cassandra.yaml`**::
+Primary Cassandra node configuration file.
+TCM-related controls such as `unsafe_tcm_mode`, progress barrier settings, and timeout parameters
+are configured here.
+
+**Cluster Metadata**::
+The complete logical state that describes cluster identity and behavior:
+directory, token ownership, schema, placements, locks, and in-progress operations.
+
+**Cluster Metadata Service (CMS)**::
+The Paxos-backed group of nodes that serializes metadata commits for TCM.
+Source: `src/java/org/apache/cassandra/tcm/ClusterMetadataService.java`
+
+**Commit (metadata)**::
+The act of durably appending a transformation to the distributed metadata log at a new epoch.
+
+**Commit pause**::
+A deliberate operational pause of metadata commits
+(`nodetool cms set_commits_paused true`) used during investigation or incident containment.
+
+**Consistency level (progress barrier)**::
+The acknowledgement requirement used by progress barriers
+(`EACH_QUORUM`, `QUORUM`, `LOCAL_QUORUM`, `ONE`, `NODE_LOCAL`)
+to ensure propagation before advancing an operation.
+
+=== D
+
+**Data placements**::
+Replica placement mappings derived from topology and keyspace replication settings.
+TCM updates placements deterministically via ordered transformations.
+
+**Decommission**::
+Graceful node removal operation.
+Under TCM, decommission is explicit and resumable across metadata phases.
+
+**Directory**::
+TCM metadata structure that tracks nodes, addresses, versions, states, and related identity data.
+
+**Distributed metadata log**::
+The ordered, replicated log of cluster metadata transformations,
+stored in `system_cluster_metadata.distributed_metadata_log`.
+
+=== E
+
+**Epoch**::
+Monotonically increasing metadata version number.
+Each committed transformation advances the epoch.
+
+**Epoch divergence**::
+Temporary state where nodes report different epochs.
+Usually self-healing; persistent gaps indicate connectivity or log-application issues.
+
+=== F
+
+**Failure detector (FD)**::
+Gossip-based heartbeat suspicion mechanism.
+TCM does not replace this; failure detection remains gossip-driven.
+
+**`finishInProgressSequences()`**::
+Recovery behavior that resumes interrupted multi-step topology operations after restart.
+
+**ForceSnapshot**::
+Emergency transformation path (unsafe workflows) that can force metadata state
+to a specific snapshot.
+
+=== G
+
+**Gossip**::
+Cassandra's peer-to-peer dissemination subsystem.
+Under TCM, it remains active for failure detection and transient states
+but no longer acts as metadata authority.
+
+**GOSSIP service state**::
+Transitional node service state where TCM-capable binaries are running
+but CMS has not been initialized.
+
+**`GossipHelper`**::
+Compatibility bridge that translates TCM state into legacy gossip application states.
+
+=== I
+
+**InProgressSequences**::
+Metadata structure that tracks active multi-step topology operations (join, leave, move, replace, reconfigure CMS).
+Source: `src/java/org/apache/cassandra/tcm/sequences/`
+
+=== L
+
+**`LegacyStateListener`**::
+Component that mirrors TCM-managed metadata into gossip states for tooling and compatibility.
+
+**`LOCAL` / `REMOTE` service states**::
+`LOCAL` indicates a CMS member; `REMOTE` indicates non-CMS nodes that forward commits to CMS.
+
+**Log watermark**::
+The highest epoch a node has applied, used as the primary synchronization indicator.
+
+**Locked ranges**::
+Range-level locks used to prevent conflicting concurrent topology operations.
+
+=== M
+
+**Metadata snapshot**::
+Serialized full cluster metadata image at a specific epoch,
+used to speed catch-up for lagging or restarting nodes.
+
+**Mixed-version window**::
+Upgrade period where nodes run different major/minor binaries.
+Metadata-changing operations are restricted during this period.
+
+=== N
+
+**`nodetool cms describe`**::
+Primary command for checking CMS membership, epoch, service state, and migration/commit status.
+
+**`nodetool cms initialize`**::
+Command that starts CMS and activates TCM metadata authority.
+
+**`nodetool cms reconfigure`**::
+Command that adjusts CMS membership size and distribution.
+
+=== P
+
+**Paxos (TCM context)**::
+Consensus protocol used by CMS to linearize metadata commits.
+
+**`PaxosBackedProcessor`**::
+CMS-side commit processor implementation that uses Paxos writes for metadata entries.
+Source: `src/java/org/apache/cassandra/tcm/`
+
+**PeerLogFetcher**::
+Background mechanism for non-CMS nodes to fetch and apply missing log entries.
+
+**Progress barrier**::
+Synchronization mechanism that waits for affected nodes to acknowledge an epoch
+before an operation proceeds to its next step.
+
+=== Q
+
+**Quorum (CMS)**::
+Majority requirement for metadata consensus.
+If quorum is lost, metadata changes pause while normal data reads/writes can continue.
+
+=== R
+
+**Range locking**::
+Conflict-prevention mechanism that blocks overlapping topology operations
+affecting the same token ranges.
+
+**`ReconfigureCMS`**::
+Transformation family for safely changing CMS membership.
+
+**`RemoteProcessor`**::
+Non-CMS commit path that forwards transformations to CMS for consensus.
+
+=== S
+
+**Schema convergence**::
+Condition where all nodes share one schema version/digest.
+
+**Service state**::
+TCM execution mode on a node (`LOCAL`, `REMOTE`, or `GOSSIP` during transition).
+
+**Split-brain metadata**::
+Divergent cluster-state views across coordinators.
+TCM is designed to eliminate this for managed metadata domains.
+
+**`system_cluster_metadata` keyspace**::
+System keyspace that stores the TCM metadata log and related internal state.
+Source: `SchemaConstants.java`
+
+**`system_views.cluster_metadata_log`**::
+Virtual table view for inspecting recent metadata entries and epochs.
+
+**`system_views.cluster_metadata_directory`**::
+Virtual table view for inspecting node directory/state from TCM metadata.
+
+=== T
+
+**TCM (Transactional Cluster Metadata)**::
+Cassandra metadata model that uses an ordered, consensus-backed log
+for correctness-critical cluster state.
+
+**`TCM_COMMIT_REQ`**::
+Internal message verb used by non-CMS nodes to submit metadata commits to CMS.
+
+**Token map**::
+Mapping between tokens/ranges and owning nodes, now updated by committed transformations.
+
+**Topology operation**::
+Metadata-changing cluster operation such as join, leave, move, replace, remove,
+or CMS reconfiguration.
+
+**Transformation**::
+Atomic metadata change unit committed at one epoch.
+
+=== U
+
+**`unsafe_tcm_mode`**::
+Configuration gate (default: `false`) that enables dangerous/manual metadata recovery procedures.
+Source: `src/java/org/apache/cassandra/config/Config.java`
+
+**`unreachableCMSMembers`**::
+Key health metric indicating currently unreachable CMS nodes.
+Alert when this value is non-zero.
+
+== Related Pages
+
+* xref:tcm-pre-upgrade.adoc[TCM Pre-Upgrade Prerequisites]
+* xref:tcm-upgrade-procedure.adoc[TCM Upgrade Procedure]
+* xref:tcm-operations.adoc[TCM Operations]
+* xref:tcm-troubleshooting.adoc[TCM Troubleshooting]
+
+== Unresolved Questions
+
+* The 9 CMS-related config properties in `Config.java` have no corresponding entries in the
+  default `cassandra.yaml` (as of trunk).
+  It is unclear whether this is intentional (hidden tuning) or an oversight
+  (CASSANDRA-18330 open question).
+* The interaction between TCM and Accord (CEP-15) is not fully documented.
+  The `nodetool cms resumedropaccordtable` subcommand suggests coupling that needs clarification.

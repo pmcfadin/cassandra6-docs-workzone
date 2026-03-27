@@ -1,0 +1,591 @@
+= TCM Day-2 Operations and Performance
+:description: How bootstrap, decommission, replace, and move operations work under TCM, range locking, split-brain elimination, and performance expectations.
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+This page covers what changes in day-to-day operations once TCM is active.
+For upgrade instructions, see xref:tcm-upgrade-procedure.adoc[Upgrade Procedure].
+For troubleshooting, see xref:tcm-troubleshooting.adoc[TCM Troubleshooting].
+
+== The New Shape of Topology Operations
+
+Under gossip, topology changes were asynchronous and eventually consistent.
+Under TCM, every topology operation follows a coordinated, multi-step sequence committed
+through the distributed metadata log.
+Each step produces an epoch.
+Each epoch must be acknowledged by affected nodes before the next step proceeds.
+The operation is visible in the log, trackable through its steps, and resumable if interrupted.
+
+The universal structure for all topology operations:
+
+----
+PREPARE   ──►  START   ──►  MID   ──►  FINISH
+(validate)    (announce)   (stream)   (complete)
+----
+
+This structure applies to bootstrap, decommission, move, replace, and CMS reconfiguration.
+Once you understand it for one operation, you understand it for all of them.
+
+Source: `src/java/org/apache/cassandra/tcm/sequences/`
+
+== Bootstrap Under TCM
+
+=== Three Steps
+
+**START_JOIN.**
+The joining node commits a `StartJoin` transformation to the metadata log.
+This produces a new epoch.
+The node is added to the write replica set for its token ranges.
+A progress barrier fires and the system sends `TCM_CURRENT_EPOCH_REQ` messages to all nodes
+that own affected ranges.
+Only after a quorum in each datacenter acknowledges the new epoch does the operation proceed.
+
+**MID_JOIN.**
+The joining node computes a `MovementMap` — a precise specification of which ranges to stream
+from which source nodes.
+The map is derived from the placement deltas between the old and new topology, not from gossip state.
+After streaming completes, the `MidJoin` transformation is committed.
+The node transitions from write-only to read-write in the placement information.
+
+**FINISH_JOIN.**
+The final transformation removes the original owners' read replicas for the ranges the joining
+node now owns.
+The joining node is now a full cluster member.
+
+Source: `src/java/org/apache/cassandra/tcm/sequences/BootstrapAndJoin.java`
+
+=== What Operators Notice
+
+**Speed of convergence.** Under gossip, a bootstrap could take 30 seconds or more before all
+nodes knew it was happening.
+Under TCM, the START_JOIN epoch propagates to all nodes within milliseconds.
+There is no ring-settle period.
+
+**Visibility.** Each step produces log entries:
+
+----
+INFO  - Starting to bootstrap...
+INFO  - fetching new ranges and streaming old ranges
+INFO  - Accord metadata is ready, continuing with bootstrap
+INFO  - Bootstrap completed for tokens [...]
+----
+
+**Resumability.** If the bootstrap fails mid-stream:
+
+[source,bash]
+----
+$ nodetool bootstrap resume
+----
+
+Or abort it:
+
+[source,bash]
+----
+$ nodetool bootstrap abort
+----
+
+Under gossip, a failed bootstrap often required manual cleanup.
+Under TCM, the state machine tracks where the operation stopped and recovery is a single command.
+
+== Decommission Under TCM
+
+=== Three Steps
+
+**START_LEAVE.**
+The leaving node commits a `StartLeave` transformation.
+The node's state is marked `LEAVING` in the cluster metadata.
+Optionally, a severity penalty is applied to the endpoint snitch,
+causing coordinators to prefer other replicas for reads.
+
+**MID_LEAVE.**
+The leaving node streams its data to the nodes that will take over its ranges.
+The streaming targets are computed from placement deltas.
+After streaming, `MidLeave` is committed.
+
+**FINISH_LEAVE.**
+The node is removed from all placements, transitions to `LEFT` state,
+and can safely shut down.
+
+=== Decommission vs. Remove
+
+**Decommission (LEAVE).** The node is alive and participates in streaming its own data out.
+Normal graceful path.
+
+**Remove (REMOVE).** The node is dead and cannot stream.
+Other nodes must reconstruct the missing data from remaining replicas.
+
+[source,bash]
+----
+$ nodetool decommission          # Graceful departure
+$ nodetool removenode <host-id>  # Dead node removal
+----
+
+Under gossip, a decommission that failed mid-stream left the cluster in a gray area.
+Under TCM, `abortDecommission` reverts cleanly.
+
+Source: `src/java/org/apache/cassandra/tcm/sequences/LeaveStreams.java`
+
+== Node Replacement Under TCM
+
+=== Three Steps
+
+**START_REPLACE.**
+The replacement node registers itself and marks the node it is replacing.
+Gossip state for the replaced node is set to "hibernating" to prevent writes to the dead node
+during replacement.
+
+**MID_REPLACE.**
+The replacement node streams data.
+Its movement map specifically identifies the being-replaced node's ranges
+and streams them from the remaining replicas.
+Strict movement validation is relaxed — the replacement can rebuild from partial data
+if the replaced node is dead.
+
+**FINISH_REPLACE.**
+The replacement node assumes the replaced node's tokens.
+The replaced node is removed from the directory.
+The replacement becomes the authoritative replica.
+
+[NOTE]
+====
+Do not perform host replacement during the upgrade itself.
+Replace dead nodes before starting the rolling upgrade, or after completing all three upgrade phases.
+See xref:tcm-upgrade-procedure.adoc[Upgrade Procedure].
+====
+
+== Token Moves Under TCM
+
+=== Three Steps
+
+**START_MOVE.**
+The system commits the intent to move, splitting ranges at the new token boundaries.
+The cluster metadata reflects the new token assignment immediately.
+
+**MID_MOVE.**
+Streaming occurs using the same movement map logic as bootstrap.
+After streaming, Paxos state is repaired for the moved ranges.
+
+**FINISH_MOVE.**
+Old tokens are released, new tokens are finalized, and the node's local token metadata
+is updated.
+CMS placement is re-evaluated.
+
+Under gossip, a token move required waiting for gossip to propagate the new assignment
+to all nodes, then verifying ring consistency.
+Under TCM, epoch ordering guarantees immediate consistency.
+
+== No More Ring-Settle Waits
+
+=== The Old Ritual
+
+Under gossip, every topology change required a waiting period:
+
+----
+1. Start bootstrap of node A
+2. Wait for bootstrap to complete
+3. Wait 30-60 seconds for "ring to settle"
+4. Verify with nodetool status
+5. Start bootstrap of node B
+6. Repeat for each node
+----
+
+The ring-settle wait existed because gossip propagation was not instantaneous.
+Starting a second operation before the first had fully propagated could lead to
+incorrect range assignments.
+
+=== Why TCM Eliminates It
+
+When a topology operation completes (FINISH_JOIN, FINISH_LEAVE, FINISH_MOVE),
+the final epoch is committed and a progress barrier ensures that affected nodes
+have acknowledged it before the system considers the operation fully propagated.
+The barrier starts at `EACH_QUORUM` — quorum acknowledgment in every datacenter.
+
+**The next operation can start immediately.**
+There is no propagation delay to wait for.
+
+**Conflicting operations are rejected, not silently broken.**
+If node B's bootstrap would affect ranges locked by node A's in-progress operation,
+the system rejects it with a clear error.
+
+**Non-overlapping operations can run in parallel.**
+If node A's bootstrap affects token ranges (0, 1000) and node B's affects (5000, 6000),
+both can proceed simultaneously.
+
+=== Time Savings
+
+[cols="3,2,2"]
+|===
+| Phase | Gossip Model | TCM Model
+
+| Per-node settle wait | 30–60 seconds | 0 seconds
+| Total settle overhead (10 nodes) | 5–10 minutes | 0 minutes
+| Total expansion time | Streaming + 5–10 min overhead | Streaming only
+|===
+
+== Range Locking
+
+=== How It Works
+
+Every topology operation — bootstrap, decommission, move, replace —
+locks the token ranges it affects.
+When a new operation is prepared, the system checks whether its ranges
+intersect with any existing locks:
+
+----
+lockedRanges.intersects(newOperationRanges)
+  → NOT_LOCKED: proceed
+  → Key(epoch): conflict with existing operation at that epoch
+----
+
+The intersection check handles token ring wraparound and is aware of replication parameters.
+
+Source: `src/java/org/apache/cassandra/tcm/ClusterMetadata.java` (`LockedRanges`)
+
+=== Operator Behavior
+
+**You cannot accidentally run overlapping operations.**
+Two bootstraps on adjacent token ranges, a bootstrap and a decommission on the same range —
+all are caught and rejected before they can conflict.
+
+**You can safely run non-overlapping operations.**
+Adding a node in rack 1 while decommissioning a node in rack 3,
+provided their token ranges do not overlap, is safe and allowed.
+
+**Locks are released automatically.**
+When a FINISH transformation completes, the lock is released as part of the metadata commit.
+No manual unlock step is needed.
+
+**Stuck locks indicate stuck operations.**
+If a lock persists, the associated operation is still in progress (or failed and needs resumption).
+See xref:tcm-troubleshooting.adoc#_playbook_stuck_topology_operation[Stuck Topology Operation playbook].
+
+== Elimination of Split-Brain Data Loss
+
+=== The Problem
+
+In a gossip-based cluster, different coordinators observe ring changes at different speeds.
+This is not a theoretical concern — it can produce real data loss:
+
+----
+Time 0:  Node X begins decommission. Gossip starts propagating.
+Time 1:  Coordinator A sees the ring change. Routes write to replicas {Y, Z}.
+Time 1:  Coordinator B has NOT yet seen the ring change.
+         Routes the same write to replicas {X, Z}.
+
+Result:  The write "succeeded" on both coordinators at CL=QUORUM,
+         but the replica sets differ. If X finishes decommission,
+         Coordinator B's write to X is lost.
+----
+
+The window is seconds to tens of seconds.
+In a high-throughput cluster, thousands of writes can pass through that window.
+No errors are raised, no warnings are logged.
+
+=== How TCM Fixes It
+
+When a decommission begins, the `START_LEAVE` transformation is committed at a specific epoch.
+The progress barrier waits for affected nodes to acknowledge this epoch
+before the operation proceeds to streaming.
+This means:
+
+1. All coordinators see the ring change before streaming begins.
+2. Epoch application is atomic — a node either has applied epoch N or it has not.
+3. The consistency level cascade provides a safety net if some nodes are slow.
+
+The quorum inconsistency window is closed.
+
+Source: `src/java/org/apache/cassandra/tcm/` (progress barrier mechanism)
+
+=== Practical Consequences
+
+* No more "drain before decommission" rituals to reduce the gossip propagation risk window.
+* No more temporarily increasing RF or write CL during topology changes as a workaround.
+* Topology changes under full production load are safe.
+
+== Operations Summary
+
+[cols="2,2,2"]
+|===
+| Operation | Before TCM | After TCM
+
+| Bootstrap convergence | 5–30 seconds via gossip | Sub-second via epoch commit
+| Ring-settle wait | 30–60 seconds (manual) | Eliminated (barrier-based)
+| Concurrent operations | Unsafe on overlapping ranges | Safe with range locking
+| Failed operation recovery | Manual cleanup | Resume or abort command
+| Split-brain risk during topology changes | Present (silent data loss) | Eliminated (epoch ordering)
+| Operation progress visibility | Unclear | 3-step model in logs and metadata
+|===
+
+== Performance and Latency
+
+=== The Read/Write Hot Path: No Overhead
+
+TCM does not sit in the read/write request path.
+When a coordinator receives a read or write request,
+it looks up current replica placements from an in-memory `ClusterMetadata` object.
+This is the same object it has always used — TCM changes how the object is populated,
+not how it is consulted.
+
+The only per-request check is an epoch comparison.
+If a replica's epoch is higher than the coordinator's,
+the coordinator triggers an asynchronous background fetch to update its local metadata.
+This fetch does not block the request.
+
+The `EpochAwareDebounce` class deduplicates concurrent requests for the same epoch —
+if ten requests all discover that the coordinator is behind epoch 42,
+only one log fetch is triggered.
+
+Two metrics track coordinator freshness:
+
+* `coordinatorBehindSchema` — coordinator schema is older than a replica's
+* `coordinatorBehindPlacements` — coordinator placement information is older than a replica's
+
+Both should be near zero in a healthy cluster.
+Spikes during topology changes or schema modifications are expected and normal.
+
+=== Metadata Commit Latency
+
+Metadata operations go through Paxos consensus.
+A commit requires two phases (prepare + accept/commit), each requiring a network round-trip
+to a quorum of CMS members.
+
+**Estimated commit latency by deployment:**
+
+[cols="1,1,1,1"]
+|===
+| Deployment | 3-Member CMS | 5-Member CMS | 7-Member CMS
+
+| Same DC | 50–100 ms | 100–200 ms | 150–300 ms
+| Multi-DC (US regions) | 100–200 ms | 150–300 ms | 200–400 ms
+| Multi-DC (global) | 200–400 ms | 300–500 ms | 400–700 ms
+|===
+
+[NOTE]
+====
+These are estimates based on typical Paxos latency characteristics.
+Actual numbers vary based on network quality, disk speed, and CMS member placement.
+====
+
+Metadata commits are infrequent compared to data operations.
+You will not notice this latency in daily operations.
+
+=== Schema Changes
+
+Under gossip, schema propagation was eventually consistent with no confirmation.
+Under TCM, a schema change is a single Paxos commit (100–300 ms).
+After the commit, the new epoch propagates to all nodes through the log replication mechanism.
+
+Schema changes are **faster to confirm** under TCM —
+you know within milliseconds that the change is committed —
+and propagation to all nodes happens through the same log replication mechanism
+used for all other metadata changes.
+
+=== Log Replication Speed
+
+**Push (epoch notifications).** When a topology operation commits a new epoch,
+the progress barrier sends `TCM_CURRENT_EPOCH_REQ` messages to affected nodes.
+Same-DC: typically 50–150 ms. Cross-DC: 200–500 ms.
+
+**Pull (background fetching).** The `PeerLogFetcher` periodically checks whether new log entries
+are available.
+Fetches are asynchronous with exponential backoff.
+In practice, fetches complete in milliseconds.
+
+[NOTE]
+====
+The TCM development team has noted that CMS nodes and followers have not been observed to lag
+in practice.
+The metadata payload is tiny — a schema change produces a few hundred bytes.
+If you see a node lagging behind on epoch, the problem is almost certainly a network partition
+or node health issue, not a CMS performance bottleneck.
+====
+
+=== Memory and Storage Footprint
+
+The `ClusterMetadata` object is held entirely in memory on every node.
+For a typical cluster (10–50 nodes, 50–200 tables), it is measured in tens of kilobytes.
+For large clusters (hundreds of nodes, thousands of tables), it may reach low megabytes.
+
+The metadata log grows linearly with the number of metadata changes.
+Each entry is small (a few hundred bytes to a few kilobytes).
+Periodic snapshots prevent unbounded log growth.
+
+Source: `src/java/org/apache/cassandra/tcm/ClusterMetadata.java`
+
+=== Metadata Snapshots
+
+A snapshot is a serialized copy of the complete `ClusterMetadata` at a specific epoch.
+When a node needs to catch up from an older epoch,
+it can load the nearest snapshot and replay only the entries after that point.
+
+Snapshot frequency is configurable via `metadata_snapshot_frequency` (default: `100` epochs).
+Source: `src/java/org/apache/cassandra/config/Config.java`
+
+[cols="2,3"]
+|===
+| Frequency | Tradeoff
+
+| More frequent (every 10–20 epochs) | Faster node recovery; higher serialization cost
+| Less frequent (every 100–500 epochs) | Lower storage overhead; slower recovery for lagging nodes
+|===
+
+For clusters with frequent topology changes, every 10–20 epochs is reasonable.
+For stable clusters, 50–100 epochs is sufficient.
+
+Force a snapshot manually:
+
+[source,bash]
+----
+$ nodetool cms snapshot
+----
+
+=== CMS Sizing vs. Latency Tradeoff
+
+More CMS members means higher fault tolerance but higher Paxos latency,
+because the quorum is larger.
+For most clusters, the latency difference between RF=3 and RF=5 is 50–100 ms per commit —
+negligible for infrequent metadata operations.
+
+**Recommendation: RF=5 for production.**
+This gives 3-node quorum, 2-node failure tolerance, and commit latency in the 100–300 ms range.
+Use RF=3 only for development or testing.
+Use RF=7 only if you have a specific fault tolerance requirement requiring 3-node loss tolerance.
+
+=== Gossip vs. TCM: Latency Comparison
+
+[cols="2,2,2,2"]
+|===
+| Operation | Gossip | TCM | Notes
+
+| Schema change initiation | < 10 ms | 100–300 ms | Gossip: fire-and-forget. TCM: Paxos commit.
+| Schema change confirmation | Unknown (10–30 s propagation) | 100–300 ms | Gossip: no confirmation. TCM: commit is confirmation.
+| Topology change visibility | 5–30 seconds | Sub-second | TCM wins decisively.
+| Ring settle after topology change | 30–60 seconds | 0 seconds | TCM eliminates this entirely.
+| Per-request overhead | None | None | Epoch comparison is in-memory.
+|===
+
+TCM trades a small per-commit cost (100–300 ms of Paxos latency)
+for the elimination of much larger operational costs
+(30–60 seconds of ring-settle waiting per topology change,
+and the risk of silent data loss from split-brain quorum inconsistency).
+
+== Timeout and Retry Configuration
+
+All properties are defined in `src/java/org/apache/cassandra/config/Config.java`.
+
+[cols="2,2,3"]
+|===
+| Parameter | Default | Purpose
+
+| `cms_await_timeout` | `120 s` | Maximum time to wait for a CMS commit or log fetch
+| `cms_retry_delay` | `50ms*attempts <= 500ms ... 100ms*attempts <= 1s,retries=10`
+  | Backoff expression for commit retries
+| `progress_barrier_timeout` | `3600 s` | Maximum time for a progress barrier to complete
+| `progress_barrier_backoff` | `1000 ms` | Time between barrier retry attempts
+| `progress_barrier_default_consistency_level` | `EACH_QUORUM`
+  | Starting consistency level for barriers
+| `metadata_snapshot_frequency` | `100` | How often (in epochs) to snapshot cluster metadata
+|===
+
+Progress barrier fallback sequence:
+
+----
+EACH_QUORUM  ──►  QUORUM  ──►  LOCAL_QUORUM  ──►  ONE  ──►  NODE_LOCAL
+  (default)       (fallback)    (fallback)     (fallback)   (last resort)
+----
+
+At each level, the barrier retries every second (`progress_barrier_backoff`) for up to
+30 seconds before falling back to the next lower level.
+
+=== Tuning for Your Environment
+
+**Same-datacenter clusters:**
+
+[source,yaml]
+----
+cms_await_timeout: 30s
+progress_barrier_timeout: 300s
+progress_barrier_backoff: 500ms
+----
+
+**Multi-datacenter clusters with unreliable connectivity:**
+
+[source,yaml]
+----
+progress_barrier_backoff: 5000ms
+progress_barrier_timeout: 1800s
+----
+
+== Monitoring Recommendations
+
+=== Key Metrics
+
+The `org.apache.cassandra.tcm:type=TCMMetrics` MBean provides:
+
+[cols="3,2,3"]
+|===
+| Metric | Type | What It Tells You
+
+| `CommitSuccessLatency` | Timer | Histogram of successful commit latencies
+| `CommitRetries` | Counter | Rate of commit retries; sustained high rates indicate CMS issues
+| `FetchPeerLogLatency` / `FetchCMSLogLatency` | Timer | Log fetch latencies; should be < 1 s
+| `ProgressBarrierLatency` | Timer | How long progress barriers take; > 5 s warrants investigation
+| `ProgressBarrierCLRelaxed` | Counter | Times the CL was degraded; non-zero during node restarts is normal
+| `CoordinatorBehindSchema` / `CoordinatorBehindPlacements` | Counter | Stale-metadata hits on coordinators
+| `UnreachableCMSMembers` | Gauge | CMS members not responding — alert if > 0
+| `currentEpochGauge` | Gauge | Current cluster epoch — primary health signal
+|===
+
+Source: `src/java/org/apache/cassandra/tcm/CMSOperations.java`
+
+=== Alert Thresholds
+
+[cols="3,1,1"]
+|===
+| Metric | Warning | Critical
+
+| `UnreachableCMSMembers` | > 0 | >= quorum threshold
+| `CommitSuccessLatency` (p99) | > 2 s | > 10 s
+| `CommitRetries` (rate) | > 5/minute | > 20/minute
+| `ProgressBarrierLatency` (p99) | > 5 s | > 30 s
+| `ProgressBarrierCLRelaxed` (rate) | > 1/hour | > 5/hour
+| `FetchLogRetries` (rate) | > 10/minute | > 50/minute
+| Epoch difference between nodes | > 10 for > 60 s | —
+|===
+
+These thresholds are starting points.
+Adjust based on your deployment topology, network characteristics, and SLAs.
+
+== How Non-CMS Nodes Stay in Sync
+
+Non-CMS nodes do not participate in Paxos.
+They rely on the `PeerLogFetcher` — a background process that discovers and retrieves
+missing log entries.
+
+1. **Discovery.** The node compares its local epoch to the cluster's current epoch.
+   If there is a gap, it knows entries are missing.
+2. **Fetch.** The node requests missing entries from a CMS member or any peer that has them,
+   using the `TCM_FETCH_CMS_LOG` and `TCM_REPLICATION` messaging verbs.
+3. **Apply.** Entries are applied in strict epoch order.
+
+For nodes very far behind, the `PeerLogFetcher` requests a metadata snapshot
+instead of replaying the entire log.
+
+Source: `src/java/org/apache/cassandra/tcm/`
+
+== Related Pages
+
+* xref:tcm-overview.adoc[TCM Overview and Concepts]
+* xref:tcm-pre-upgrade.adoc[TCM Pre-Upgrade Prerequisites]
+* xref:tcm-upgrade-procedure.adoc[TCM Upgrade Procedure]
+* xref:tcm-troubleshooting.adoc[TCM Troubleshooting]
+
+== Unresolved Questions
+
+* The `CoordinatorBehindException` behavior — when exactly it is thrown versus when the
+  coordinator silently triggers a background fetch — needs clarification for driver developers.
+* Specific guidance on `metadata_snapshot_frequency` tuning for clusters with thousands of
+  tables (large schema serialization cost) has not been quantified in public documentation.

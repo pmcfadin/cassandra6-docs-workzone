@@ -1,5 +1,10 @@
 = jvm-* files
 
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
 Several files for JVM configuration are included in Cassandra. The
 `jvm-server.options` file, and corresponding JDK specific files
 `jvmN-server.options` are the main file for settings that affect
@@ -17,4 +22,150 @@ The `jvm-\*` files replace the `cassandra-env.sh` file used in Cassandra
 versions prior to Cassandra 3.0. The `cassandra-env.sh` bash script file
 is still useful if JVM settings must be dynamically calculated based on
 system settings. The `jvm-*` files only store static JVM settings.
+====
+
+== Cassandra 6 — JDK 21 and Generational ZGC
+
+[IMPORTANT]
+====
+*Operator-critical change.* Cassandra 6.0 ships a new `conf/jvm21-server.options` file and defaults to *Generational ZGC* when running on JDK 21. This is the first Cassandra release where the default garbage collector differs by JDK version. GC configuration directly affects production performance, latency, and memory behavior. Review this section before upgrading.
+====
+
+=== JDK 21 as the Default Runtime
+
+Cassandra 6.0 adds official JDK 21 support (CASSANDRA-18831). JDK 21 is the recommended runtime for new Cassandra 6.0 deployments.
+
+Source: `NEWS.txt` in `apache/cassandra` trunk — _"JDK21 and Generational ZGC are now officially supported and generational ZGC is now the default Garbage Collector when using JDK21."_
+
+=== New File: `jvm21-server.options`
+
+A new JDK-version-specific options file, `conf/jvm21-server.options`, is activated automatically when Cassandra detects Java 21 or later at startup. This file did not exist in Cassandra 5.0 or any earlier release.
+
+The file structure follows the same pattern as the existing `jvm17-server.options`: settings are grouped by category with commented-out alternatives. The key difference is the default garbage collector.
+
+[NOTE]
+====
+The `jvm-server.options` base file header references `jvm11-server.options` and `jvm17-server.options`. On Cassandra 6.0, JDK 21 users should consult `jvm21-server.options` for JDK-version-specific settings.
+====
+
+=== Default Garbage Collector: Generational ZGC
+
+On JDK 21, the default garbage collector is *Generational ZGC*, enabled by the following flags in `jvm21-server.options` (enabled by default — not commented out):
+
+[source,text]
+----
+-XX:+UseZGC
+-XX:+ZGenerational
+----
+
+ZGC is a concurrent, low-latency collector designed for sub-millisecond GC pause times. The generational mode (enabled by `-XX:+ZGenerational`) improves throughput over non-generational ZGC by applying separate collection strategies to young and old object generations.
+
+[WARNING]
+====
+Non-generational ZGC (`-XX:+UseZGC` without `-XX:+ZGenerational`) is *explicitly not recommended* for Apache Cassandra. Source: `NEWS.txt` — _"We do not recommend using non-generational ZGC with Apache Cassandra."_
+====
+
+==== CompressedOops Disabled
+
+`jvm21-server.options` includes the following flag, which is enabled by default:
+
+[source,text]
+----
+-XX:-UseCompressedOops
+----
+
+This disables Compressed Object Pointers. It is required as a workaround for an incorrect default in the `jamm` library (which Cassandra uses for off-heap memory measurement) when running under ZGC. Disabling CompressedOops increases the memory footprint of object references. (Source: CASSANDRA-18831 patch notes; `conf/jvm21-server.options` comment in trunk.)
+
+==== ZGC-Specific Tuning Parameters
+
+The following ZGC tuning options are present in `jvm21-server.options` but commented out by default. Operators may enable them as needed:
+
+[source,text]
+----
+# -XX:SoftMaxHeapSize=<value>
+# -XX:+ZUncommit
+# -XX:ZUncommitDelay=<seconds>
+# -XX:+AlwaysPreTouch
+# -XX:+UseLargePages
+----
+
+See `conf/jvm21-server.options` in the Cassandra distribution for the full list with inline comments.
+
+==== G1GC Available as Fallback on JDK 21
+
+A complete G1GC configuration block is present in `jvm21-server.options` but is commented out. Operators who need to retain G1GC behavior on JDK 21 can switch by commenting out the ZGC lines and uncommenting the G1GC block. The G1GC configuration in `jvm21-server.options` uses the same tuning parameters as `jvm17-server.options`.
+
+=== JDK 21 Module System (JPMS) Directives
+
+`jvm21-server.options` includes an expanded set of `--add-exports` and `--add-opens` directives for JDK 21 module system compatibility. These allow Cassandra's internal code to access JDK internals that are restricted by the Java Platform Module System. These are pre-configured in the file and should not require manual adjustment under normal operation. (Source: CASSANDRA-18831, `conf/jvm21-server.options` in trunk.)
+
+=== Security Manager Flag
+
+`jvm21-server.options` includes:
+
+[source,text]
+----
+-Djava.security.manager=allow
+----
+
+This flag is deprecated for removal in a future JDK version. It is included in Cassandra 6.0 for compatibility. (Source: CASSANDRA-18831, `conf/jvm21-server.options` in trunk.)
+
+=== Upgrade Guidance: Transitioning from JDK 11/17 GC Settings to JDK 21/ZGC
+
+Operators upgrading from Cassandra 5.x on JDK 11 or JDK 17 to Cassandra 6.0 on JDK 21 should account for the following:
+
+[cols="1,1,2", options="header"]
+|===
+| | JDK 11/17 (Cassandra 5.x) | JDK 21 (Cassandra 6.0)
+
+| Default GC
+| G1GC
+| Generational ZGC
+
+| Config file
+| `jvm11-server.options` / `jvm17-server.options`
+| `jvm21-server.options`
+
+| GC pause model
+| Stop-the-world pauses (typically 50–200 ms)
+| Concurrent, sub-millisecond stop-the-world pauses
+
+| CompressedOops
+| Enabled by default
+| Disabled by default (ZGC workaround for jamm)
+
+| G1GC available
+| Yes (default)
+| Yes (commented out in `jvm21-server.options`)
+|===
+
+*Steps for operators upgrading to JDK 21:*
+
+. Review your existing G1GC tuning flags in `jvm11-server.options` or `jvm17-server.options`. These do *not* carry over automatically to `jvm21-server.options`.
+. Decide whether to adopt Generational ZGC (the default) or retain G1GC:
+  * *To use Generational ZGC (recommended):* No action required. Review the optional ZGC tuning parameters documented in `jvm21-server.options`.
+  * *To retain G1GC on JDK 21:* In `jvm21-server.options`, comment out the `-XX:+UseZGC` and `-XX:+ZGenerational` lines, and uncomment the G1GC block.
+. Validate GC behavior under load in a staging environment before promoting to production. ZGC has different throughput and heap-sizing characteristics than G1GC.
+. If your deployment uses custom `-Xms`/`-Xmx` settings or GC log flags, verify those are present in `jvm21-server.options`. JDK-specific files are separate and do not inherit settings from `jvm17-server.options`.
+
+[NOTE]
+====
+JDK 11 and JDK 17 remain supported on Cassandra 6.0. If you stay on JDK 11 or JDK 17, the corresponding `jvm11-server.options` or `jvm17-server.options` files continue to be used with G1GC as the default. No changes are required for those deployments unless you are explicitly updating GC settings.
+====
+
+=== Related Changes
+
+* CASSANDRA-20980 introduces `gc_concurrent_phase_log_threshold` and `gc_concurrent_phase_warn_threshold` in `cassandra.yaml` for logging and warning thresholds specific to concurrent GC phases (such as those in ZGC). These settings are separate from the `jvm21-server.options` file. See the `cassandra.yaml` reference for details.
+
+=== Open Questions (Draft)
+
+[NOTE]
+====
+The following items require verification before this page is promoted from draft status:
+
+* Confirm whether CASSANDRA-18831 is the sole JIRA for the ZGC-as-default change or whether a sub-task covers that decision separately.
+* Confirm recommended heap size ranges for ZGC vs G1GC on typical Cassandra workloads (not documented in `jvm21-server.options` as of trunk research date).
+* Verify whether `cassandra-env.sh` JDK detection logic requires documentation updates.
+* Confirm interaction with CASSANDRA-20980 (concurrent GC thresholds) — consider co-locating or cross-referencing that content here.
+* Technical review requested from Josh McKenzie or Mick Semb Wever (CASSANDRA-18831 patch authors/reviewers).
 ====

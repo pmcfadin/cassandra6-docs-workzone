@@ -1,0 +1,623 @@
+= TCM Upgrade Procedure
+:description: Step-by-step runbook for the three-phase upgrade from gossip-managed to TCM-managed cluster metadata, plus CMS configuration and post-upgrade validation.
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+This page is the execution runbook for upgrading a Cassandra cluster to Transactional Cluster Metadata.
+Before starting, complete every item in xref:tcm-pre-upgrade.adoc[Pre-Upgrade Prerequisites].
+
+The upgrade has three phases.
+Phase 1 is fully reversible.
+Phase 2 is the commit point — it is not reversible in practice.
+Phase 3 scales the CMS to production resilience.
+
+== The Three Phases
+
+[cols="1,2,1,1"]
+|===
+| Phase | What Happens | Duration | Reversible?
+
+| 1: Rolling Binary Upgrade
+| All nodes upgraded one at a time; cluster stays in gossip mode
+| Hours
+| Yes — downgrade binaries
+
+| 2: CMS Initialization
+| First CMS member established; metadata log created; TCM activated
+| 1–2 minutes
+| No (in practice)
+
+| 3: CMS Reconfiguration
+| CMS scaled to production replication factor
+| Minutes
+| Yes
+|===
+
+== Phase 1: Rolling Binary Upgrade
+
+This is standard Cassandra procedure.
+The cluster remains in gossip mode throughout.
+TCM code is present but inactive — nodes operate in `GOSSIP` service state.
+
+=== Per-Node Procedure
+
+For each node, rack by rack, datacenter by datacenter:
+
+**Step 1. Drain the node.**
+
+[source,bash]
+----
+$ nodetool drain
+----
+
+Flushes all memtables to SSTables and stops accepting new connections.
+
+**Step 2. Stop the Cassandra process.**
+
+[source,bash]
+----
+$ sudo systemctl stop cassandra
+----
+
+**Step 3. Install the new Cassandra version.**
+
+Replace the Cassandra binaries with the 6.0 release.
+Preserve your `cassandra.yaml`, `cassandra-env.sh`, and any other customized configuration files.
+
+**Step 4. Start the node on the new version.**
+
+[source,bash]
+----
+$ sudo systemctl start cassandra
+----
+
+**Step 5. Wait for the node to rejoin the cluster.**
+
+[source,bash]
+----
+$ nodetool status
+----
+
+Confirm the node shows `UN` (Up/Normal) and that gossip has settled.
+Check the system log for:
+
+----
+Gossip settled after X ms
+----
+
+**Step 6. Verify the node is healthy before moving to the next one.**
+
+[source,bash]
+----
+$ nodetool describecluster
+----
+
+Confirm that the schema version count has not increased.
+During a rolling upgrade you may see at most two schema versions — one for upgraded nodes,
+one for not-yet-upgraded nodes.
+This is expected.
+
+=== What the Cluster Looks Like During Phase 1
+
+While the rolling upgrade is in progress, the cluster is in a **mixed-version state**.
+Upgraded nodes contain the TCM code but operate in `GOSSIP` mode.
+An upgraded node will reject any attempt to commit a TCM transformation:
+
+----
+Can't commit transformations when running in gossip mode
+----
+
+Non-upgraded nodes continue operating exactly as before.
+
+The messaging version boundary is respected (5.0 uses messaging version 13; 6.0 uses version 14).
+During the mixed-version window, inter-node communication uses the lower version.
+This is why schema propagation across the version boundary does not work.
+
+=== Upgrade Pace
+
+* Upgrade one rack at a time.
+* Do not upgrade all nodes in a datacenter simultaneously.
+* Complete the upgrade within a maintenance window.
+  The longer the mixed-version state, the higher the chance that someone triggers a blocked operation.
+
+=== Prohibited During Phase 1
+
+These are hard constraints, not guidelines:
+
+* Do NOT perform host replacements during the upgrade
+* Do NOT issue schema changes (CREATE, ALTER, DROP)
+* Do NOT bootstrap new nodes
+* Do NOT decommission nodes
+* Do NOT run `nodetool move`
+* Do NOT run `nodetool assassinate`
+* Do NOT change `storage_compatibility_mode`
+
+Read and write operations for existing data are unaffected throughout all three phases.
+
+=== Down Nodes During Phase 1
+
+A down node does not prevent you from upgrading other nodes.
+Skip it and upgrade it when it comes back.
+If it will never come back, plan to use `--ignore` during Phase 2.
+
+== Phase 2: CMS Initialization
+
+Phase 2 is the commit point.
+After this, reverting to gossip requires significant manual effort
+and is not a supported operation.
+
+Before running `nodetool cms initialize`, re-run the full readiness checklist from
+xref:tcm-pre-upgrade.adoc[Pre-Upgrade Prerequisites].
+
+=== Step-by-Step
+
+**Step 1. Choose the initiating node.**
+
+Pick a stable, JOINED node with good network connectivity to all peers.
+This node will become the first CMS member.
+Avoid recently restarted nodes and nodes you plan to decommission soon.
+
+**Step 2. Run the initialize command.**
+
+[source,bash]
+----
+$ nodetool cms initialize
+----
+
+If you have nodes that are permanently down and will not return:
+
+[source,bash]
+----
+$ nodetool cms initialize --ignore 10.0.1.50,10.0.1.51
+----
+
+**Step 3. Watch the output.**
+
+A successful initialization:
+
+----
+Initializing CMS...
+Verifying cluster metadata agreement...
+All peers agree on cluster metadata.
+CMS initialized successfully. Current epoch: 1
+----
+
+If another node has already started initialization:
+
+----
+Migration already initiated by /10.0.1.10:7000
+----
+
+Abort and retry from your chosen node:
+
+[source,bash]
+----
+$ nodetool cms abortinitialization --initiator 10.0.1.10
+----
+
+**Step 4. Verify initialization.**
+
+[source,bash]
+----
+$ nodetool cms describe
+----
+
+=== What Happens During Initialization
+
+1. **Validation.** The five gates from xref:tcm-pre-upgrade.adoc[Pre-Upgrade Prerequisites]
+   are checked.
+2. **Election.** The initiating node broadcasts a `CMSInitializationRequest` to every
+   non-ignored peer.
+   Each peer compares its directory, token map, and schema digest against the initiator's.
+   All must match.
+3. **PreInitialize transformation.** The first entry in the distributed metadata log is committed.
+4. **Initialize transformation.** The second log entry captures the full cluster metadata snapshot
+   — every node, every token, every schema definition — as the baseline state at Epoch 1.
+5. **State transition.** The initiating node transitions from `GOSSIP` to `LOCAL` state.
+   All other nodes transition from `GOSSIP` to `REMOTE` state.
+   The `LegacyStateListener` begins feeding TCM-managed state back into gossip for compatibility.
+6. **Snapshot.** A metadata snapshot is triggered for fast recovery.
+
+Source: `src/java/org/apache/cassandra/tcm/migration/`
+
+=== The Point of No Return
+
+Once `nodetool cms initialize` succeeds:
+
+* The `system_cluster_metadata` keyspace exists on disk.
+* All nodes have transitioned out of `GOSSIP` mode.
+* The distributed metadata log is the authoritative source for token ownership, schema, and membership.
+* Gossip continues to run but now receives its metadata state from TCM via `LegacyStateListener`.
+
+**Reverting from this point is not a supported operation.**
+Phase 1 is fully reversible — spend time validating before executing Phase 2.
+
+== Phase 3: CMS Reconfiguration
+
+After initialization, the CMS has a replication factor of 1.
+This is a single point of failure for metadata operations.
+Scale it up immediately.
+
+=== Choosing the Target Replication Factor
+
+[cols="2,1,1,1"]
+|===
+| Cluster Size | Recommended CMS RF | Quorum Size | Tolerated Failures
+
+| Small (~12 nodes) | 3 | 2 | 1
+| Medium (12–50 nodes) | 5 | 3 | 2
+| Large (50+ nodes) or multi-DC | 7 | 4 | 3
+|===
+
+The CMS RF must be an odd number (Paxos requires strict majority).
+For production clusters, **5 CMS members** provides the best balance of latency and fault tolerance.
+
+[NOTE]
+====
+CMS RF=1 (the post-initialization default) is an availability risk.
+If that one node goes down, no metadata operations can proceed — no schema changes,
+no topology changes.
+Data reads and writes continue, but the cluster is operationally frozen for metadata changes.
+Do not remain at RF=1.
+====
+
+=== Step-by-Step
+
+**Step 1. Run the reconfigure command.**
+
+Single-datacenter:
+
+[source,bash]
+----
+$ nodetool cms reconfigure 3
+----
+
+Multi-datacenter:
+
+[source,bash]
+----
+$ nodetool cms reconfigure dc1:3 dc2:3
+----
+
+**Step 2. Monitor the reconfiguration.**
+
+[source,bash]
+----
+$ nodetool cms reconfigure --status
+----
+
+**Step 3. Verify the final state.**
+
+[source,bash]
+----
+$ nodetool cms describe
+----
+
+Confirm that the CMS membership matches your target RF,
+and that nodes are distributed across racks and (if applicable) datacenters.
+
+=== How CMS Placement Works
+
+You do not choose which nodes become CMS members.
+The `CMSPlacementStrategy` selects members automatically using rack-diversity principles
+similar to `NetworkTopologyStrategy`:
+no two CMS members share a rack if possible,
+and in multi-DC deployments, members are spread across datacenters.
+
+Source: `src/java/org/apache/cassandra/tcm/`
+
+=== Reconfiguration Anti-Patterns
+
+**Unbalanced rack distribution.** If one rack contains 80% of the nodes,
+CMS placement is constrained.
+With RF=5, at least two members must share a rack.
+
+**Single-rack clusters.** CMS placement degenerates to arbitrary node selection.
+Configure racks before enabling TCM if you have not already.
+
+=== Handling Reconfiguration Failures
+
+If reconfiguration is interrupted:
+
+[source,bash]
+----
+$ nodetool cms reconfigure --resume    # Resume where it left off
+$ nodetool cms reconfigure --cancel    # Abort and revert to previous CMS configuration
+----
+
+=== After Phase 3: Re-enable Automation
+
+Once `nodetool cms describe` confirms the target CMS RF is in place,
+re-enable automation: auto-scaling policies, scheduled maintenance scripts, repair cron jobs.
+
+== CMS Commands Reference
+
+[cols="3,3"]
+|===
+| Command | Purpose
+
+| `nodetool cms describe` | Show CMS state, members, epoch, migration status
+| `nodetool cms initialize [--ignore <ips>]` | Initialize CMS from gossip state
+| `nodetool cms abortinitialization --initiator <ip>` | Abort a failed initialization
+| `nodetool cms reconfigure <rf>` | Change CMS replication factor
+| `nodetool cms reconfigure dc1:<rf> dc2:<rf>` | Per-DC reconfiguration
+| `nodetool cms reconfigure --status` | Check reconfiguration progress
+| `nodetool cms reconfigure --resume` | Resume interrupted reconfiguration
+| `nodetool cms reconfigure --cancel` | Cancel in-progress reconfiguration
+| `nodetool cms snapshot` | Force a metadata snapshot
+| `nodetool cms unregister <nodeId>` | Unregister a node in LEFT state
+| `nodetool cms dumpdirectory [--tokens]` | Dump the node directory
+| `nodetool cms dumplog [--start N] [--end N]` | Dump metadata log entries
+|===
+
+Source: `src/java/org/apache/cassandra/tools/nodetool/CMSAdmin.java`
+
+== Post-Upgrade Validation
+
+=== Understanding the `nodetool cms describe` Output
+
+[source,bash]
+----
+$ nodetool cms describe
+----
+
+[cols="2,3"]
+|===
+| Field | What to Verify
+
+| `Epoch` | Greater than 0 after initialization; higher after reconfiguration
+| `Members` | Lists CMS node IDs at your target RF
+| `Is Member` | `true` on CMS members, `false` on non-CMS nodes
+| `Service State` | `LOCAL` on CMS members, `REMOTE` on others — no node should show `GOSSIP`
+| `Is Migrating` | `false` — if `true`, reconfiguration is still in progress
+| `Local Pending Count` | `0` in a healthy cluster; sustained non-zero warrants investigation
+| `Commits Paused` | `false` — should never be `true` during normal operation
+|===
+
+Run this on every node and compare `Epoch` values.
+In a healthy, quiescent cluster, every node should report the same epoch.
+
+=== Querying the Metadata Log
+
+[source,cql]
+----
+SELECT epoch, kind, entry_id, entry_time
+FROM system_views.cluster_metadata_log
+ORDER BY epoch DESC
+LIMIT 20;
+----
+
+After initialization and reconfiguration to RF=3, you should see:
+
+----
+ epoch | kind
+-------+-----------------------------------
+     5 | FINISH_ADD_TO_CMS
+     4 | START_ADD_TO_CMS
+     3 | PREPARE_SIMPLE_CMS_RECONFIGURATION
+     2 | INITIALIZE_CMS
+     1 | PRE_INITIALIZE_CMS
+----
+
+Verify that `PRE_INITIALIZE_CMS` and `INITIALIZE_CMS` entries exist at epochs 1 and 2.
+
+=== Querying the Node Directory
+
+[source,cql]
+----
+SELECT node_id, host_id, state, cassandra_version, dc, rack,
+       broadcast_address, multi_step_operation
+FROM system_views.cluster_metadata_directory;
+----
+
+Verify:
+
+* Every expected node appears in the directory
+* All active nodes show `state = 'JOINED'`
+* No nodes are stuck in `BOOTSTRAPPING`, `MOVING`, or `LEAVING`
+* `multi_step_operation` is empty for all JOINED nodes
+* `cassandra_version` is consistent across all nodes
+
+=== The Schema Smoke Test
+
+This end-to-end test provides the strongest confidence that metadata propagation works.
+
+**Step 1. Record the current epoch.**
+
+[source,bash]
+----
+$ nodetool cms describe | grep "Epoch:"
+Epoch: 5
+----
+
+**Step 2. Create a test keyspace.**
+
+[source,cql]
+----
+CREATE KEYSPACE test_tcm_validation
+WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 3};
+----
+
+**Step 3. Verify the epoch advanced.**
+
+[source,bash]
+----
+$ nodetool cms describe | grep "Epoch:"
+Epoch: 6
+----
+
+**Step 4. Verify propagation to other nodes.**
+
+On a different node:
+
+[source,cql]
+----
+DESCRIBE KEYSPACE test_tcm_validation;
+----
+
+The keyspace should exist.
+
+**Step 5. Verify in the metadata log.**
+
+[source,cql]
+----
+SELECT epoch, kind
+FROM system_views.cluster_metadata_log
+WHERE epoch = 6;
+----
+
+You should see a `SCHEMA_CHANGE` entry.
+
+**Step 6. Clean up.**
+
+[source,cql]
+----
+DROP KEYSPACE test_tcm_validation;
+----
+
+If all steps pass, TCM is working end-to-end.
+
+=== Log Patterns to Watch
+
+**Healthy operation — expected:**
+
+----
+INFO  - Fetching log from <peer>, at least <epoch>
+DEBUG - Fetched log from CMS - caught up from epoch X to epoch Y
+INFO  - First CMS node
+----
+
+**Warning signs — investigate:**
+
+----
+WARN  - Learned about epoch X from <peer>, but could not fetch log
+WARN  - Could not fetch log entries from peer, remote = <peer>, await = <epoch>
+WARN  - Could not reconfigure CMS, operator should run...
+INFO  - Could not collect epoch acknowledgements within Xms for Y. Falling back to Z.
+----
+
+The progress barrier fallback message is common during node restarts and usually benign.
+If you see it on every metadata operation, investigate slow nodes.
+
+**Error conditions — action required:**
+
+----
+ERROR - Caught an exception while processing entry X. This can mean that this node
+        is configured differently from CMS.
+WARN  - Stopping log processing on the node. All subsequent epochs will be ignored.
+----
+
+The "stopping log processing" message means the node has given up applying metadata changes
+and must be restarted.
+
+=== JMX Metrics to Configure Immediately
+
+The `org.apache.cassandra.tcm:type=TCMMetrics` MBean provides:
+
+[cols="3,2,3"]
+|===
+| Metric | Type | Alert Condition
+
+| `currentEpochGauge` | Gauge | Primary health signal; compare across nodes
+| `currentCMSSize` | Gauge | Should match your target RF
+| `unreachableCMSMembers` | Gauge | Alert if > 0
+| `isCMSMember` | Gauge (0/1) | Verify on CMS and non-CMS nodes
+| `needsCMSReconfiguration` | Gauge (0/1) | Alert if 1 for more than 5 minutes
+| `commitSuccessLatency` | Timer | Alert if p99 > 2 seconds
+|===
+
+Source: `src/java/org/apache/cassandra/tcm/CMSOperations.java`
+
+=== Post-Enablement Validation Checklist
+
+* [ ] `nodetool cms describe` shows `Epoch >= 1` on every node
+* [ ] `Service State` is `LOCAL` on CMS members and `REMOTE` on others — no node shows `GOSSIP`
+* [ ] `Is Migrating` is `false` on every node
+* [ ] `Local Pending Count` is `0` on every node
+* [ ] `Commits Paused` is `false` on every node
+* [ ] All nodes report the same epoch
+* [ ] `system_views.cluster_metadata_log` shows `PRE_INITIALIZE_CMS` and `INITIALIZE_CMS` entries
+* [ ] `system_views.cluster_metadata_directory` shows all expected nodes in `JOINED` state
+* [ ] Schema smoke test passes (epoch advances on CREATE; keyspace visible on all nodes)
+* [ ] `nodetool describecluster` shows a single schema UUID
+* [ ] JMX metrics accessible for `currentEpochGauge` and `unreachableCMSMembers`
+* [ ] Alerting configured for quorum loss and epoch divergence
+
+== Complete Upgrade Sequence Reference
+
+----
+PRE-UPGRADE
+├── Complete all repairs
+├── Disable automation (auto-scaling, scheduled DDL, repair cron)
+├── Run pre-upgrade readiness checklist
+└── Confirm rollback plan
+
+PHASE 1: ROLLING BINARY UPGRADE
+├── For each node (rack by rack, DC by DC):
+│   ├── nodetool drain
+│   ├── Stop Cassandra
+│   ├── Install 6.0 binaries
+│   ├── Start Cassandra
+│   ├── Wait for UN status
+│   └── Verify with nodetool describecluster
+├── Confirm all nodes are on 6.0
+└── Re-run pre-upgrade readiness checklist
+
+PHASE 2: CMS INITIALIZATION
+├── Choose initiating node
+├── nodetool cms initialize [--ignore <down-nodes>]
+├── nodetool cms describe (verify success)
+└── Confirm epoch is advancing
+
+PHASE 3: CMS RECONFIGURATION
+├── nodetool cms reconfigure <target-rf>
+├── nodetool cms reconfigure --status (monitor)
+├── nodetool cms describe (verify final state)
+└── Re-enable automation
+
+POST-UPGRADE VALIDATION
+├── Run post-enablement validation checklist
+├── Verify nodetool status shows all UN
+├── Verify nodetool describecluster shows single schema version
+├── Verify client connectivity
+└── Resume normal operations
+----
+
+== Rollback Considerations
+
+**Before Phase 2 (CMS not initialized):**
+Full rollback is straightforward.
+Perform a reverse rolling upgrade — stop each node, install the previous version's binaries, restart.
+No data is lost, no metadata is changed.
+
+**After Phase 2 (CMS initialized):**
+Rollback is not a supported operation.
+The distributed metadata log now exists, the `system_cluster_metadata` keyspace is populated,
+and all nodes are operating in TCM mode.
+
+[CAUTION]
+====
+Treat Phase 2 as a one-way door.
+Spend your time validating before you execute it.
+The in-tree design document states: "reverting to the previous method of metadata management
+is not supported."
+====
+
+== Related Pages
+
+* xref:tcm-overview.adoc[TCM Overview and Concepts]
+* xref:tcm-pre-upgrade.adoc[TCM Pre-Upgrade Prerequisites]
+* xref:tcm-operations.adoc[TCM Operations]
+* xref:tcm-troubleshooting.adoc[TCM Troubleshooting]
+
+== Unresolved Questions
+
+* NEWS.txt upgrade instructions still reference "5.1" in several places,
+  suggesting they were written before the version was renamed to 6.0.
+  Confirm correct version references with the engineering team before publishing.
+* Automatic CMS election behavior for fresh clusters (not upgrades from gossip)
+  needs a separate documentation section — fresh clusters do not run `nodetool cms initialize`
+  manually; the election happens automatically during startup.

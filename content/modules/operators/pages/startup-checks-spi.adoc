@@ -1,0 +1,332 @@
+= Custom Startup Checks (SPI)
+:description: How to implement and deploy custom startup validation checks using the Java SPI in Cassandra 6.0.
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Cassandra 6.0 introduces a Service Provider Interface (SPI) that allows operators and plugin developers to register custom validation logic that executes automatically during node startup.
+This eliminates the need for external wrapper scripts or patched Cassandra builds to enforce site-specific pre-flight requirements.
+
+Source: `NEWS.txt` on trunk — "It is possible to provide custom startup check via Java SPI. See CASSANDRA-21093."
+
+== What the Startup Checks SPI Is
+
+Every Cassandra node runs a series of built-in startup checks before it joins the cluster — verifying data directories, confirming cluster name agreement, checking JMX port availability, and similar preconditions.
+Before Cassandra 6.0, extending this set required either modifying Cassandra source code or running a separate validation step outside the Cassandra process.
+
+CASSANDRA-21093 opens the startup check pipeline to custom implementations via the standard Java `ServiceLoader` mechanism.
+Custom checks are discovered at startup, executed alongside the built-in checks, and can block node startup with a meaningful error message if their conditions are not met.
+
+=== Use Cases
+
+Custom startup checks are well-suited for:
+
+* Compliance checks — verifying kernel parameters, TLS certificates, or file-system encryption state
+* Environment validation — confirming required external services are reachable before the node starts
+* Hardware checks — validating NUMA topology, hugepage settings, or NIC configuration
+* License or token verification — enforcing site-specific deployment policies
+
+=== Additive Feature
+
+The SPI is fully additive.
+Built-in startup checks are unaffected.
+Nodes without custom JARs on the classpath behave identically to Cassandra 5.0.
+
+Source: CASSANDRA-21093 research notes; commit https://github.com/apache/cassandra/commit/585f89bb4274b1af471ae43aeef01796d0e503d0
+
+== The StartupCheck Interface
+
+Custom checks implement the interface at `src/java/org/apache/cassandra/service/StartupCheck.java`.
+
+[source,java]
+----
+public interface StartupCheck {
+    String name();
+    void execute(StartupChecksConfiguration configuration) throws StartupException;
+    default boolean isConfigurable() { return false; }
+    default boolean isDisabledByDefault() { return false; }
+    default void postAction(StartupChecksConfiguration configuration) {}
+}
+----
+
+Source: `src/java/org/apache/cassandra/service/StartupCheck.java` on trunk (CASSANDRA-21093)
+
+=== Method Descriptions
+
+`String name()`::
+Returns the unique identifier for this check.
+This name is used as the key in the `startup_checks` section of `cassandra.yaml`.
+The name must not collide with any built-in check name registered in `StartupChecks.java` — Cassandra throws `IllegalStateException` if a conflict is detected.
+Duplicate names across custom checks are also detected and rejected.
+
+`void execute(StartupChecksConfiguration configuration) throws StartupException`::
+Contains the validation logic.
+Called once per startup, before the node joins the cluster.
+Throw `StartupException` to abort node startup.
+The exception message should include a clear explanation and remediation guidance — the Cassandra Javadoc for this interface explicitly emphasizes this.
+The `configuration` parameter provides access to per-check YAML config via `configuration.getConfig(name())` and `configuration.isDisabled(name())`.
+
+`boolean isConfigurable()`::
+Defaults to `false`.
+Return `true` if the check reads key-value parameters from the `startup_checks` YAML section.
+// TODO: verify against trunk source — confirm whether returning false silently ignores YAML config or produces a warning/error.
+
+`boolean isDisabledByDefault()`::
+Defaults to `false`.
+When `true`, the check does not execute unless explicitly enabled in `cassandra.yaml`.
+Useful for optional checks that should be opt-in.
+
+`void postAction(StartupChecksConfiguration configuration)`::
+An optional hook executed after all startup checks complete successfully.
+Defaults to a no-op.
+// TODO: verify against trunk source — use cases and exact timing relative to full startup sequence are not documented in the research file; verify with CASSANDRA-21093 implementer.
+
+=== Configuration Accessor
+
+`src/java/org/apache/cassandra/service/StartupChecksConfiguration.java` is passed into `execute()` and `postAction()`.
+Use `configuration.getConfig(name())` to retrieve the key-value map defined for your check in `cassandra.yaml`, and `configuration.isDisabled(name())` to check whether the check has been disabled.
+
+Source: `src/java/org/apache/cassandra/service/StartupChecksConfiguration.java` on trunk (CASSANDRA-21093)
+
+== YAML Configuration
+
+The `startup_checks` section in `cassandra.yaml` controls per-check behavior.
+Each top-level key under `startup_checks` matches the value returned by the check's `name()` method.
+
+[source,yaml]
+----
+startup_checks:
+  my_custom_check:
+    enabled: true
+    key1: value1
+    key2: value2
+  another_check:
+    enabled: false
+----
+
+Source: `conf/cassandra.yaml` / `conf/cassandra_latest.yaml` on trunk (CASSANDRA-21093)
+
+[NOTE]
+====
+// TODO: verify against trunk source — confirm whether the `startup_checks` section appears in the default `cassandra.yaml` (possibly commented out) or only in `cassandra_latest.yaml`.
+Operators may need to add this section manually if it is not present in the distributed default configuration file.
+====
+
+=== Configuration Properties Per Check
+
+`enabled`::
+Set to `false` to skip the check at startup.
+Individual checks can be disabled without removing the JAR from the classpath.
+
+Additional key-value pairs::
+Any other properties under a check's key are passed through to the check implementation via `StartupChecksConfiguration.getConfig()`.
+The set of accepted keys is defined by the check implementation, not by Cassandra itself.
+
+== Implementing a Custom Startup Check
+
+Follow these steps to create, package, and install a custom startup check.
+
+=== Step 1: Implement the Interface
+
+Create a Java class implementing `org.apache.cassandra.service.StartupCheck`.
+
+[source,java]
+----
+package com.example.cassandra.checks;
+
+import org.apache.cassandra.service.StartupCheck;
+import org.apache.cassandra.service.StartupChecksConfiguration;
+import org.apache.cassandra.exceptions.StartupException;
+
+public class MyEnvironmentCheck implements StartupCheck {
+
+    @Override
+    public String name() {
+        return "my_environment_check";
+    }
+
+    @Override
+    public boolean isConfigurable() {
+        return true;
+    }
+
+    @Override
+    public void execute(StartupChecksConfiguration configuration) throws StartupException {
+        if (configuration.isDisabled(name())) {
+            return;
+        }
+        // Perform validation logic here.
+        // If the condition is not met, throw StartupException with
+        // a clear message and remediation guidance.
+        boolean conditionMet = checkEnvironment();
+        if (!conditionMet) {
+            throw new StartupException(
+                StartupException.CLEAN_SHUTDOWN,
+                "MyEnvironmentCheck failed: [explanation]. " +
+                "To fix this: [remediation steps]. " +
+                "To skip this check: set my_environment_check.enabled: false in cassandra.yaml."
+            );
+        }
+    }
+
+    private boolean checkEnvironment() {
+        // ... implementation ...
+        return true;
+    }
+}
+----
+
+[NOTE]
+====
+The `StartupCheck` Javadoc emphasizes that failed checks should log explanatory messages and remediation steps.
+Include both in any `StartupException` you throw.
+====
+
+=== Step 2: Register the SPI Provider
+
+Create the ServiceLoader registration file at the following path within your project:
+
+----
+src/main/resources/META-INF/services/org.apache.cassandra.service.StartupCheck
+----
+
+The file content must be the fully-qualified class name of your implementation, one per line:
+
+----
+com.example.cassandra.checks.MyEnvironmentCheck
+----
+
+This is the standard Java SPI registration mechanism.
+At startup, Cassandra calls `ServiceLoader.load(StartupCheck.class)` via `StartupChecks.withServiceLoaderTests()` to discover all registered implementations.
+
+Source: `src/java/org/apache/cassandra/service/StartupChecks.java`, method `withServiceLoaderTests()` (CASSANDRA-21093)
+
+=== Step 3: Build a JAR
+
+Package your implementation class and the `META-INF/services` registration file into a JAR.
+The bundled example uses an Ant build script (`examples/startup-checks/build.xml`) with `ant install` and `ant clean` targets.
+Maven or Gradle builds work equally well — ensure the `META-INF/services` file is included in the JAR resources.
+
+=== Step 4: Place the JAR on the Cassandra Classpath
+
+Copy the built JAR to a location included in Cassandra's classpath.
+
+// TODO: verify against trunk source — confirm which directories (e.g., lib/, lib/extra/, or CLASSPATH env var) are valid classpath extension points for custom check JARs.
+
+The bundled example `ant install` target places the JAR in the appropriate directory.
+Refer to `examples/startup-checks/build.xml` on trunk for the install path used there.
+
+=== Step 5: Configure in cassandra.yaml (Optional)
+
+If your check reads YAML parameters or should be explicitly enabled or disabled, add a block under `startup_checks` in `cassandra.yaml`:
+
+[source,yaml]
+----
+startup_checks:
+  my_environment_check:
+    enabled: true
+    expected_kernel_version: "5.15"
+----
+
+If the check's `isDisabledByDefault()` returns `true`, you must set `enabled: true` for the check to run.
+
+=== Step 6: Verify at Startup
+
+Start the Cassandra node.
+If your check's `execute()` method runs successfully, startup proceeds normally.
+If it throws `StartupException`, node startup aborts and the error message appears in the Cassandra system log.
+
+Confirm your check was discovered by reviewing startup log output for your check's `name()` identifier.
+
+== Bundled Example Project
+
+A working example is included in the Cassandra source tree:
+
+* `examples/startup-checks/README.adoc` — Build and install instructions
+* `examples/startup-checks/build.xml` — Ant build with `install` and `clean` targets
+* `examples/startup-checks/src/org/apache/cassandra/service/checks/` — Example check implementation
+* `examples/startup-checks/src/resources/META-INF/services/org.apache.cassandra.service.StartupCheck` — SPI registration file
+
+[NOTE]
+====
+The example project is not part of the published Antora documentation site.
+It is present in the Cassandra source repository for experimentation and reference.
+====
+
+== Default Startup Checks
+
+Cassandra 6.0 ships with a set of built-in startup checks hardcoded in `src/java/org/apache/cassandra/service/StartupChecks.java`.
+
+// TODO: verify against trunk source — enumerate the built-in check names from StartupChecks.java to document the reserved name set that custom checks must not shadow.
+
+Custom check names must not collide with any built-in check name.
+Cassandra enforces this at startup and throws `IllegalStateException` if a custom check attempts to shadow a built-in check.
+
+== Operational Guidance
+
+=== When to Use Custom Startup Checks
+
+Custom startup checks are most appropriate when:
+
+* A node must not start unless a specific environment condition is guaranteed
+* A failure condition is silent at the OS level but detectable in Java (e.g., a misconfigured mount, a missing keytab, an unreachable vault endpoint)
+* You want startup failures to produce structured, actionable error messages rather than cryptic downstream errors
+
+Custom checks are not appropriate for runtime health monitoring.
+They run once at startup and are not re-evaluated during the node's lifecycle.
+Use Cassandra's JMX metrics, nodetool commands, or external monitoring agents for ongoing health assessment.
+
+=== Failure Behavior
+
+If a custom check's `execute()` method throws `StartupException`, Cassandra aborts startup before the node joins the cluster.
+The exception message is logged.
+The node does not accept client connections or participate in cluster topology.
+
+If a `ServiceConfigurationError` occurs during SPI discovery (malformed `META-INF/services` file, broken JAR, classloading error), Cassandra logs a warning and continues startup without any custom checks — it does not abort.
+Operators must monitor startup logs to confirm custom checks are executing when expected.
+
+Source: `src/java/org/apache/cassandra/service/StartupChecks.java`, `withServiceLoaderTests()` (CASSANDRA-21093)
+
+[WARNING]
+====
+If your custom JAR has a classloading error or a malformed SPI registration, Cassandra silently skips all custom checks after logging a warning.
+A node may start successfully even when you expect it to be blocked.
+Always verify custom checks are appearing in startup logs after deployment.
+====
+
+=== Disabling Individual Checks
+
+Any check can be disabled at startup without removing its JAR from the classpath:
+
+[source,yaml]
+----
+startup_checks:
+  my_environment_check:
+    enabled: false
+----
+
+This is useful for temporarily bypassing a check during incident response without a deployment change.
+
+=== Constraints and Name Conflicts
+
+* Custom check names must be unique across all custom checks.
+  Duplicate names cause an `IllegalStateException` at startup.
+* Custom check names must not match any built-in check name.
+  See the open question in the research file — built-in names should be documented here once enumerated from `StartupChecks.java`.
+  // TODO: verify against trunk source — list reserved built-in check names once confirmed from StartupChecks.java on trunk.
+
+== Unresolved Questions
+
+The following items require additional investigation before this page is promoted from draft status.
+See `research/change-catalog/CASSANDRA-21093-startup-checks-spi.md` for the full open questions list.
+
+. *`startup_checks` config section location* — Is the section present (possibly commented out) in the default `cassandra.yaml`, or only in `cassandra_latest.yaml`?
+. *Built-in check names* — What are the reserved names defined in `StartupChecks.java` that custom checks cannot shadow?
+. *`isConfigurable()` interaction with YAML* — Does returning `false` silently ignore YAML config or produce a warning?
+. *`ServiceConfigurationError` scope* — Does a classloading error on one JAR skip only that check or all custom checks?
+. *Classpath extension mechanism* — Which directory or mechanism (`lib/`, env var, etc.) is the supported way to add custom check JARs?
+. *`postAction()` timing and use cases* — When exactly is `postAction()` called relative to the full startup sequence, and what is it intended for?
+
+Technical review by Nick Doan (CASSANDRA-21093 implementer) or Stefan Miklosovic (reviewer) is needed before promoting this page to published status.

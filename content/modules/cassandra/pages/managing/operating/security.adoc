@@ -1,5 +1,10 @@
 = Security
 
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
 There are three main components to the security features provided by
 Cassandra:
 
@@ -193,15 +198,56 @@ connections are supported using the same port. Client connections using
 encryption with this configuration will be automatically detected and
 handled by the server.
 
-As an alternative to the `optional` setting, separate ports can also be
-configured for secure and unsecure connections where operational
-requirements demand it. To do so, set `optional` to false and use the
-`native_transport_port_ssl` setting in `cassandra.yaml` to specify the
-port to be used for secure client communication.
-
-[NOTE]
+[[native-transport-port-ssl-removed]]
+[WARNING]
 ====
-`native_transport_port_ssl` property was deprecated in Cassandra 5.0.
+*Breaking change in Cassandra 6.0 (CASSANDRA-19397)*
+
+`native_transport_port_ssl` has been *removed* in Cassandra 6.0. It was
+deprecated in Cassandra 5.0 (CASSANDRA-19392). The property no longer
+exists in `cassandra.yaml` and its associated Java configuration fields
+(`Config.native_transport_port_ssl`, `DatabaseDescriptor.getNativeTransportPortSSL()`)
+have been deleted.
+
+*Why it was removed*: Running separate native transport ports for encrypted and
+unencrypted traffic caused incorrect entries in `system.peers` and broken client
+connection pool behaviour (CASSANDRA-10559).
+
+*Migration steps for operators upgrading from 5.0*:
+
+. Remove `native_transport_port_ssl` from `cassandra.yaml`.
+. In `client_encryption_options`, set `enabled: true`.
+. During the transition period (while some clients may not yet use TLS), set
+  `optional: true` to allow both encrypted and unencrypted connections on the
+  single `native_transport_port` (default 9042).
+. Once all clients have been reconfigured to connect via TLS, set `optional:
+  false` to enforce encryption on every connection.
+
+Example `client_encryption_options` for a mixed-traffic transition:
+
+[source,yaml]
+----
+client_encryption_options:
+  enabled: true
+  optional: true
+  keystore: /etc/cassandra/ssl/keystore.jks
+  keystore_password: <keystore_password>
+  truststore: /etc/cassandra/ssl/truststore.jks
+  truststore_password: <truststore_password>
+----
+
+Example `client_encryption_options` for enforced-TLS-only operation:
+
+[source,yaml]
+----
+client_encryption_options:
+  enabled: true
+  optional: false
+  keystore: /etc/cassandra/ssl/keystore.jks
+  keystore_password: <keystore_password>
+  truststore: /etc/cassandra/ssl/truststore.jks
+  truststore_password: <truststore_password>
+----
 ====
 
 [[operation-roles]]
@@ -323,7 +369,7 @@ xref:cassandra:developing/cql/security.adoc#operation-roles[`CassandraRoleManage
 See also: `setting-credentials-for-internal-authentication`,
 xref:cassandra:developing/cql/security.adoc#create-role[`CREATE ROLE`],
 xref:cassandra:developing/cql/security.adoc#alter-role[`ALTER ROLE`],
-xref:xref:cassandra:developing/cql/security.adoc#alter-keyspace[`ALTER KEYSPACE`] and
+xref:cassandra:developing/cql/security.adoc#alter-keyspace[`ALTER KEYSPACE`] and
 xref:cassandra:developing/cql/security.adoc#grant-permission[`GRANT PERMISSION`].
 
 == Authorization
@@ -467,6 +513,187 @@ xref:cassandra:managing/operating/security.adoc#jmx-with-ssl[`SSL`] connections.
 Finally, after enabling auth and/or SSL, ensure that tools which use
 JMX, such as xref:tools/nodetool/nodetools.adoc[`nodetool`] are correctly configured and working
 as expected.
+
+[[jmx-server-options-yaml]]
+=== JMX Configuration in cassandra.yaml (Cassandra 6.0, CASSANDRA-11695)
+
+Starting with Cassandra 5.0 (and present in 6.0), JMX server configuration can
+be placed entirely in `cassandra.yaml` under the `jmx_server_options` section.
+This is the recommended approach for new deployments. It centralises all JMX
+settings in a single file and avoids exposing SSL credentials in the JVM process
+listing (`ps` output).
+
+[IMPORTANT]
+====
+`jmx_server_options` in `cassandra.yaml` and the `configure_jmx` function in
+`cassandra-env.sh` are mutually exclusive. Enabling both will cause Cassandra to
+fail at startup with the following error:
+
+_"Configure either jmx_server_options in cassandra.yaml and comment out
+configure_jmx function call in cassandra-env.sh or keep cassandra-env.sh to call
+configure_jmx function but you have to keep jmx_server_options in cassandra.yaml
+commented out."_
+
+Source: `DuplicateJMXConfigurationTest.java`, `JMXServerOptions.java`
+(`src/java/org/apache/cassandra/config/JMXServerOptions.java`) on trunk.
+====
+
+The `jmx_server_options` block is commented out by default. To use it, uncomment
+and configure the section in `cassandra.yaml`, then comment out the
+`configure_jmx` function call in `cassandra-env.sh`.
+
+==== jmx_server_options fields
+
+The following fields are available under `jmx_server_options`
+(`JMXServerOptions.java` on trunk):
+
+`enabled` (boolean)::
+  Whether the JMX server is active. Set to `true` to start the JMX listener.
+
+`remote` (boolean)::
+  `false` (default) restricts JMX to localhost only. Set to `true` to accept
+  remote connections. When enabling remote connections, also configure SSL via
+  `jmx_encryption_options` (see xref:cassandra:managing/operating/security.adoc#jmx-with-ssl[JMX With SSL]).
+
+`jmx_port` (int, default 7199)::
+  Port the JMX server listens on.
+
+`rmi_port` (int, default 7199)::
+  Port the RMI registry listens on. Can match `jmx_port` unless SSL is enabled,
+  in which case RMI and JMX ports may need to differ.
+
+`authenticate` (boolean)::
+  Enable JMX authentication. When `true`, one of the auth mechanisms below must
+  be configured.
+
+`password_file` (string, redacted in virtual tables)::
+  Path to the JMX password file (standard JMX auth). Equivalent to
+  `-Dcom.sun.management.jmxremote.password.file` in the legacy approach.
+
+`access_file` (string)::
+  Path to the JMX access file (standard JMX auth). Equivalent to
+  `-Dcom.sun.management.jmxremote.access.file`.
+
+`login_config_name` (string)::
+  JAAS login configuration name for Cassandra integrated auth. Equivalent to
+  `-Dcassandra.jmx.remote.login.config`.
+
+`login_config_file` (string)::
+  Path to the JAAS configuration file. Equivalent to
+  `-Djava.security.auth.login.config`.
+
+`authorizer` (string)::
+  JMX authorizer class. Set to
+  `org.apache.cassandra.auth.jmx.AuthorizationProxy` for Cassandra integrated
+  authorization.
+
+`jmx_encryption_options` (nested block)::
+  SSL/TLS configuration for the JMX connection. See
+  xref:cassandra:managing/operating/security.adoc#jmx-with-ssl[JMX With SSL] for
+  full configuration options and examples.
+
+==== Example: local-only JMX with authentication
+
+[source,yaml]
+----
+jmx_server_options:
+  enabled: true
+  remote: false
+  jmx_port: 7199
+  rmi_port: 7199
+  authenticate: true
+  password_file: /etc/cassandra/jmxremote.password
+  access_file: /etc/cassandra/jmxremote.access
+----
+
+==== Example: remote JMX with SSL
+
+[source,yaml]
+----
+jmx_server_options:
+  enabled: true
+  remote: true
+  jmx_port: 7199
+  rmi_port: 7199
+  authenticate: true
+  password_file: /etc/cassandra/jmxremote.password
+  jmx_encryption_options:
+    enabled: true
+    accepted_protocols: [TLSv1.2, TLSv1.3]
+    cipher_suites: [TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256]
+    keystore: /etc/cassandra/ssl/keystore.jks
+    keystore_password: <keystore_password>
+    truststore: /etc/cassandra/ssl/truststore.jks
+    truststore_password: <truststore_password>
+----
+
+==== Example: remote JMX with Cassandra integrated auth
+
+[source,yaml]
+----
+jmx_server_options:
+  enabled: true
+  remote: true
+  jmx_port: 7199
+  rmi_port: 7199
+  authenticate: true
+  login_config_name: CassandraLogin
+  login_config_file: /etc/cassandra/cassandra-jaas.config
+  authorizer: org.apache.cassandra.auth.jmx.AuthorizationProxy
+----
+
+[NOTE]
+====
+Hot reloading of the `SSLContext` is not supported for JMX SSL (`jmx_encryption_options`).
+A node restart is required to pick up certificate changes for the JMX listener.
+====
+
+[[jmx-yaml-migration]]
+==== Migrating JMX configuration from cassandra-env.sh to cassandra.yaml
+
+If you are currently using the `cassandra-env.sh` approach (legacy), follow
+these steps to migrate to YAML-based JMX configuration:
+
+. In `cassandra.yaml`, uncomment `jmx_server_options` and populate fields to
+  match your current JVM flag settings. Use the field mapping below.
+. In `cassandra-env.sh`, comment out or remove the `configure_jmx` function
+  call. The function definition can remain; only the call must be suppressed.
+. Restart the node. Cassandra will use the YAML configuration.
+. Verify JMX connectivity with `nodetool status` before proceeding to other nodes.
+
+*Field mapping from JVM flags to cassandra.yaml*:
+
+[cols="1,1", options="header"]
+|===
+| Legacy JVM flag in cassandra-env.sh | cassandra.yaml field
+
+| `LOCAL_JMX=yes` (local only)
+| `jmx_server_options.remote: false`
+
+| `LOCAL_JMX=no` (remote enabled)
+| `jmx_server_options.remote: true`
+
+| `cassandra.jmx.local.port` / `cassandra.jmx.remote.port`
+| `jmx_server_options.jmx_port`
+
+| `-Dcom.sun.management.jmxremote.password.file`
+| `jmx_server_options.password_file`
+
+| `-Dcom.sun.management.jmxremote.access.file`
+| `jmx_server_options.access_file`
+
+| `-Dcassandra.jmx.remote.login.config`
+| `jmx_server_options.login_config_name`
+
+| `-Djava.security.auth.login.config`
+| `jmx_server_options.login_config_file`
+
+| `-Dcassandra.jmx.authorizer`
+| `jmx_server_options.authorizer`
+
+| `-Dcom.sun.management.jmxremote.ssl=true` etc.
+| `jmx_server_options.jmx_encryption_options`
+|===
 
 === Standard JMX Auth
 
@@ -719,3 +946,79 @@ http://docs.oracle.com/javase/7/docs/technotes/guides/management/agent.html#gdem
 Java7 Docs],
 https://www.lullabot.com/articles/monitor-java-with-jmx[Monitor Java
 with JMX]
+
+[[upgrading-security-50-to-60]]
+== Upgrade Notes: Security Configuration Changes from 5.0 to 6.0
+
+This section summarises operator-critical security configuration changes when
+upgrading from Cassandra 5.0 to Cassandra 6.0. Misconfiguring either of these
+items during upgrade can cause outages.
+
+=== Breaking: native_transport_port_ssl removed (CASSANDRA-19397)
+
+The `native_transport_port_ssl` configuration property no longer exists in
+Cassandra 6.0. Nodes will not start if this property is present in
+`cassandra.yaml` in some configurations, and the dual-server native transport
+architecture has been removed entirely.
+
+*Before upgrading*:
+
+. Search your `cassandra.yaml` files for `native_transport_port_ssl`.
+. If found, remove the property and configure `client_encryption_options` as
+  described in xref:cassandra:managing/operating/security.adoc#native-transport-port-ssl-removed[the removal notice above].
+. Update any firewall rules, load balancer configurations, or client driver
+  connection strings that reference the old SSL-only port to point to
+  `native_transport_port` (default 9042).
+. Set `client_encryption_options.optional: true` during the transition window to
+  accept both encrypted and unencrypted connections on the single port.
+
+=== Recommended: Migrate JMX configuration to cassandra.yaml (CASSANDRA-11695)
+
+The `cassandra-env.sh` JMX configuration approach (`configure_jmx` function)
+still works in Cassandra 6.0, but `jmx_server_options` in `cassandra.yaml` is
+now the recommended configuration path. The two approaches are mutually
+exclusive: enabling both causes a startup failure.
+
+There is no forced migration required for this change. However, operators
+managing JMX configuration with automation tools (Ansible, Chef, Puppet, etc.)
+are encouraged to migrate to YAML-based configuration during the Cassandra 6.0
+upgrade, as it is:
+
+* Easier to manage with standard YAML tooling
+* More secure (SSL credentials are not visible in process listings)
+* Consistent with how other Cassandra configuration is managed
+
+See xref:cassandra:managing/operating/security.adoc#jmx-yaml-migration[Migrating JMX configuration from cassandra-env.sh to cassandra.yaml] for step-by-step instructions.
+
+=== Unresolved questions (review required before publication)
+
+[NOTE]
+====
+*Reviewer note*: The following items require verification against trunk before
+this page is considered publication-ready.
+
+. *native_transport_port_ssl silent-ignore vs startup-failure*: Confirm whether
+  including `native_transport_port_ssl` in `cassandra.yaml` on 6.0 causes a hard
+  startup failure or is silently ignored. `ConfigCompatibilityTest.java` lists it
+  in `REMOVED_IN_51` which suggests it may be ignored rather than rejected.
+  The upgrade urgency guidance above should be adjusted accordingly.
+  (CASSANDRA-19397 research open question 2.)
+
+. *cassandra-env.sh JMX deprecation stance*: The `cassandra-env.sh`
+  `configure_jmx` function still works but NEWS.txt describes it as the old way.
+  Confirm whether it is formally deprecated in 6.0 or just superseded. Adjust
+  the "recommended" framing above if a formal deprecation exists.
+  (CASSANDRA-11695 research open question 1.)
+
+. *nodetool JMX port resolution*: When JMX port is configured only in
+  `cassandra.yaml` (not in environment), confirm whether `nodetool` resolves the
+  port correctly. The JIRA discussion mentions keeping `JMX_PORT` in shell
+  scripts for tool compatibility.
+  (CASSANDRA-11695 research open question 3.)
+
+. *Crypto providers section*: The 5.0 docs contained a section on
+  `DefaultCryptoProvider` and Amazon Corretto Crypto Provider that does not
+  appear in trunk docs. Confirm whether this feature was removed from Cassandra
+  6.0 or whether the documentation was accidentally dropped.
+  (managing-operating delta-catalog coverage gap 1.)
+====

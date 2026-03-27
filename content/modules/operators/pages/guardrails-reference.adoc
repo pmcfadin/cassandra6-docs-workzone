@@ -1,0 +1,421 @@
+= Guardrails Reference
+:description: Reference for all guardrail configuration settings in Apache Cassandra 6, including bulk loading, keyspace DDL, disk usage, and per-type size guardrails.
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Guardrails are configurable safeguards that warn operators or reject operations before they can destabilize a cluster.
+Each guardrail has a property in `conf/cassandra.yaml` and is dynamically configurable at runtime via JMX (`GuardrailsMBean`).
+
+Cassandra 6 introduces several new guardrails and extends existing ones with finer-grained controls.
+This page documents the guardrails introduced or significantly changed for Cassandra 6.
+
+.Guardrail types used in this reference
+[NOTE]
+====
+* *EnableFlag* -- binary allow/disallow with no intermediate warn threshold.
+  The operation is either permitted or rejected outright.
+* *MaxThreshold* -- numeric threshold with independent warn and fail levels.
+  Exceeding the warn threshold generates a client warning.
+  Exceeding the fail threshold rejects the operation.
+* *Values<String>* -- a set of named values partitioned into warned, ignored, and disallowed lists.
+  Ignored values are silently stripped from the statement.
+  Disallowed values cause the statement to fail.
+  Warned values generate a client warning but are allowed through.
+* *Predicates<String>* -- a predicate-based guardrail evaluated against a runtime value (such as a datacenter name).
+====
+
+== Bulk Loading
+
+*Source*: CASSANDRA-18781 (https://issues.apache.org/jira/browse/CASSANDRA-18781[JIRA]) +
+*Implementation*: `Guardrails.bulkLoadEnabled` (`EnableFlag`) +
+*Enforcement point*: `StreamDeserializingTask` -- evaluated when an incoming streaming session has operation type `StreamOperation.BULK_LOAD`
+
+=== Settings
+
+[cols="1,1,1,3", options="header"]
+|===
+| Property (`cassandra.yaml`) | Type | Default | Description
+
+| `bulk_load_enabled`
+| boolean
+| `true`
+| When `false`, any incoming bulk-load streaming session is aborted on the receiving node with a `GuardrailViolatedException`.
+  Bulk-load tools (such as `sstableloader`) that stream to this node will fail.
+  When `true` (default), bulk loading is permitted.
+|===
+
+=== Operational notes
+
+* This guardrail uses `.throwOnNullClientState(true)`, which means it is enforced even when there is no CQL client session context.
+  Streaming operations do not carry a traditional client state, so this ensures the guardrail cannot be bypassed by streaming.
+* The warning message logged when this guardrail fires is:
+  `"Bulk loading of SSTables might potentially destabilize the node."`
+* Unlike most guardrails, which exempt superuser or internal operations, this guardrail applies cluster-wide regardless of caller context.
+* Default is `true` (bulk loading permitted), so no behavioral change on upgrade.
+  To restrict bulk loading, set `bulk_load_enabled: false` in `cassandra.yaml` or via JMX.
+
+// TODO: verify against trunk cassandra.yaml -- confirm whether nodetool import uses StreamOperation.BULK_LOAD or a different operation type
+
+=== Example configuration
+
+[source,yaml]
+----
+# Guardrail to allow/disallow bulk load of SSTables
+bulk_load_enabled: false
+----
+
+== Keyspace DDL Properties
+
+*Source*: CASSANDRA-20913 (https://issues.apache.org/jira/browse/CASSANDRA-20913[JIRA]) +
+*Implementation*: `Guardrails.keyspaceProperties` (`Values<String>`) +
+*Enforcement points*: `CreateKeyspaceStatement.validate()` and `AlterKeyspaceStatement.validate()`
+
+This guardrail allows operators to warn about, silently strip, or disallow specific keyspace properties in `CREATE KEYSPACE` and `ALTER KEYSPACE` statements.
+The primary use case is preventing `durable_writes = false`, which disables the commitlog and risks data loss on node crash, but the guardrail is generic and supports any recognized keyspace property name.
+
+The design mirrors the existing `table_properties_warned/ignored/disallowed` guardrail pattern.
+
+=== Settings
+
+[cols="1,1,1,3", options="header"]
+|===
+| Property (`cassandra.yaml`) | Type | Default | Description
+
+| `keyspace_properties_warned`
+| `Set<String>`
+| `[]` (empty)
+| Property names that trigger a client warning when used in `CREATE KEYSPACE` or `ALTER KEYSPACE`.
+  The statement is executed normally, but the client receives a warning message.
+
+| `keyspace_properties_ignored`
+| `Set<String>`
+| `[]` (empty)
+| Property names that are silently stripped from `CREATE KEYSPACE` or `ALTER KEYSPACE` statements before execution.
+  The client receives no warning.
+
+| `keyspace_properties_disallowed`
+| `Set<String>`
+| `[]` (empty)
+| Property names that cause `CREATE KEYSPACE` or `ALTER KEYSPACE` to fail with a `GuardrailViolatedException`.
+|===
+
+=== Operational notes
+
+* All three sets default to empty, so there is no behavioral change on upgrade.
+  Operators must explicitly configure these settings to restrict keyspace properties.
+* *Precedence*: Disallowed takes precedence over warned if a property name appears in both sets.
+* *Validation rules*:
+** Property names are automatically lowercased when the configuration is validated.
+** Null values are rejected in all three sets.
+** Required keyspace keywords -- specifically `replication` -- cannot be placed in `keyspace_properties_disallowed` or `keyspace_properties_ignored`.
+   Attempting to do so causes a configuration validation error.
+// TODO: verify whether `replication` can appear in `keyspace_properties_warned` -- the research file notes it as required but does not confirm whether the warned list has the same restriction.
+** Only recognized keyspace property names (from `KeyspaceAttributes.allKeywords()`) are accepted in configuration.
+* Settings are dynamically configurable at runtime via JMX, with both `Set<String>` and CSV accessor variants.
+
+=== Example configuration
+
+[source,yaml]
+----
+# Disallow creation or modification of keyspaces with durable_writes = false
+keyspace_properties_disallowed:
+  - durable_writes
+----
+
+[source,yaml]
+----
+# Warn when durable_writes = false is used, but do not reject
+keyspace_properties_warned:
+  - durable_writes
+----
+
+// TODO: verify against trunk cassandra.yaml -- confirm the full list of valid property names from KeyspaceAttributes.allKeywords()
+
+== Disk Usage
+
+*Source*: CASSANDRA-21024 (https://issues.apache.org/jira/browse/CASSANDRA-21024[JIRA]) +
+*Implementation*: `Guardrails.diskUsageKeyspaceWideProtection` (`Predicates<String>`) +
+*Enforcement point*: `ModificationStatement.validateDiskUsage()`
+
+Cassandra 6 extends the existing per-replica disk usage guardrail with a new keyspace-wide protection mode.
+When enabled, writes to a keyspace are rejected if *any* node in any datacenter replicating that keyspace exceeds the disk usage failure threshold, not just the specific replicas that would handle a given write.
+
+This prevents cascading failures where writes redirected away from full nodes overload the remaining nodes.
+
+=== Full disk usage settings (including pre-existing settings)
+
+[cols="1,1,1,3", options="header"]
+|===
+| Property (`cassandra.yaml`) | Type | Default | Description
+
+| `data_disk_usage_percentage_warn_threshold`
+| integer (percentage)
+| `-1` (disabled)
+| Disk usage percentage at which a node is considered "stuffed" (warn-level).
+  Writes targeting replicas on a stuffed node generate a client warning.
+  Used by both the per-replica guardrail and the keyspace-wide protection feature.
+
+| `data_disk_usage_percentage_fail_threshold`
+| integer (percentage)
+| `-1` (disabled)
+| Disk usage percentage at which a node is considered "full" (fail-level).
+  Writes targeting replicas on a full node are rejected.
+  Used by both the per-replica guardrail and the keyspace-wide protection feature.
+
+| `data_disk_usage_max_disk_size`
+| data storage size
+| (unset)
+| Optional cap on the disk size used in threshold calculations.
+  If set, thresholds are applied against this value rather than the actual disk capacity.
+
+| `data_disk_usage_keyspace_wide_protection_enabled`
+| boolean
+| `false`
+| *New in Cassandra 6.*
+  When `true`, write requests to a keyspace are rejected if any node in any datacenter
+  replicating that keyspace has FULL disk usage (as defined by `data_disk_usage_percentage_fail_threshold`).
+  When `false` (default), only the per-replica `replicaDiskUsage` check applies.
+|===
+
+=== Operational notes
+
+* `data_disk_usage_keyspace_wide_protection_enabled` defaults to `false` and has no effect unless `data_disk_usage_percentage_fail_threshold` is also set to a positive value.
+// TODO: verify against trunk cassandra.yaml -- confirm behavior when keyspace-wide protection is enabled but fail_threshold remains -1 (disabled)
+* When keyspace-wide protection is enabled and the fail threshold is exceeded on any node:
+** For keyspaces using `NetworkTopologyStrategy`: only datacenters where the keyspace is actually replicated are checked.
+** For keyspaces using `SimpleStrategy`: all known datacenters are checked.
+* Per-datacenter disk state (stuffed/full) is tracked in `DiskUsageBroadcaster` using gossip state changes.
+  Datacenter membership is resolved via TCM (Transactional Cluster Metadata) `Locator` and `Location` interfaces.
+* When keyspace-wide protection is disabled, the original per-replica `replicaDiskUsage` guardrail remains active and is unaffected by this setting.
+* Setting is dynamically configurable at runtime via JMX (`GuardrailsMBean`).
+
+// TODO: verify against trunk cassandra.yaml -- confirm exact client error message when a write is rejected by keyspace-wide disk protection
+
+=== Example configuration
+
+[source,yaml]
+----
+# Existing disk usage thresholds (required for keyspace-wide protection to take effect)
+data_disk_usage_percentage_warn_threshold: 70
+data_disk_usage_percentage_fail_threshold: 90
+
+# Enable keyspace-wide write rejection when any replicating node is full
+data_disk_usage_keyspace_wide_protection_enabled: true
+----
+
+=== Interaction between disk usage guardrails
+
+[cols="1,1,2", options="header"]
+|===
+| Setting | Mode | Behavior when fail_threshold exceeded
+
+| `data_disk_usage_keyspace_wide_protection_enabled: false`
+| Per-replica (default)
+| Writes rejected only when the specific partition replicas are on full nodes.
+
+| `data_disk_usage_keyspace_wide_protection_enabled: true`
+| Keyspace-wide
+| All writes to the keyspace rejected when any node in a replicating datacenter is full,
+  regardless of which replicas would handle the specific write.
+|===
+
+== Per-Type Size Limits
+
+*Source*: CASSANDRA-19677 (https://issues.apache.org/jira/browse/CASSANDRA-19677[JIRA]) +
+*Implementation*: `columnAsciiValueSize`, `columnBlobValueSize`, `columnTextAndVarcharValueSize` (`MaxThreshold`);
+`collectionMapSize`, `collectionSetSize`, `collectionListSize` (`FallbackThreshold<MaxThreshold>`) +
+*Enforcement points*: `UpdateParameters.validateColumnSize()` (column types); `Lists.java`, `Maps.java`, `Sets.java` (collection types)
+
+Cassandra 6 adds type-specific size guardrails as a refinement of the existing generic `column_value_size` and `collection_size` guardrails.
+Operators can now set different warn and fail thresholds per column type (`ascii`, `blob`, `text`/`varchar`) and per collection type (`map`, `set`, `list`).
+
+This is useful for workloads with mixed data types -- for example, allowing large binary blobs while restricting text column sizes, or applying tighter limits to lists than to maps.
+
+=== Column-type-specific value size guardrails
+
+[cols="1,1,1,3", options="header"]
+|===
+| Property (`cassandra.yaml`) | Type | Default | Description
+
+| `column_ascii_value_size_warn_threshold`
+| data storage size
+| (unset / null)
+| Size above which a write to an `ascii` column generates a client warning.
+
+| `column_ascii_value_size_fail_threshold`
+| data storage size
+| (unset / null)
+| Size above which a write to an `ascii` column is rejected.
+
+| `column_blob_value_size_warn_threshold`
+| data storage size
+| (unset / null)
+| Size above which a write to a `blob` column generates a client warning.
+
+| `column_blob_value_size_fail_threshold`
+| data storage size
+| (unset / null)
+| Size above which a write to a `blob` column is rejected.
+
+| `column_text_and_varchar_value_size_warn_threshold`
+| data storage size
+| (unset / null)
+| Size above which a write to a `text` or `varchar` column generates a client warning.
+  CQL treats `text` and `varchar` as the same underlying type; both are governed by this single guardrail.
+
+| `column_text_and_varchar_value_size_fail_threshold`
+| data storage size
+| (unset / null)
+| Size above which a write to a `text` or `varchar` column is rejected.
+|===
+
+.Interaction with the generic `column_value_size` guardrail
+[NOTE]
+====
+When a type-specific column size guardrail is configured alongside the generic `column_value_size_warn_threshold` or `column_value_size_fail_threshold`, both are checked independently.
+The effective threshold is the smaller of the two values.
+If the generic guardrail fires first, the type-specific guardrail may also fire separately.
+
+// TODO: verify against trunk cassandra.yaml -- confirm whether both guardrails are always checked or whether the first failure short-circuits evaluation
+====
+
+* Column-type-specific guardrails apply to regular column values only.
+  Partition key and clustering key components have a fixed 65535-byte limit enforced separately.
+* All thresholds default to null (disabled).
+  When null, the guardrail has no effect for that type; the generic `column_value_size` guardrail still applies.
+* All thresholds are dynamically configurable via JMX.
+
+=== Collection-type-specific size guardrails
+
+[cols="1,1,1,3", options="header"]
+|===
+| Property (`cassandra.yaml`) | Type | Default | Description
+
+| `collection_map_size_warn_threshold`
+| data storage size
+| (unset / null)
+| Size above which a write to a `map` collection generates a client warning.
+  When set, takes precedence over `collection_size_warn_threshold` for maps.
+
+| `collection_map_size_fail_threshold`
+| data storage size
+| (unset / null)
+| Size above which a write to a `map` collection is rejected.
+  When set, takes precedence over `collection_size_fail_threshold` for maps.
+
+| `collection_set_size_warn_threshold`
+| data storage size
+| (unset / null)
+| Size above which a write to a `set` collection generates a client warning.
+  When set, takes precedence over `collection_size_warn_threshold` for sets.
+
+| `collection_set_size_fail_threshold`
+| data storage size
+| (unset / null)
+| Size above which a write to a `set` collection is rejected.
+  When set, takes precedence over `collection_size_fail_threshold` for sets.
+
+| `collection_list_size_warn_threshold`
+| data storage size
+| (unset / null)
+| Size above which a write to a `list` collection generates a client warning.
+  When set, takes precedence over `collection_size_warn_threshold` for lists.
+
+| `collection_list_size_fail_threshold`
+| data storage size
+| (unset / null)
+| Size above which a write to a `list` collection is rejected.
+  When set, takes precedence over `collection_size_fail_threshold` for lists.
+|===
+
+.FallbackThreshold behavior for collection-type guardrails
+[NOTE]
+====
+Collection-type-specific guardrails use a `FallbackThreshold` wrapper.
+If the type-specific threshold is set (non-null), it takes precedence over the generic `collection_size` guardrail for that collection type.
+If the type-specific threshold is not set (null), the generic `collection_size_warn_threshold` / `collection_size_fail_threshold` remains in effect, preserving backward compatibility.
+
+This differs from column-type-specific guardrails, which are independent `MaxThreshold` instances checked alongside the generic guardrail.
+====
+
+* At SSTable write time, collection-type guardrails are checked for non-frozen collections.
+  At this stage, exceeding the fail threshold logs an error but does not abort the write operation.
+// TODO: verify against trunk cassandra.yaml -- confirm SSTable write-time behavior for frozen vs. non-frozen collections
+* All thresholds default to null (disabled) and are dynamically configurable via JMX.
+
+=== Example configuration
+
+[source,yaml]
+----
+# Allow larger blobs than text; restrict ASCII tightly
+column_ascii_value_size_warn_threshold: 64KiB
+column_ascii_value_size_fail_threshold: 128KiB
+column_blob_value_size_warn_threshold: 10MiB
+column_blob_value_size_fail_threshold: 50MiB
+column_text_and_varchar_value_size_warn_threshold: 1MiB
+column_text_and_varchar_value_size_fail_threshold: 5MiB
+
+# Type-specific collection limits
+collection_map_size_warn_threshold: 1MiB
+collection_map_size_fail_threshold: 5MiB
+collection_set_size_warn_threshold: 1MiB
+collection_set_size_fail_threshold: 5MiB
+collection_list_size_warn_threshold: 1MiB
+collection_list_size_fail_threshold: 5MiB
+----
+
+// TODO: verify against trunk cassandra.yaml -- confirm size unit formats accepted (KiB, MiB, etc.) for DataStorageSpec.LongBytesBound fields
+
+== Dynamic Reconfiguration via JMX
+
+All guardrails documented on this page are dynamically configurable at runtime without a node restart.
+The JMX interface is `GuardrailsMBean` in `org.apache.cassandra.db.guardrails`.
+
+Changes made via JMX persist only for the lifetime of the JVM process.
+To make a change permanent, update `cassandra.yaml` on each node.
+
+// TODO: verify against trunk cassandra.yaml -- confirm nodetool subcommands for viewing and setting guardrail values (GuardrailsConfigCommandsTest suggests nodetool integration exists)
+
+== Unresolved Questions
+
+The following items require verification against the `trunk` branch of `apache/cassandra` before this page can advance beyond draft status:
+
+. *Bulk loading*: Does the `bulk_load_enabled` guardrail also block `nodetool import`, or only `sstableloader`-based streaming?
+  The enforcement point is `StreamDeserializingTask` for `StreamOperation.BULK_LOAD`.
+  Confirm which tools use that operation type.
+  (Source: CASSANDRA-18781 open question)
+
+. *Keyspace properties*: What is the complete list of valid property names from `KeyspaceAttributes.allKeywords()`?
+  The test file uses `durable_writes` and `replication`, but the full set should be documented.
+  (Source: CASSANDRA-20913 open question)
+
+. *Keyspace properties*: Can `replication` be placed in `keyspace_properties_warned` (warn only), or does the required-keyword restriction prevent it from appearing in any of the three lists?
+  (Source: CASSANDRA-20913 open question)
+
+. *Disk usage -- fail threshold interaction*: What is the behavior when `data_disk_usage_keyspace_wide_protection_enabled: true` but `data_disk_usage_percentage_fail_threshold` remains at `-1` (disabled)?
+  Are the warn/fail states effectively never triggered?
+  (Source: CASSANDRA-21024 open question)
+
+. *Disk usage -- client error message*: What error message does the client receive when a write is rejected by the keyspace-wide disk protection?
+  (Source: CASSANDRA-21024 open question)
+
+. *Column-type guardrails -- evaluation order*: When both the generic `column_value_size` and a type-specific guardrail are configured, is evaluation short-circuited on the first failure, or are both always checked?
+  (Source: CASSANDRA-19677 open question)
+
+. *Collection-type guardrails -- frozen collections*: How do collection-type guardrails interact with frozen collections at SSTable write time?
+  The research notes that the fail threshold only logs an error at SSTable write time for non-frozen collections.
+  (Source: CASSANDRA-19677 open question)
+
+. *Size unit format*: Confirm the accepted size unit strings for `DataStorageSpec.LongBytesBound` fields (e.g., `KiB`, `MiB`, `GiB`).
+  (Source: CASSANDRA-19677 implementation)
+
+. *Nodetool commands*: Confirm the nodetool subcommand(s) for reading and setting guardrail values at runtime.
+  `GuardrailsConfigCommandsTest` indicates nodetool integration exists but the exact command names are not documented here.
+
+== Related Pages
+
+* xref:index.adoc[Operating Cassandra] -- operator overview
+// TODO: add xrefs to cassandra.yaml reference page, bulk loading operations page, and CQL CREATE KEYSPACE / ALTER KEYSPACE reference pages once those pages exist in this workzone

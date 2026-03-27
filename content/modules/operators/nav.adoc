@@ -1,1 +1,9 @@
 * xref:index.adoc[Operators]
+* Transactional Cluster Metadata (TCM)
+** xref:tcm-overview.adoc[TCM Overview]
+** xref:tcm-pre-upgrade.adoc[Pre-Upgrade Assessment]
+** xref:tcm-upgrade-procedure.adoc[Upgrade Procedure]
+** xref:tcm-operations.adoc[TCM Operations]
+** xref:tcm-troubleshooting.adoc[TCM Troubleshooting]
+* xref:guardrails-reference.adoc[Guardrails Reference]
+* xref:startup-checks-spi.adoc[Custom Startup Checks (SPI)]

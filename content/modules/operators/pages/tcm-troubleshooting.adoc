@@ -1,0 +1,880 @@
+= TCM Troubleshooting and Testing
+:description: Failure playbooks for CMS node loss, quorum loss, stuck topology operations, and epoch divergence; plus a test plan for validating TCM behavior in lower environments.
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+This page is a collection of runbooks for specific TCM failure scenarios,
+followed by a test plan for validating TCM behavior before production deployment.
+For concepts and architecture, see xref:tcm-overview.adoc[TCM Overview].
+For operational behavior, see xref:tcm-operations.adoc[TCM Operations].
+
+== Failure Playbooks
+
+Playbooks are ordered by severity, from routine self-resolving situations
+to emergency recovery procedures.
+
+=== Playbook: Single CMS Node Lost
+
+**Severity: Low. No operator action required.**
+
+==== What You See
+
+A CMS member goes down.
+The `unreachableCMSMembers` metric ticks up by one.
+Remaining CMS members continue operating.
+
+==== Why It Is Not a Problem
+
+The CMS is a Paxos group.
+As long as a majority of CMS members are alive, the group can reach consensus.
+
+The quorum calculation in `PaxosBackedProcessor`:
+
+----
+blockFor = (replicas.size() / 2) + 1
+----
+
+For a 3-member CMS, `blockFor = 2`.
+For a 5-member CMS, `blockFor = 3`.
+All metadata operations continue without interruption.
+
+Source: `src/java/org/apache/cassandra/tcm/`
+
+==== What to Do
+
+1. Diagnose the failed node (hardware, process logs, network).
+   This is standard Cassandra troubleshooting — nothing specific to TCM.
+2. Restore the node.
+   When the node comes back, `PeerLogFetcher` automatically fetches and applies missed log entries.
+3. If the node cannot be restored, replace it as you would any other Cassandra node
+   (`nodetool removenode` followed by bootstrapping a replacement).
+   The CMS will automatically reconfigure if the dead node was a CMS member and a replacement
+   is eligible.
+
+==== When to Escalate
+
+If you lose a second CMS node before the first is restored and you are running a 3-member CMS,
+you have lost quorum.
+See the next playbook.
+
+=== Playbook: CMS Quorum Lost
+
+**Severity: High. Metadata changes are blocked until quorum is restored.**
+
+==== What You See
+
+More than half of the CMS members are down.
+The cluster continues serving reads and writes for existing data.
+But any operation that requires a metadata commit is blocked:
+
+* New bootstraps cannot start
+* Decommissions cannot proceed
+* Schema changes (CREATE TABLE, ALTER TABLE) are rejected
+* CMS reconfiguration cannot complete
+
+Non-CMS nodes attempting commits receive failure responses and retry with exponential backoff.
+
+==== Why It Happens
+
+Paxos requires a majority to agree on each commit.
+Without a majority, no new log entries can be committed.
+This prevents split-brain scenarios where two partitions of the CMS could commit conflicting metadata.
+
+==== What to Do
+
+**Step 1: Restore CMS nodes.**
+Every CMS node you bring back moves you closer to quorum.
+Once a majority is up, the system recovers automatically.
+
+**Step 2: If nodes cannot be restored quickly, assess:**
+
+* Can you restart the CMS processes? (Process crash, OOM)
+* Can you restore network connectivity? (Partition, firewall)
+* Is the hardware permanently lost? (Disk failure, host termination)
+
+**Step 3: If quorum cannot be restored through normal means:**
+
+* **Option A: Wait.** If the outage is temporary, waiting is the safest choice.
+  No metadata changes can occur, but no data is at risk.
+* **Option B: Emergency recovery.**
+  If the CMS nodes are permanently lost, proceed to the Total CMS Loss playbook.
+
+==== Prevention
+
+Size your CMS appropriately.
+A 3-member CMS is one failure away from quorum loss.
+For production clusters, a 5-member CMS provides a more comfortable buffer.
+See xref:tcm-operations.adoc[TCM Operations] for sizing guidance.
+
+=== Playbook: Total CMS Loss
+
+**Severity: Critical. Emergency recovery required.**
+
+==== What You See
+
+All CMS members are down.
+No metadata commits are possible.
+The cluster can still serve reads and writes, but no topology or schema changes can occur.
+
+This scenario is extraordinarily rare.
+If your CMS members are distributed across racks and datacenters,
+simultaneous loss of all of them implies a much larger infrastructure incident.
+
+==== The Escape Hatch
+
+TCM provides emergency recovery mechanisms that bypass Paxos.
+These are break-glass operations.
+
+[WARNING]
+====
+All escape hatch operations require `unsafe_tcm_mode=true` in `cassandra.yaml`.
+Only use these when the CMS is completely unavailable.
+====
+
+**Prerequisites for all escape hatch operations:**
+
+1. Set `cassandra.unsafe_tcm_mode=true` in `cassandra.yaml`
+2. Restart at least one node with this flag enabled
+3. Execute the recovery operation via JMX (`org.apache.cassandra.tcm:type=CMSOperations`)
+
+Source: `src/java/org/apache/cassandra/tcm/CMSOperationsMBean.java`
+
+===== Recovery Method 1: Revert to a Previous Epoch
+
+[source]
+----
+# Via JMX
+# MBean: org.apache.cassandra.tcm:type=CMSOperations
+# Method: unsafeRevertClusterMetadata(long epoch)
+----
+
+What this does:
+
+1. Retrieves the metadata snapshot at the specified epoch from `system_cluster_metadata`
+2. Creates a new snapshot at epoch N+1 with that historical state
+3. Commits a `ForceSnapshot` transformation that bypasses Paxos
+
+Use when: you know the last good epoch and want to roll back to it.
+Any metadata changes committed after that epoch are lost.
+
+===== Recovery Method 2: Load Metadata from a Dump File
+
+[source]
+----
+# First, dump current metadata (from any surviving node with local state):
+# JMX Method: dumpClusterMetadata(long epoch, long transformToEpoch, String version)
+
+# Then load the dump on the recovery node:
+# JMX Method: unsafeLoadClusterMetadata(String filePath)
+----
+
+What this does:
+
+1. Deserializes the `ClusterMetadata` object from the dump file
+2. Forces the epoch to current+1
+3. Commits a `ForceSnapshot` transformation with the loaded state
+
+Use when: you have a metadata backup or can extract one from any surviving node.
+This is the most common recovery path for total CMS loss.
+
+===== Recovery Method 3: Boot with a Metadata File
+
+[source,bash]
+----
+# Add JVM property before starting the node:
+-Dcassandra.unsafe_boot_with_clustermetadata=/path/to/metadata/dump
+----
+
+This causes the node to boot in `RESET` state — it ignores the CMS entirely
+and uses the provided metadata file.
+The property is consumed on startup and does not persist.
+
+Use when: no CMS nodes can start at all and you need to bring at least one node up
+with a known metadata state.
+
+==== Recovery Procedure: Step by Step
+
+1. Stop all remaining CMS nodes (if any are in a bad state).
+2. Choose one node to be the recovery node.
+   Prefer a node that was recently a CMS member.
+3. Enable unsafe mode on that node: set `cassandra.unsafe_tcm_mode=true` in `cassandra.yaml`.
+4. Start the recovery node.
+5. Execute the appropriate recovery method (revert, load, or boot-with-file).
+6. Verify the metadata state with `nodetool cms describe`.
+   Confirm epoch, CMS members, and directory look correct.
+7. Disable unsafe mode: set `cassandra.unsafe_tcm_mode=false`.
+8. Restart the recovery node in normal mode.
+9. Start the remaining CMS nodes.
+   They will fetch the recovery node's metadata and sync.
+10. Verify cluster-wide convergence: all nodes report the same epoch.
+
+==== Dump Early, Dump Often
+
+Consider making periodic metadata dumps part of your backup routine:
+
+[source]
+----
+# Via JMX
+# MBean: org.apache.cassandra.tcm:type=CMSOperations
+# Method: dumpClusterMetadata(currentEpoch, currentEpoch, "V8")
+----
+
+Store dumps alongside your regular Cassandra backups.
+In a total CMS loss scenario, the dump is your fastest path back to a functioning cluster.
+
+=== Playbook: Node Restarted Mid-Bootstrap
+
+**Severity: Low. Resumable.**
+
+==== What You See
+
+A bootstrapping node crashes or is restarted during the MID_JOIN streaming phase.
+When it comes back up, its state in the directory is either `BOOTSTRAPPING` or `REGISTERED`.
+The `InProgressSequences` in cluster metadata still has the node's bootstrap entry.
+
+==== What to Do
+
+**Resume the bootstrap:**
+
+[source,bash]
+----
+$ nodetool bootstrap resume
+----
+
+The `BootstrapAndJoin` sequence knows which step it was on and resumes from there.
+
+**If resume fails or you want to start fresh:**
+
+[source,bash]
+----
+$ nodetool bootstrap abort <node-id> <endpoint>
+----
+
+This cancels the in-progress sequence, releases range locks, and cleans up the metadata.
+The node returns to `REGISTERED` state, and you can start a fresh bootstrap.
+
+[NOTE]
+====
+Do not manually clear tokens, delete system tables, or restart the node hoping it will
+"forget" the partial bootstrap.
+The metadata log has a record of the in-progress sequence.
+The proper path is always resume or abort.
+====
+
+Source: `src/java/org/apache/cassandra/tcm/sequences/BootstrapAndJoin.java`
+
+=== Playbook: Stuck Topology Operation
+
+**Severity: Medium. Requires operator decision.**
+
+==== What You See
+
+A topology operation (bootstrap, decommission, move, replace) started but did not complete.
+The operation is visible in `nodetool cms describe` as an in-progress sequence.
+No further progress is being made.
+Range locks held by this operation are preventing other topology changes.
+
+Common causes:
+
+* The node performing the operation crashed and has not been restarted
+* Streaming failed due to a source node going down
+* A network partition isolated the node performing the operation
+* A disk filled up on the streaming target
+
+==== Diagnosing the Stuck Operation
+
+[source,bash]
+----
+$ nodetool cms describe
+----
+
+Look for entries in the directory with states `BOOTSTRAPPING`, `LEAVING`, or `MOVING`.
+Cross-reference with the `multi_step_operation` field to see which step the operation is on.
+
+Check the node's logs:
+
+----
+ERROR - Error while decommissioning node: ...
+ERROR - Streaming error during bootstrap: ...
+----
+
+==== Resolution Options
+
+**Resume the operation** (if the underlying issue is resolved):
+
+[source,bash]
+----
+$ nodetool bootstrap resume          # For stuck bootstrap
+$ nodetool decommission              # For stuck decommission (re-invocation resumes)
+$ nodetool move <token>              # For stuck move (re-invocation resumes)
+----
+
+**Abort the operation:**
+
+[source,bash]
+----
+$ nodetool bootstrap abort <node-id> <endpoint>
+$ nodetool cancel_decommission <node-id>
+$ nodetool stop_moving
+----
+
+**Generic cancellation** (for any operation type):
+
+[source,bash]
+----
+$ nodetool cms cancel_in_progress_sequences <node-id> <operation-type>
+# operation-type: JOIN, REPLACE, LEAVE, REMOVE, MOVE, RECONFIGURE_CMS
+----
+
+==== What Cancellation Does
+
+When you cancel an in-progress sequence:
+
+1. Type-specific cleanup is executed
+2. The node is removed from the `InProgressSequences` map
+3. Associated range locks are released
+4. The cancellation is committed as a new epoch
+
+For a cancelled bootstrap: node returns to `REGISTERED`.
+For a cancelled decommission: node returns to `JOINED`.
+For a cancelled move: node keeps its original tokens.
+
+Source: `src/java/org/apache/cassandra/tcm/transformations/cms/`
+
+=== Playbook: Epoch Divergence
+
+**Severity: Low. Usually self-resolving.**
+
+==== What You See
+
+Different nodes report different epochs when you run `nodetool cms describe`.
+Or you see:
+
+----
+WARN - Could not perform consistent fetch, downgrading to fetching from CMS peers.
+----
+
+==== Why This Is Usually Not a Problem
+
+Epoch divergence is a transient state.
+It happens naturally when:
+
+* A metadata change was just committed and some nodes have not yet received the update
+* A node was down briefly and is catching up
+* A network blip delayed log replication to some nodes
+
+Non-CMS nodes learn about new epochs through the `PeerLogFetcher` background process.
+CMS nodes are directly involved in committing each epoch and should always be at or near latest.
+
+==== When to Investigate
+
+* **A node is persistently behind.** If a node stays at the same epoch for minutes while
+  others advance, it may be unable to reach CMS peers.
+  Check network connectivity.
+* **The gap is large and growing.** A node at epoch 100 while the cluster is at epoch 150
+  suggests prolonged network isolation or a processing failure.
+  Check logs for `fetchCMSLogConsistencyDowngrade` metrics or repeated `ReadTimeoutException`.
+* **Metadata operations fail on the lagging node.**
+  The barrier will log degradation:
+  ----
+  INFO - Could not collect epoch acknowledgements within Xms for EACH_QUORUM. Falling back to QUORUM.
+  ----
+
+==== What to Do
+
+**Usually: nothing.** Catch-up mechanisms are automatic.
+Give the node time to fetch and apply log entries.
+
+**If the node is network-isolated:** restore connectivity.
+Once reachable, it will catch up.
+
+**If the node appears stuck:** check that `PeerLogFetcher` is running and CMS peers are responding.
+The `fetchCMSLogLatency` metric indicates how long log fetches are taking.
+
+**If the log has been compacted** and the node needs entries that are gone:
+the node will recover through a metadata snapshot.
+It fetches the nearest snapshot and applies only the log entries after that point.
+
+=== Playbook: CMS Reconfiguration Failure
+
+**Severity: Medium. Requires explicit resume or cancel.**
+
+==== What You See
+
+A CMS reconfiguration started but did not complete.
+`nodetool cms reconfigure --status` shows which step it stopped at.
+
+==== What to Do
+
+**Check status:**
+
+[source,bash]
+----
+$ nodetool cms reconfigure --status
+----
+
+**Resume:**
+
+[source,bash]
+----
+$ nodetool cms reconfigure --resume
+----
+
+Picks up from the last completed step.
+If the failure was transient, resuming will often succeed.
+
+**Cancel:**
+
+[source,bash]
+----
+$ nodetool cms reconfigure --cancel
+----
+
+Aborts the reconfiguration, releases any locks, and reverts partially completed membership changes.
+You can then retry with different parameters.
+
+=== Playbook: Network Partition During Metadata Change
+
+**Severity: Variable. Depends on which nodes are partitioned.**
+
+==== Scenario 1: CMS Majority on One Side
+
+The side with the CMS majority continues operating normally.
+The side without CMS access cannot commit metadata changes.
+Non-CMS nodes on the isolated side will try known CMS members,
+then seed nodes, then the discovery protocol.
+
+Resolve: fix the network partition.
+When connectivity is restored, isolated nodes catch up automatically.
+
+==== Scenario 2: CMS Split Across the Partition
+
+If no side has a quorum of CMS members, all metadata commits are blocked cluster-wide.
+This is equivalent to the CMS Quorum Lost playbook.
+
+Resolve: fix the partition.
+If the partition is long-lived and you need to make metadata changes,
+you may need to pause commits on one side and use unsafe operations —
+but this is an extreme measure.
+
+==== Automatic Recovery After Partition Heals
+
+1. The failure detector marks previously unreachable nodes as alive
+2. CMS nodes exchange Paxos ballots and reach consensus on the latest state
+3. Non-CMS nodes fetch and apply missed log entries
+4. Progress barriers that were waiting can now complete
+
+No operator action is required for automatic recovery.
+
+=== Playbook: Emergency Commit Pause
+
+**Severity: Operator-initiated. Use to freeze metadata changes for investigation.**
+
+==== When to Use
+
+You suspect metadata corruption, an unexpected transformation was committed,
+or you need to investigate the log before allowing further changes.
+
+==== How to Pause
+
+[source,bash]
+----
+$ nodetool cms set_commits_paused true
+
+# Verify the pause is active
+$ nodetool cms describe
+# Look for: Commits Paused: true
+----
+
+While commits are paused:
+
+* No topology or schema changes can proceed
+* In-progress sequences are frozen at their current step
+* The cluster continues serving reads and writes
+
+==== How to Resume
+
+[source,bash]
+----
+$ nodetool cms set_commits_paused false
+----
+
+Paused commits do not queue.
+Operations that attempted to commit while paused received failures.
+Operators or applications must retry those operations after resuming.
+
+== Break-Glass Reference
+
+All unsafe and force operations for quick reference during incidents:
+
+[cols="3,2,2,1"]
+|===
+| Operation | Command | Precondition | Risk Level
+
+| Cancel stuck sequence | `nodetool cms cancel_in_progress_sequences` | Sequence exists | Low
+| Pause commits | `nodetool cms set_commits_paused true` | None | Low
+| Resume reconfiguration | `nodetool cms reconfigure --resume` | Reconfig was interrupted | Low
+| Revert to epoch | JMX: `unsafeRevertClusterMetadata(epoch)` | `unsafe_tcm_mode=true`, CMS down | High
+| Load metadata from file | JMX: `unsafeLoadClusterMetadata(path)` | `unsafe_tcm_mode=true`, CMS down | High
+| Boot with metadata file | JVM: `-Dcassandra.unsafe_boot_with_clustermetadata=path` | All CMS down | High
+|===
+
+Source: `src/java/org/apache/cassandra/tcm/CMSOperationsMBean.java`
+
+== Testing TCM in Lower Environments
+
+Do not enable TCM in production without testing it first.
+CMS initialization has a point of no return.
+The time to discover that your monitoring misses a metric or your automation assumes
+gossip-based schema propagation is before the production rollout.
+
+=== Test Environment Options
+
+==== Option 1: CCM (Cassandra Cluster Manager)
+
+The quickest way to spin up a multi-node cluster on a single machine.
+
+[source,bash]
+----
+# Create a 3-node cluster on Cassandra 6.0
+ccm create tcm-test -v 6.0 -n 3
+
+# Start the cluster
+ccm start
+
+# Verify all nodes are up
+ccm status
+
+# Run the full upgrade sequence
+ccm node1 nodetool cms initialize
+ccm node1 nodetool cms reconfigure 3
+ccm node1 nodetool cms describe
+----
+
+Ideal for: validating the upgrade sequence, testing `nodetool cms` commands,
+verifying schema propagation, practicing failure playbooks.
+
+Not ideal for: network partition testing (all nodes share the same loopback interface),
+realistic latency testing, multi-datacenter scenarios.
+
+==== Option 2: Docker Compose
+
+Better isolation than CCM with network-level controls.
+
+[source,yaml]
+----
+services:
+  cassandra-seed:
+    image: cassandra:6.0
+    environment:
+      CASSANDRA_CLUSTER_NAME: tcm-test
+      CASSANDRA_DC: dc1
+    networks:
+      - cassandra-net
+
+  cassandra-2:
+    image: cassandra:6.0
+    environment:
+      CASSANDRA_CLUSTER_NAME: tcm-test
+      CASSANDRA_SEEDS: cassandra-seed
+      CASSANDRA_DC: dc1
+    networks:
+      - cassandra-net
+    depends_on:
+      - cassandra-seed
+
+networks:
+  cassandra-net:
+    driver: bridge
+----
+
+Use `docker network disconnect` to simulate node isolation,
+`tc` (traffic control) to inject latency,
+and separate Docker networks to model datacenter boundaries.
+
+==== Option 3: Cassandra In-JVM Distributed Test Framework
+
+The framework Cassandra's developers use to test TCM itself.
+It provides fine-grained message filtering to simulate network partitions at the Cassandra
+protocol level, and ByteBuddy-based bytecode injection to trigger failures at exact code points.
+
+Reference: `ClusterMetadataUpgradeTest` in the Cassandra test suite
+
+=== Scenario 1: Smoke Test
+
+**Goal:** Verify that the basic TCM lifecycle works end to end.
+
+1. Start a 3-node cluster on Cassandra 6.0
+2. Initialize CMS: `nodetool cms initialize`
+3. Verify CMS is active: `nodetool cms describe`
+4. Reconfigure CMS to 3 members: `nodetool cms reconfigure 3`
+5. Create a keyspace and table
+6. Verify the schema propagated to all nodes
+7. Verify all nodes report the same epoch
+
+**Expected time:** 5–10 minutes.
+
+This is the minimum viable test.
+If this does not pass, nothing else will.
+
+=== Scenario 2: Upgrade Path
+
+**Goal:** Verify that the three-phase upgrade from a pre-TCM version works correctly.
+
+1. Start a 3-node cluster on Cassandra 5.0
+2. Create keyspaces, tables, and insert data
+3. Perform a rolling upgrade to 6.0 (Phase 1)
+4. Verify all nodes are in `GOSSIP` mode
+5. Initialize CMS (Phase 2)
+6. Verify all nodes have migrated (no node shows `GOSSIP` service state)
+7. Reconfigure CMS (Phase 3)
+8. Verify data is still readable
+9. Create a new table and verify schema propagation
+10. Bootstrap a new node and verify it joins correctly
+
+**In-JVM framework pattern:**
+
+[source,java]
+----
+new TestCase()
+    .nodes(3)
+    .nodesToUpgrade(1, 2, 3)
+    .withConfig(cfg -> cfg.with(Feature.NETWORK, Feature.GOSSIP)
+        .set(Constants.KEY_DTEST_FULL_STARTUP, true))
+    .upgradesToCurrentFrom(v50)
+    .setup(cluster -> {
+        cluster.schemaChange("CREATE TABLE ks.tbl (pk int PRIMARY KEY)");
+    })
+    .runAfterClusterUpgrade(cluster -> {
+        cluster.get(1).nodetoolResult("cms", "initialize")
+            .asserts().success();
+
+        cluster.forEach(i ->
+            assertFalse(ClusterUtils.isMigrating(i)));
+
+        cluster.get(2).nodetoolResult("cms", "reconfigure", "3")
+            .asserts().success();
+    })
+    .run();
+----
+
+Reference: `ClusterMetadataUpgradeTest`
+
+=== Scenario 3: Topology Operations
+
+**Goal:** Verify that bootstrap, decommission, and node replacement work under TCM.
+
+**Bootstrap test:**
+
+1. Start a 3-node cluster with CMS initialized
+2. Bootstrap a 4th node
+3. Verify the 4th node appears in `nodetool status` as UN
+4. Verify all nodes report the same epoch
+
+**Decommission test:**
+
+1. From the 4-node cluster, decommission node 4
+2. Verify node 4 disappears from the ring
+3. Verify data was streamed to remaining nodes
+
+**Node replacement test:**
+
+1. Stop node 3 abruptly (simulate crash)
+2. Bootstrap a replacement node with the same tokens
+3. Verify the replacement joins the ring and the replaced node is removed from the directory
+
+**Assertions:**
+
+* The three-step model (START → MID → FINISH) completes for each operation type
+* Range locking prevents conflicting operations
+* Progress barriers ensure epoch propagation before streaming begins
+
+=== Scenario 4: Network Partition Simulation
+
+**Goal:** Verify TCM handles partitions gracefully.
+
+**Partition tests to run:**
+
+1. Isolate one non-CMS node — schema change should still commit; isolated node catches up on reconnect
+2. Isolate one CMS node — 2 of 3 still form quorum; schema change commits; isolated CMS member catches up
+3. Partition 2 of 3 CMS members — schema change should fail; cluster continues serving existing data;
+   reconnect and verify the change can now be committed
+
+**In-JVM framework pattern:**
+
+[source,java]
+----
+IMessageFilters.Filter partition1 = cluster.filters()
+    .allVerbs().from(1, 2).to(3, 4, 5).drop();
+IMessageFilters.Filter partition2 = cluster.filters()
+    .allVerbs().from(3, 4, 5).to(1, 2).drop();
+
+// Test operations during partition...
+
+// Heal partition
+partition1.off();
+partition2.off();
+
+// Verify recovery
+ClusterUtils.waitForCMSToQuiesce(cluster, cluster.get(1));
+----
+
+Reference: `SplitBrainTest` in the Cassandra test suite
+
+=== Scenario 5: Concurrent Operation Safety
+
+**Goal:** Verify that range locking prevents conflicting concurrent topology changes.
+
+**Non-overlapping operations (should succeed):**
+
+1. Start a 6-node cluster with well-separated token ranges
+2. Simultaneously bootstrap two new nodes with non-overlapping token ranges
+3. Verify both bootstraps complete successfully
+
+**Overlapping operations (should be rejected):**
+
+1. Start a 4-node cluster
+2. Begin bootstrapping a new node
+3. While the bootstrap is in MID_JOIN, attempt to decommission a node
+   whose ranges overlap with the bootstrapping node
+4. Verify the decommission is rejected with a range locking error
+5. Wait for the bootstrap to complete; retry the decommission — it should now succeed
+
+=== Scenario 6: Failure Recovery
+
+**Goal:** Validate the failure playbooks in a controlled environment.
+
+**Stuck bootstrap recovery:**
+
+1. Bootstrap a new node
+2. Kill the node mid-streaming (after START_JOIN, during MID_JOIN)
+3. Verify the bootstrap appears as in-progress in `nodetool cms describe`
+4. Restart the node and run `nodetool bootstrap resume`
+5. Verify the bootstrap completes
+6. Alternatively: run `nodetool bootstrap abort` and verify the node returns to REGISTERED
+
+**CMS member loss and recovery:**
+
+1. Start a 5-node cluster with 5 CMS members
+2. Stop 2 CMS members; verify metadata commits still work (3 of 5 is quorum)
+3. Stop a 3rd CMS member; verify metadata commits fail (2 of 5 is not quorum)
+4. Restart one CMS member (back to 3 of 5); verify commits resume automatically
+
+**Emergency recovery drill:**
+
+[WARNING]
+====
+Do not skip this test.
+The emergency recovery procedure is the one you will need when everything else has failed,
+and you do not want to be reading the instructions for the first time during a production incident.
+====
+
+1. Start a 3-node cluster with CMS initialized
+2. Create some metadata (keyspaces, tables)
+3. Take a metadata dump via JMX
+4. Stop all nodes
+5. Enable `unsafe_tcm_mode` on one node
+6. Start the recovery node
+7. Load the metadata dump via JMX
+8. Verify the metadata state with `nodetool cms describe`
+9. Disable unsafe mode, restart, and bring up remaining nodes
+10. Verify cluster-wide convergence (all nodes report the same epoch)
+
+=== Scenario 7: Monitoring and Alerting Validation
+
+**Goal:** Verify your monitoring captures TCM metrics and alerts fire correctly.
+
+**Metrics to verify are being collected:**
+
+* `CommitSuccessLatency`
+* `CommitRetries`
+* `FetchPeerLogLatency` / `FetchCMSLogLatency`
+* `ProgressBarrierLatency`
+* `CoordinatorBehindSchema` / `CoordinatorBehindPlacements`
+* `UnreachableCMSMembers`
+* `currentEpochGauge`
+
+**Alert validation:**
+
+1. Stop a CMS member — verify `UnreachableCMSMembers` goes to 1 and your alert fires
+2. Create a network partition — verify `ProgressBarrierCLRelaxed` increments
+3. Perform rapid schema changes — verify `CoordinatorBehindSchema` increments briefly
+
+=== Test Plan Tiers
+
+[cols="2,2,2"]
+|===
+| Plan | Scenarios | Time Estimate
+
+| Minimum viable | 1 (smoke test) + 2 (upgrade path) | 1–2 hours
+| Standard | Add 3 (topology), 6 (failure recovery), 7 (monitoring) | 4–8 hours
+| Comprehensive | Add 4 (partitions) + 5 (concurrent operations) | 1–2 days
+|===
+
+Regardless of which plan you choose, run the emergency recovery drill from Scenario 6.
+It takes 30 minutes and could save hours during an actual incident.
+
+=== Universal Test Assertions
+
+Evaluate these assertions after every scenario:
+
+**Epoch consistency:**
+After every operation, all nodes should report the same epoch.
+Compare `system_views.cluster_metadata_log` maximum epoch values across nodes.
+
+**Ring integrity:**
+After bootstrap or decommission, `nodetool status` shows the expected number of nodes,
+all in `UN` state.
+
+**Schema agreement:**
+After schema changes, all nodes should report the same schema version.
+Under TCM, if all nodes are at the same epoch, they have the same schema.
+
+**Data availability:**
+After topology changes, reads and writes at your production consistency level succeed.
+
+**Log continuity:**
+The metadata log should have no gaps.
+Query `system_cluster_metadata.distributed_metadata_log` and verify consecutive epoch numbers.
+
+**CMS health:**
+`nodetool cms describe` shows all CMS members reachable.
+`UnreachableCMSMembers` equals 0.
+
+== Useful Log Grep Commands
+
+[source,bash]
+----
+# Quick health check — find TCM errors and warnings
+grep -E "ERROR|WARN" /var/log/cassandra/system.log | grep -i "epoch\|CMS\|metadata\|transform"
+
+# Monitor log fetch activity
+grep "fetch.*log\|caught up" /var/log/cassandra/system.log
+
+# Detect progress barrier fallbacks
+grep "Falling back to" /var/log/cassandra/system.log
+
+# Find snapshot activity
+grep -i "snapshot" /var/log/cassandra/system.log
+----
+
+== Related Pages
+
+* xref:tcm-overview.adoc[TCM Overview and Concepts]
+* xref:tcm-pre-upgrade.adoc[TCM Pre-Upgrade Prerequisites]
+* xref:tcm-upgrade-procedure.adoc[TCM Upgrade Procedure]
+* xref:tcm-operations.adoc[TCM Operations]
+
+== Unresolved Questions
+
+* Whether `nodetool cms cancel_in_progress_sequences` can safely cancel operations in any
+  phase (PREPARE, START, MID, FINISH) or has restrictions on cancellation phase.
+  The source suggests type-specific handling, but the constraints are not fully documented
+  from available evidence.
+* The `nodetool cms resumedropaccordtable` subcommand is repo-validated
+  (source: `src/java/org/apache/cassandra/tools/nodetool/CMSAdmin.java`)
+  but its interaction with Accord (CEP-15) is not documented in the available source material.
+  This needs clarification before the troubleshooting guide is finalized.
