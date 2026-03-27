@@ -168,6 +168,143 @@ sets, and maps). In the case of maps, `CONTAINS` applies to the map
 values. The `CONTAINS KEY` operator may only be used on map columns and
 applies to the map keys.
 
+[[between-operator]]
+==== BETWEEN operator
+
+_Added in Cassandra 6.0 (CASSANDRA-19604, CASSANDRA-19688)._
+
+The `BETWEEN` operator expresses an inclusive range restriction as a single `WHERE` condition:
+
+[source,cql]
+----
+column BETWEEN lower_bound AND upper_bound
+----
+
+`BETWEEN` is inclusive on both ends: `col BETWEEN x AND y` is equivalent to `col >= x AND col <= y`.
+If the lower bound is greater than the upper bound, the query returns an `InvalidRequest` error.
+
+Three forms are supported:
+
+Single-column range on a clustering or non-primary-key column:
+
+[source,cql]
+----
+SELECT * FROM t WHERE ck BETWEEN 10 AND 20;
+----
+
+Multi-column tuple range on clustering columns:
+
+[source,cql]
+----
+SELECT * FROM t WHERE (ck1, ck2) BETWEEN (1, 'a') AND (3, 'z');
+----
+
+Token range on the partition key:
+
+[source,cql]
+----
+SELECT * FROM t WHERE TOKEN(pk) BETWEEN TOKEN(-9223372036854775808) AND TOKEN(0);
+----
+
+`BETWEEN` is also valid in `UPDATE` and `DELETE` `WHERE` clauses for clustering column ranges.
+
+`BETWEEN` on clustering columns does not require `ALLOW FILTERING`.
+`BETWEEN` on non-primary-key columns requires either `ALLOW FILTERING` or an
+xref:cassandra:developing/cql/indexes.adoc[SAI index] on that column.
+When an SAI index is present, the range is pushed down to the index natively
+(source: `src/antlr/Parser.g` `relation` rule, `src/java/org/apache/cassandra/cql3/Operator.java`
+`BETWEEN(19)`, `src/java/org/apache/cassandra/index/sai/plan/Expression.java`; CASSANDRA-19604, CASSANDRA-19688).
+
+NOTE: `between` is an unreserved keyword in CQL and may be used as a column or table name without quoting.
+
+[[not-operators]]
+==== NOT IN, NOT CONTAINS, and NOT CONTAINS KEY operators
+
+_Added in Cassandra 6.0 (CASSANDRA-18584)._
+
+CQL supports negation variants of the `IN`, `CONTAINS`, and `CONTAINS KEY` operators for use in `WHERE` clauses.
+
+`NOT IN` — excludes rows where the column value matches any element of the list:
+
+[source,cql]
+----
+SELECT * FROM t WHERE status NOT IN ('deleted', 'archived');
+SELECT * FROM t WHERE status NOT IN ?;
+----
+
+Multi-column tuple form:
+
+[source,cql]
+----
+SELECT * FROM t WHERE (ck1, ck2) NOT IN ((1, 'a'), (2, 'b'));
+----
+
+`NOT CONTAINS` — applies to list, set, and map columns; for maps, matches against values:
+
+[source,cql]
+----
+SELECT * FROM t WHERE tags NOT CONTAINS 'internal' ALLOW FILTERING;
+----
+
+`NOT CONTAINS KEY` — applies to map columns; matches against keys:
+
+[source,cql]
+----
+SELECT * FROM t WHERE metadata NOT CONTAINS KEY 'secret' ALLOW FILTERING;
+----
+
+`NOT IN`, `NOT CONTAINS`, and `NOT CONTAINS KEY` follow SQL three-valued logic (3VL):
+comparisons where either operand is `NULL` return `NULL` (unknown) rather than `true` or `false`.
+This is consistent with SQL standard behavior and matches the behavior of the positive counterparts
+(source: `src/java/org/apache/cassandra/cql3/Operator.java` `NOT_IN(16)`, `NOT_CONTAINS(17)`,
+`NOT_CONTAINS_KEY(18)`; `src/antlr/Parser.g` `inOperator` and `containsOperator` rules; CASSANDRA-18584).
+
+`NOT CONTAINS` and `NOT CONTAINS KEY` require `ALLOW FILTERING` or a suitable index.
+
+[NOTE]
+====
+Cassandra 6.0 also corrects three-valued logic handling for NULL values in comparisons more broadly.
+Queries that previously compared nullable columns may see different results after upgrade if they relied
+on the prior (incorrect) behavior of non-null results for NULL comparands.
+====
+
+[[like-operator]]
+==== LIKE operator
+
+_Added in Cassandra 6.0 (CASSANDRA-17198). Previously required a SASI index; now also works with `ALLOW FILTERING`._
+
+The `LIKE` operator matches text column values against a wildcard pattern.
+It applies to columns of type `text`, `ascii`, or `varchar`.
+`LIKE` requires either an index on the column or `ALLOW FILTERING`.
+
+Four pattern forms are supported:
+
+[cols=",,",options="header"]
+|===
+|Pattern |Meaning |Example
+
+|`'prefix%'` |Starts with |`name LIKE 'Jo%'`
+|`'%suffix'` |Ends with |`name LIKE '%son'`
+|`'%substring%'` |Contains substring |`name LIKE '%ohn%'`
+|`'exact'` |Exact match (no wildcards) |`name LIKE 'John'`
+|===
+
+Example using `ALLOW FILTERING`:
+
+[source,cql]
+----
+SELECT * FROM users WHERE name LIKE 'Jo%' ALLOW FILTERING;
+----
+
+When an SAI or SASI index is present on the column, `LIKE` is pushed down to the index rather than
+performing a full scan. Without an index, `ALLOW FILTERING` must be specified and a full partition scan
+is performed (source: `src/java/org/apache/cassandra/cql3/restrictions/SimpleRestriction.java`,
+`src/java/org/apache/cassandra/index/sai/plan/Expression.java` `LIKE_PREFIX`, `LIKE_SUFFIX`,
+`LIKE_CONTAINS`, `LIKE_MATCHES`; CASSANDRA-17198).
+
+NOTE: `LIKE` matching is case-sensitive for both `ALLOW FILTERING` and SAI-backed queries unless the SAI
+index was created with a case-insensitive analyzer.
+
 [[group-by-clause]]
 === Grouping results
 

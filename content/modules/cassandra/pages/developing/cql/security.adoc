@@ -264,14 +264,47 @@ include::cassandra:example$CQL/list_roles_nonrecursive.cql[]
 [[list-superusers-statement]]
 == LIST SUPERUSERS
 
-All the known roles (including transitively acquired) with superuser privilege can be listed using the `LIST SUPERUSERS` statement:
+_Added in Cassandra 6.0 (CASSANDRA-19417)._
+
+All roles with effective superuser privilege — including those that have acquired superuser status
+transitively through role inheritance — can be listed using the `LIST SUPERUSERS` statement:
 
 [source, bnf]
 ----
 include::cassandra:example$BNF/list_superusers_statement.bnf[]
 ----
 
-This command requires `DESCRIBE` permission on all roles of the database.
+[source,cql]
+----
+LIST SUPERUSERS;
+----
+
+The statement returns a single-column result set:
+
+[cols=",",options="header"]
+|===
+|role
+
+|cassandra
+|admin_role
+|...
+|===
+
+The `role` column contains the name of each role that has superuser access.
+This includes roles where `SUPERUSER = true` is set directly, and also roles that have acquired
+superuser status through a chain of role grants.
+
+This command requires `DESCRIBE` permission on all roles of the database
+(`RoleResource.root()`). A role without this permission receives an `UnauthorizedException`.
+
+`LIST SUPERUSERS` differs from `LIST ROLES` in that it returns only roles with effective superuser
+access and resolves role hierarchy automatically, whereas `LIST ROLES` returns all roles with a
+`superuser` column that the caller must interpret.
+
+Audit logging records `LIST SUPERUSERS` operations using the `LIST_SUPERUSERS` entry type
+in the `DCL` audit category
+(source: `src/java/org/apache/cassandra/cql3/statements/ListSuperUsersStatement.java`,
+`src/java/org/apache/cassandra/auth/Roles.java` `getAllRoles(Predicate)`; CASSANDRA-19417).
 
 == Users
 

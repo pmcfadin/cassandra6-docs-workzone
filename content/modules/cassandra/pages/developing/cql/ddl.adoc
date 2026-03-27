@@ -788,6 +788,119 @@ table, including all data it contains.
 If the table does not exist, the statement will return an error, unless
 `IF EXISTS` is used, when the operation is a no-op.
 
+[[create-table-like-statement]]
+== CREATE TABLE LIKE
+
+_Added in Cassandra 6.0 (CEP-43, CASSANDRA-19964, CASSANDRA-19965, CASSANDRA-20943)._
+
+`CREATE TABLE LIKE` creates a new, empty table by copying the schema of an existing table.
+
+[source,bnf]
+----
+CREATE TABLE [IF NOT EXISTS] new_table LIKE existing_table
+    [WITH like_options]
+
+like_options ::= like_option [AND like_option]*
+
+like_option ::= INDEXES
+              | COMMENTS
+              | SECURITY LABELS
+              | table_option
+----
+
+Grammar source: `src/antlr/Parser.g` `copyTableStatement` and `likeOption` rules; CASSANDRA-19964.
+
+For example, to create a copy of `orders` in the same keyspace:
+
+[source,cql]
+----
+CREATE TABLE orders_copy LIKE orders;
+----
+
+Cross-keyspace copy:
+
+[source,cql]
+----
+CREATE TABLE reporting.orders_copy LIKE sales.orders;
+----
+
+Conditional creation (no error if target already exists):
+
+[source,cql]
+----
+CREATE TABLE IF NOT EXISTS orders_copy LIKE orders;
+----
+
+Copying a table with its SAI and secondary indexes:
+
+[source,cql]
+----
+CREATE TABLE orders_copy LIKE orders WITH INDEXES;
+----
+
+Overriding table options at copy time:
+
+[source,cql]
+----
+CREATE TABLE orders_copy LIKE orders
+    WITH INDEXES
+    AND compaction = { 'class': 'LeveledCompactionStrategy' }
+    AND compression = { 'class': 'SnappyCompressor', 'chunk_length_in_kb': 32 };
+----
+
+=== What is copied
+
+* Column definitions: partition key, clustering, regular, and static columns
+* Data types, including user-defined types (UDTs)
+* Data masking settings
+* Table parameters (compaction, compression, and other `WITH` options); these can be overridden at copy time using the `WITH` clause
+* SAI and legacy secondary indexes, when `WITH INDEXES` is specified
+* Table and column comments, when `WITH COMMENTS` is specified
+* Table and column security labels, when `WITH SECURITY LABELS` is specified
+
+=== What is NOT copied
+
+* Data (the new table is always empty)
+* Dropped column metadata
+* Triggers
+* Materialized views
+* Custom indexes; if the source table has custom indexes and `WITH INDEXES` is specified, a client warning is emitted for each custom index that could not be copied
+
+=== Cross-keyspace behavior
+
+Source and target tables may be in different keyspaces.
+When copying across keyspaces, all UDTs referenced by the source table must exist in the target keyspace with matching structure.
+Missing or structurally mismatched UDTs cause the statement to fail.
+
+=== Permissions required
+
+* `SELECT` on the source table
+* `CREATE` on all tables in the target keyspace
+
+=== Index naming
+
+When `WITH INDEXES` is specified, copied indexes are renamed to avoid conflicts.
+System-generated index names are regenerated for the new table.
+User-defined index names are prefixed or suffixed to ensure uniqueness within the target keyspace
+(source: `src/java/org/apache/cassandra/cql3/statements/schema/CopyTableStatement.java`; CASSANDRA-19965).
+
+=== Guardrails
+
+Guardrails are enforced on the new table as if it were created from scratch.
+The following guardrails apply: columns per table, total table count, vector type and dimensions,
+compact table creation, uncompressed tables, and table properties.
+
+=== Availability
+
+`CREATE TABLE LIKE` requires cluster metadata serialization version V5 or later.
+This feature is available in Cassandra 6.0 and later.
+
+[NOTE]
+====
+Audit logging records `CREATE TABLE LIKE` operations using the `CREATE_TABLE_LIKE` entry type
+in the `DDL` audit category.
+====
+
 [[truncate-statement]]
 == TRUNCATE TABLE
 
