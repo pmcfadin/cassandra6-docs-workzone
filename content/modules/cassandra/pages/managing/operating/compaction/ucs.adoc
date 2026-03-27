@@ -1,6 +1,11 @@
 = Unified Compaction Strategy (UCS)
 :stem: latexmath
 
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
 [[ucs]]
 The `UnifiedCompactionStrategy (UCS)` is recommended for most workloads, whether read-heavy, write-heavy, mixed read-write, or time-series.
 There is no need to use legacy compaction strategies, because UCS can be configured to behave like any of them.
@@ -690,12 +695,27 @@ NONE is not recommended, SINGLE may offer a little more parallelism at the expen
 Default: TRANSITIVE
 
 | unsafe_aggressive_sstable_expiration
-| Expired SSTables are dropped without checking if their data is shadowing other SSTables. 
-This flag can only be enabled if `cassandra.allow_unsafe_aggressive_sstable_expiration` is true. 
-Turning this flag on can cause correctness issues, such as the reappearance of deleted data. 
+| Expired SSTables are dropped without checking if their data is shadowing other SSTables.
+This flag can only be enabled if `cassandra.allow_unsafe_aggressive_sstable_expiration` is true.
+Turning this flag on can cause correctness issues, such as the reappearance of deleted data.
 See discussions in https://issues.apache.org/jira/browse/CASSANDRA-13418[CASSANDRA-13418] for valid use cases and potential problems.
 
 Default: false
+
+| parallelize_output_shards
+| When `true`, UCS splits individual compaction operations into separate parallel subtasks, one per output shard, and executes them concurrently.
+This can significantly reduce the wall-clock duration of compactions, especially for large compactions on tables with a high shard count.
+
+When enabled, parallelized compactions cannot take advantage of preemptive SSTable opening.
+If your workload relies on preemptive SSTable opening behavior, or if you experience increased resource contention from parallel compaction subtasks, you may set this to `false`.
+
+The default value can also be overridden cluster-wide via the JVM system property `-Dunified_compaction.parallelize_output_shards` (default: `true`).
+
+Default: `true`
+
+// Source: src/java/org/apache/cassandra/db/compaction/unified/Controller.java lines 158-160, 466-468;
+// src/java/org/apache/cassandra/config/CassandraRelevantProperties.java line 684
+// CASSANDRA-18802
 |===
 
 In `cassandra.yaml`, there is also one parameter that affects compaction:
@@ -703,3 +723,32 @@ In `cassandra.yaml`, there is also one parameter that affects compaction:
 concurrent_compactors::
 Number of simultaneous compactions to allow, NOT including validation "compactions" for anti-entropy repair.
 Higher values increase compaction performance but may increase read and write latencies.
+
+[[ucs_nodetool_compact_jobs]]
+== Controlling Major Compaction Parallelism with nodetool compact
+
+When `parallelize_output_shards` is enabled, major compactions triggered via `nodetool compact` also run in parallel across output shards.
+The `--jobs` / `-j` option on `nodetool compact` controls how many threads the major compaction may use, allowing operators to prevent major compactions from starving background compaction work.
+
+[source,bash]
+----
+nodetool compact [-j <N> | --jobs <N>] [<keyspace> [<table>...]]
+----
+
+`--jobs <N>` / `-j <N>`::
+Sets the maximum number of threads used for parallel major compaction.
+
+* If not set (default): up to half the available compaction threads are used.
+* If set to `0`: the major compaction uses all available threads.
+  No other compactions will run until it completes.
+  Use with caution — this will block all background compaction for the duration.
+* If set to a positive integer `N`: at most `N` threads are used.
+
+[CAUTION]
+====
+Setting `--jobs 0` monopolizes all compaction threads until the major compaction finishes.
+This is appropriate for planned maintenance windows where no other compaction traffic is expected, but should not be used during normal operations.
+====
+
+// Source: src/java/org/apache/cassandra/tools/nodetool/Compact.java lines 59-64
+// CASSANDRA-18802

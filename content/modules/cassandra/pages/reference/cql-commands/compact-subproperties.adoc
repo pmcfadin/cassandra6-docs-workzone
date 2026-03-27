@@ -1,3 +1,8 @@
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
 === compaction = \{compaction_map}
 :description: Construct a map of the compaction option and its subproperties.
 
@@ -94,10 +99,11 @@ The following properties only apply to UnifiedCompactionStrategy:
 [source,language-cql]
 ----
 compaction = {
-     'class' : 'UnifiedCompactionStrategy,
+     'class' : 'UnifiedCompactionStrategy',
      'scaling_parameters' : list of scaling parameters,
      'target_sstable_size': <text>,
-     'base_shard_count': <int> }
+     'base_shard_count': <int>,
+     'parallelize_output_shards': (true | false) }
 ----
 
 scaling_parameters::
@@ -130,8 +136,30 @@ Using 0.5 makes the shard count and sstable size grow with the square root of th
 This is useful to decrease the sheer number of sstables that will be created for very large data sets. 
 For example, without growth correction a data set of 10TiB with 1GiB target size would result in over 10k sstables, which may present as too much overhead both as on-heap memory used by per-sstable structures as well as time to look for intersecting sstables and tracking overlapping sets during compaction. 
 Applying in this scenario (with base count 4) will reduce the potential number of sstables to ~160 of ~64GiB, which is still manageable both as memory overhead and individual compaction duration and space overhead. 
-The balance between the two can be further tweaked by increasing to get fewer but bigger sstables on the top level, and decreasing it to favour a higher count of smaller sstables. 
+The balance between the two can be further tweaked by increasing to get fewer but bigger sstables on the top level, and decreasing it to favour a higher count of smaller sstables.
 The default value is 0.333 meaning the sstable size grows with the square root of the growth of the shard count.
+
+parallelize_output_shards::
+When `true`, UCS splits individual compaction operations into separate parallel subtasks — one per output shard — and executes them concurrently.
+This reduces compaction wall-clock duration but disables preemptive SSTable opening for parallelized compactions.
++
+The default can be overridden cluster-wide via the JVM system property `-Dunified_compaction.parallelize_output_shards`.
++
+Example:
++
+[source,language-cql]
+----
+ALTER TABLE mykeyspace.foo
+WITH compaction = {
+     'class': 'UnifiedCompactionStrategy',
+     'parallelize_output_shards': 'false' };
+----
++
+// Source: src/java/org/apache/cassandra/db/compaction/unified/Controller.java lines 158-160, 466-468;
+// src/java/org/apache/cassandra/config/CassandraRelevantProperties.java line 684
+// CASSANDRA-18802
++
+Default: `true`
 
 [[STCS]]
 ==== SizeTieredCompactionStrategy
