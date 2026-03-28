@@ -330,8 +330,9 @@ The following table maps legacy `endpoint_snitch` values to the equivalent Cassa
 ====
 *Open questions for technical review:*
 
-1. The canonical YAML key for the address configuration setting should be confirmed against trunk `conf/cassandra.yaml` line 1649 — the research notes a discrepancy between `addresses_config` (YAML) and `address_config` (NEWS.txt singular form).
-2. Whether `RackInferringSnitch` has a direct `InitialLocationProvider` equivalent should be verified against trunk source.
-3. Whether `GoogleCloudSnitch` and `CloudstackSnitch` are fully removed from trunk source or only deprecated should be confirmed before marking them as removed.
-4. Timeline for removal of `IEndpointSnitch` support is not yet documented; this affects how urgently migration guidance should be presented to operators.
+1. Whether `RackInferringSnitch` has a direct `InitialLocationProvider` equivalent should be verified against trunk source.
+2. Whether `GoogleCloudSnitch` and `CloudstackSnitch` are fully removed from trunk source or only deprecated should be confirmed before marking them as removed.
+3. Timeline for removal of `IEndpointSnitch` support is not yet documented; this affects how urgently migration guidance should be presented to operators.
 ====
+
+The correct YAML key for the address configuration setting is `addresses_config` (plural), as defined in `cassandra.yaml`.

@@ -90,7 +90,7 @@ include::Cassandra:cassandra:example$BASH/docker_cqlsh.sh[]
 include::Cassandra:cassandra:partial$java_version.adoc[]
 
 . Download the binary tarball from one of the mirrors on the {cass_url}download/[Apache Cassandra Download] site.
-For example, to download Cassandra {40_version}:
+For example, to download Cassandra {cass-version}:
 +
 [source,shell]
 ----

@@ -162,8 +162,8 @@ The supported types are: `ASCII, BIGINT, DATE, DECIMAL, DOUBLE, FLOAT, INET, INT
 
 [NOTE]
 ====
-* `INET` support for IPv4 and IPv6 was new starting with Cassandra ???.
-* The `DECIMAL` and `VARINT` support was new starting with Cassandra ???.
+* `INET` support for IPv4 and IPv6 was new starting with Cassandra 5.0.
+* The `DECIMAL` and `VARINT` support was new starting with Cassandra 5.0.
 * SAI also supports collections -- see the xref:#saiCollectionColumnFaq[next FAQ].
 ====
 

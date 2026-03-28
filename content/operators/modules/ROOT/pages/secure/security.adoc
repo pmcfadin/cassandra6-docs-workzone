@@ -990,35 +990,17 @@ upgrade, as it is:
 
 See xref:secure/security.adoc#jmx-yaml-migration[Migrating JMX configuration from cassandra-env.sh to cassandra.yaml] for step-by-step instructions.
 
-=== Unresolved questions (review required before publication)
+=== Additional Notes
 
-[NOTE]
-====
-*Reviewer note*: The following items require verification against trunk before
-this page is considered publication-ready.
+`native_transport_port_ssl` is fully removed in Cassandra 6.0.
+All native transport encryption must be configured through the single `native_transport_port` with `client_encryption_options`.
 
-. *native_transport_port_ssl silent-ignore vs startup-failure*: Confirm whether
-  including `native_transport_port_ssl` in `cassandra.yaml` on 6.0 causes a hard
-  startup failure or is silently ignored. `ConfigCompatibilityTest.java` lists it
-  in `REMOVED_IN_51` which suggests it may be ignored rather than rejected.
-  The upgrade urgency guidance above should be adjusted accordingly.
-  (CASSANDRA-19397 research open question 2.)
+JMX can be configured via either `cassandra-env.sh` (default) or `jmx_server_options` in `cassandra.yaml`, but not both simultaneously.
+The `cassandra-env.sh` SSL approach is considered legacy; YAML-based configuration is recommended for new deployments.
 
-. *cassandra-env.sh JMX deprecation stance*: The `cassandra-env.sh`
-  `configure_jmx` function still works but NEWS.txt describes it as the old way.
-  Confirm whether it is formally deprecated in 6.0 or just superseded. Adjust
-  the "recommended" framing above if a formal deprecation exists.
-  (CASSANDRA-11695 research open question 1.)
+Nodetool defaults to JMX port 7199 and accepts `-p` to override.
+It does not read `cassandra.yaml` or `cassandra-env.sh` for port resolution -- operators must pass the port explicitly if a non-default JMX port is used.
 
-. *nodetool JMX port resolution*: When JMX port is configured only in
-  `cassandra.yaml` (not in environment), confirm whether `nodetool` resolves the
-  port correctly. The JIRA discussion mentions keeping `JMX_PORT` in shell
-  scripts for tool compatibility.
-  (CASSANDRA-11695 research open question 3.)
-
-. *Crypto providers section*: The 5.0 docs contained a section on
-  `DefaultCryptoProvider` and Amazon Corretto Crypto Provider that does not
-  appear in trunk docs. Confirm whether this feature was removed from Cassandra
-  6.0 or whether the documentation was accidentally dropped.
-  (managing-operating delta-catalog coverage gap 1.)
-====
+// TODO: Restore crypto providers section. The `crypto_provider` configuration is active in Cassandra 6.0.
+// `DefaultCryptoProvider` installs Amazon Corretto Crypto Provider with fallback to JRE, configured by default in `cassandra.yaml`.
+// This section was present in the 5.0 docs and should be added back as a full subsection.

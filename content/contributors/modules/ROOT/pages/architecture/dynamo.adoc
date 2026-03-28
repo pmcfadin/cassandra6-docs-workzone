@@ -227,7 +227,7 @@ distinct nodes have been added to the set of replicas.
 
 ==== Transient Replication
 
-Transient replication is an experimental feature in Cassandra {40_version} not
+Transient replication is an experimental feature in Cassandra 4.0 not
 present in the original Dynamo paper. This feature allows configuration of a
 subset of replicas to replicate only data that hasn't been incrementally
 repaired. This configuration decouples data redundancy from availability.
@@ -247,7 +247,7 @@ data. Configure it by specifying replication factor as
 
 Transiently replicated keyspaces only support tables created with
 `read_repair` set to `NONE`; monotonic reads are not currently
-supported. You also can't use `LWT`, logged batches, or counters in {40_version}.
+supported. You also can't use `LWT`, logged batches, or counters with transient replication.
 You will possibly never be able to use materialized views with
 transiently replicated keyspaces and probably never be able to use
 secondary indices with them.

@@ -334,7 +334,7 @@ EXPAND OFF
 
 === `ELAPSED`
 
-Enables or disables the printing of the elapsed time for a query. Except a quick evalution
+Enables or disables the printing of the elapsed time for a query. Except a quick evaluation
 of how long a CQL statement took, this is also a complementary output to `TRACING` (if enabled).
 A user can debug if there is a communication delay to a node or not comparing the timestamps as `TRACING` tracks
 the time elapsed only on the server side.

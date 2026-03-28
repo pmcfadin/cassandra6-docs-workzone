@@ -323,10 +323,10 @@ through Accord they will be routed through Accord automatically.
 
 Logged batches that only touch Accord data will not be written to the
 batch log because that functionality is redundant with Accord. Batches
-that touch Accord and non-Accord data continue to use the batch log.
-Before release this is likely to change so that a batch that touches
-Accord data will be written entirely via Accord including both the
-Accord and non-Accord data.
+that touch both Accord and non-Accord data are split: the Accord
+mutations are replayed via the Accord transaction protocol, while
+non-Accord mutations follow the standard batch log path. If Accord
+replay fails, hint-based fallback is used.
 
 Hints are not written for Accord writes although the batch log may
 result in new hints because batch log entries are converted to hints

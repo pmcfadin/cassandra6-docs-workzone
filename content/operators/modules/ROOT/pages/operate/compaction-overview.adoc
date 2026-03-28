@@ -261,10 +261,9 @@ with Size-Tiered Compaction Strategy (STCS) and large SSTables.
 
 CAUTION: This setting is opt-in and off by default. Evaluate the performance
 impact in your environment before enabling `direct` in production.
-The interaction with `disk_access_mode: mmap` is an open question -- if
-`disk_access_mode` is set to `mmap`, `compaction_read_disk_access_mode: auto`
-inherits mmap for compaction reads. Set `direct` explicitly to use O_DIRECT
-regardless of the base `disk_access_mode`.
+`compaction_read_disk_access_mode` defaults to `auto`, which inherits the value of `disk_access_mode` (including `mmap` if that is set).
+To use O_DIRECT for compaction reads regardless of the base `disk_access_mode`, set `compaction_read_disk_access_mode: direct` explicitly.
+The only accepted values are `auto` and `direct`.
 
 == Switching the compaction strategy and options using JMX
 

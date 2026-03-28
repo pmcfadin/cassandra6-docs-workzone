@@ -726,12 +726,9 @@ DELETE FROM system_views.slow_queries WHERE keyspace_name = 'my_keyspace';
 
 NOTE: Row-level deletes are not supported. Only partition-level (`WHERE keyspace_name = '...'`) deletes are permitted.
 
-[NOTE]
-====
-.Open questions for technical review
-- Confirm the exact relationship between `slow_query_log_timeout_in_ms` and the threshold that populates this table (see `MonitoringTask.java`).
-- Confirm whether `cross_node` means coordinator-only vs. cross-node reads, or another distinction.
-====
+The slow query threshold is controlled by `slow_query_log_timeout` (default 500ms).
+The old name `slow_query_log_timeout_in_ms` is deprecated but still accepted.
+The `cross_node` column is `true` when the slow query was a replica-side read initiated by a coordinator on a different node.
 
 === Uncaught Exceptions Virtual Table
 
@@ -790,12 +787,9 @@ To clear all entries:
 TRUNCATE system_views.uncaught_exceptions;
 ----
 
-[NOTE]
-====
-.Open questions for technical review
-- Confirm which Cassandra code paths call `ExceptionsTable.persist()` to document the scope of exception capture (global uncaught-exception handler vs. explicit instrumentation).
-- Confirm whether `exception_location` is always a real stack frame or can be `"unknown"` when the stack trace is empty.
-====
+// TODO: Further research needed on uncaught_exceptions table:
+// - Which code paths call `ExceptionsTable.persist()` (global uncaught-exception handler vs. explicit instrumentation).
+// - Whether `exception_location` can be `"unknown"` when the stack trace is empty.
 
 === Pending Hints Virtual Table (Updated in Cassandra 6.0)
 

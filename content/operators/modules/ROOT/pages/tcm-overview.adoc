@@ -448,11 +448,10 @@ Alert when this value is non-zero.
 * xref:tcm-operations.adoc[TCM Operations]
 * xref:tcm-troubleshooting.adoc[TCM Troubleshooting]
 
-== Unresolved Questions
+== Notes
 
-* The 9 CMS-related config properties in `Config.java` have no corresponding entries in the
-  default `cassandra.yaml` (as of trunk).
-  It is unclear whether this is intentional (hidden tuning) or an oversight
-  (CASSANDRA-18330 open question).
+* The CMS-related config properties (such as `cms_retry_delay`) are defined in `Config.java` but are intentionally absent from the default `cassandra.yaml`.
+The old properties (`cms_default_max_retries`, `cms_default_retry_backoff`, `cms_default_max_retry_backoff`) are deprecated in 6.0 and replaced by `cms_retry_delay` with a formula-based syntax.
+Operators who need to tune CMS retry behavior must add these properties manually.
 * The interaction between TCM and Accord (CEP-15) is not fully documented.
   The `nodetool cms resumedropaccordtable` subcommand suggests coupling that needs clarification.

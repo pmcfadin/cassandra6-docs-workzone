@@ -200,10 +200,10 @@ TCM introduces these properties in `cassandra.yaml`.
 
 [NOTE]
 ====
-As of trunk, these properties are defined in `Config.java` but are NOT present in
+These properties are defined in `Config.java` but are intentionally absent from
 the default `cassandra.yaml`.
 Operators must add them manually if overriding defaults.
-(CASSANDRA-18330 open question: whether this is intentional.)
+The old properties (`cms_default_max_retries`, `cms_default_retry_backoff`, `cms_default_max_retry_backoff`) are deprecated in 6.0 and replaced by `cms_retry_delay` with a formula-based syntax.
 ====
 
 [cols="2,1,3"]
@@ -215,7 +215,7 @@ Operators must add them manually if overriding defaults.
 | `progress_barrier_default_consistency_level` | `EACH_QUORUM` | Consistency level for verifying metadata propagation
 | `progress_barrier_timeout` | `3600000 ms` | Maximum wait for propagation to complete
 | `progress_barrier_backoff` | `1000 ms` | Retry interval when waiting for propagation
-| `discovery_timeout` | `30 s` | Timeout for initial peer discovery. // TODO: verify default against trunk Config.java
+| `discovery_timeout` | `30s` | Timeout for initial peer discovery.
 |===
 
 CMS replication factor is **not** configured in `cassandra.yaml`.

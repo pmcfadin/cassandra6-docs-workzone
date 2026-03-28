@@ -122,8 +122,8 @@ CREATE TABLE ks.tb
 )
 ----
 
-There is a basic satistfiability check conducted on checks' definitions so we ensure that unsatisfiable constraint
-definitions are invalid as it would be impossible to insert a value for a specific colum which would satisty all constraints.
+There is a basic satisfiability check conducted on checks' definitions so we ensure that unsatisfiable constraint
+definitions are invalid as it would be impossible to insert a value for a specific column which would satisfy all constraints.
 
 For example, imagine a user tries to create the following table (e.g. by mistake):
 
@@ -299,7 +299,7 @@ CREATE TABLE ks.tb (
 ----
 
 Internally, `NOT NULL` specified before `CHECK` will be stored as any other check - that is after `CHECK`.
-(`DESCRIBE` statement on a table will show this fact). This mean of constraint definition is just a syntax suggar.
+(`DESCRIBE` statement on a table will show this fact). This means of constraint definition is just syntactic sugar.
 
 It is not possible to use `NOT NULL` before `CHECK` when altering. The following syntax is invalid:
 

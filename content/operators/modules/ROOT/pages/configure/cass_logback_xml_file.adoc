@@ -101,7 +101,7 @@ each message will occupy memory.
 
 The appender to virtual table is commented out by default so logging to virtual table is not active.
 
-=== Logging slow queries to Cassandra virual table
+=== Logging slow queries to Cassandra virtual table
 
 It is possible to log slow queries into `system_views.slow_queries` table. A query is evaluated to be slow
 if it takes more than `slow_query_log_timeout` in `cassandra.yaml`.

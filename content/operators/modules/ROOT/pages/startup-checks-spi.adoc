@@ -71,7 +71,8 @@ The `configuration` parameter provides access to per-check YAML config via `conf
 `boolean isConfigurable()`::
 Defaults to `false`.
 Return `true` if the check reads key-value parameters from the `startup_checks` YAML section.
-// TODO: verify against trunk source — confirm whether returning false silently ignores YAML config or produces a warning/error.
+If a check's `isConfigurable()` returns `false` but an operator adds an entry for that check's name under `startup_checks:` in `cassandra.yaml`, Cassandra throws a fatal `IllegalStateException` at startup and the node will not start.
+Only checks that return `true` from `isConfigurable()` may appear in the `startup_checks:` YAML block.
 
 `boolean isDisabledByDefault()`::
 Defaults to `false`.
@@ -79,9 +80,10 @@ When `true`, the check does not execute unless explicitly enabled in `cassandra.
 Useful for optional checks that should be opt-in.
 
 `void postAction(StartupChecksConfiguration configuration)`::
-An optional hook executed after all startup checks complete successfully.
+An optional lifecycle hook that runs after all checks pass their `execute()` phase but before cluster metadata initialization.
 Defaults to a no-op.
-// TODO: verify against trunk source — use cases and exact timing relative to full startup sequence are not documented in the research file; verify with CASSANDRA-21093 implementer.
+Unlike `execute()`, failures in `postAction()` are logged as warnings and are not fatal — the node continues starting.
+Use `postAction()` for best-effort follow-up work such as emitting audit records or pre-warming caches that were validated during `execute()`.
 
 === Configuration Accessor
 
@@ -110,8 +112,9 @@ Source: `conf/cassandra.yaml` / `conf/cassandra_latest.yaml` on trunk (CASSANDRA
 
 [NOTE]
 ====
-// TODO: verify against trunk source — confirm whether the `startup_checks` section appears in the default `cassandra.yaml` (possibly commented out) or only in `cassandra_latest.yaml`.
-Operators may need to add this section manually if it is not present in the distributed default configuration file.
+The `startup_checks:` block exists in the default `cassandra.yaml` but is entirely commented out.
+It includes commented examples for `check_filesystem_ownership` and `check_data_resurrection`.
+To enable or configure startup checks, uncomment the block and add entries as needed.
 ====
 
 === Configuration Properties Per Check
@@ -211,11 +214,10 @@ Maven or Gradle builds work equally well — ensure the `META-INF/services` file
 
 === Step 4: Place the JAR on the Cassandra Classpath
 
-Copy the built JAR to a location included in Cassandra's classpath.
+Copy the built JAR to `$CASSANDRA_HOME/lib/` or set the `EXTRA_CLASSPATH` environment variable to include the JAR's location.
+There is no `lib/extra/` convention for Cassandra.
 
-// TODO: verify against trunk source — confirm which directories (e.g., lib/, lib/extra/, or CLASSPATH env var) are valid classpath extension points for custom check JARs.
-
-The bundled example `ant install` target places the JAR in the appropriate directory.
+The bundled example `ant install` target places the JAR in `$CASSANDRA_HOME/lib/`.
 Refer to `examples/startup-checks/build.xml` on trunk for the install path used there.
 
 === Step 5: Configure in cassandra.yaml (Optional)
@@ -257,12 +259,55 @@ It is present in the Cassandra source repository for experimentation and referen
 
 == Default Startup Checks
 
-Cassandra 6.0 ships with a set of built-in startup checks hardcoded in `src/java/org/apache/cassandra/service/StartupChecks.java`.
-
-// TODO: verify against trunk source — enumerate the built-in check names from StartupChecks.java to document the reserved name set that custom checks must not shadow.
-
+Cassandra 6.0 ships with 19 built-in startup checks hardcoded in `src/java/org/apache/cassandra/service/StartupChecks.java`.
 Custom check names must not collide with any built-in check name.
 Cassandra enforces this at startup and throws `IllegalStateException` if a custom check attempts to shadow a built-in check.
+
+=== Configurable Built-in Checks
+
+Only two built-in checks are configurable (both disabled by default):
+
+[cols="1,1",options="header"]
+|===
+| Check Name | Description
+
+| `check_data_resurrection`
+| Checks for potential data resurrection issues
+
+| `check_filesystem_ownership`
+| Validates filesystem ownership of data directories
+|===
+
+Because these checks have `isConfigurable()` returning `true`, they are the only built-in checks that may appear in the `startup_checks:` block in `cassandra.yaml`.
+
+=== Non-configurable Built-in Checks
+
+The following 17 checks always run and cannot be configured or disabled via `cassandra.yaml`:
+
+[cols="1",options="header"]
+|===
+| Check Name
+
+| `kernel_bug_1057843`
+| `jemalloc`
+| `lz4_native`
+| `valid_launch_date`
+| `jmx_ports`
+| `jmx_properties`
+| `jvm_options`
+| `native_library_initialization`
+| `process_environment`
+| `max_map_count`
+| `read_ahead_kb_setting`
+| `data_dirs`
+| `directio_support`
+| `sstables_format`
+| `system_keyspace_state`
+| `legacy_auth_tables`
+| `async_profiler_kernel_parameters`
+|===
+
+Source: `src/java/org/apache/cassandra/service/StartupChecks.java` on trunk
 
 == Operational Guidance
 
@@ -314,19 +359,12 @@ This is useful for temporarily bypassing a check during incident response withou
 * Custom check names must be unique across all custom checks.
   Duplicate names cause an `IllegalStateException` at startup.
 * Custom check names must not match any built-in check name.
-  See the open question in the research file — built-in names should be documented here once enumerated from `StartupChecks.java`.
-  // TODO: verify against trunk source — list reserved built-in check names once confirmed from StartupChecks.java on trunk.
+  See <<Default Startup Checks>> for the full list of 19 reserved built-in check names.
 
-== Unresolved Questions
+== Remaining Review Items
 
-The following items require additional investigation before this page is promoted from draft status.
-See `research/change-catalog/CASSANDRA-21093-startup-checks-spi.md` for the full open questions list.
+The following item requires additional investigation before this page is promoted from draft status:
 
-. *`startup_checks` config section location* — Is the section present (possibly commented out) in the default `cassandra.yaml`, or only in `cassandra_latest.yaml`?
-. *Built-in check names* — What are the reserved names defined in `StartupChecks.java` that custom checks cannot shadow?
-. *`isConfigurable()` interaction with YAML* — Does returning `false` silently ignore YAML config or produce a warning?
 . *`ServiceConfigurationError` scope* — Does a classloading error on one JAR skip only that check or all custom checks?
-. *Classpath extension mechanism* — Which directory or mechanism (`lib/`, env var, etc.) is the supported way to add custom check JARs?
-. *`postAction()` timing and use cases* — When exactly is `postAction()` called relative to the full startup sequence, and what is it intended for?
 
-Technical review by Nick Doan (CASSANDRA-21093 implementer) or Stefan Miklosovic (reviewer) is needed before promoting this page to published status.
+Technical review by Nick Doan (CASSANDRA-21093 implementer) or Stefan Miklosovic (reviewer) is recommended before promoting this page to published status.
