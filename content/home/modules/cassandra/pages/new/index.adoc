@@ -1,35 +1,202 @@
-= New Features
-:navtitle: What's new
+= What's New in Apache Cassandra 6.0
+:navtitle: What's New in Cassandra 6
+:description: Overview of new features, enhancements, and breaking changes in Apache Cassandra 6.0.
 
-== New Features in Apache Cassandra 6.0
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
 
-This section covers the new features in Apache Cassandra 6.0.
+Apache Cassandra 6.0 introduces general-purpose ACID transactions, a new consensus-based cluster metadata system, and dozens of operational, CQL, and security improvements.
 
-* https://cwiki.apache.org/confluence/x/FQRACw[ACID Transactions (Accord)]
-* https://cwiki.apache.org/confluence/x/YyD1D[Transactional Cluster Metadata]
-* https://cwiki.apache.org/confluence/x/8IpyEg[Constraints]
+== Headline Features
 
+Accord (General-Purpose Transactions)::
+Cassandra 6.0 introduces Accord (https://issues.apache.org/jira/browse/CASSANDRA-17092[CEP-15]), a leaderless consensus protocol enabling multi-partition, multi-table ACID transactions. New CQL syntax `BEGIN TRANSACTION ... COMMIT TRANSACTION` supports atomic reads and writes across partition boundaries. Accord transparently replaces Paxos for lightweight transactions (LWT/CAS) on migrated tables.
++
+* xref:developers::cql/txn-reference.adoc[BEGIN TRANSACTION Reference]
+* xref:operators::upgrade/onboarding-to-accord.adoc[Migrating to Accord]
+* xref:contributors::architecture/accord-architecture.adoc[Accord Architecture]
 
-== New Features in Apache Cassandra 5.0
+Transactional Cluster Metadata (TCM)::
+CEP-21 (https://issues.apache.org/jira/browse/CASSANDRA-18330[CASSANDRA-18330]) replaces gossip-based cluster metadata propagation with a linearized, distributed log managed by a Cluster Metadata Service (CMS). All modifications to cluster membership, token ownership, and schema are serialized through the CMS using Paxos-backed consensus. This is the largest architectural change in Cassandra 6.0.
++
+* xref:operators::tcm-overview.adoc[TCM Overview and Concepts]
+* xref:operators::tcm-pre-upgrade.adoc[Pre-Upgrade Assessment]
+* xref:operators::tcm-upgrade-procedure.adoc[Upgrade Procedure]
+* xref:operators::tcm-operations.adoc[TCM Day-2 Operations]
+* xref:operators::tcm-troubleshooting.adoc[TCM Troubleshooting]
 
-This section covers the new features in Apache Cassandra 5.0.
+== CQL Enhancements
 
-* Storage Attached Indexes: xref:Cassandra:cassandra:developing/cql/indexing/sai/sai-overview.adoc[Docs], https://cwiki.apache.org/confluence/display/CASSANDRA/CEP-7%3A+Storage+Attached+Index[CEP-7],  https://issues.apache.org/jira/browse/CASSANDRA-16052[JIRA ticket]
-* Trie memtables: https://cwiki.apache.org/confluence/display/CASSANDRA/CEP-19%3A+Trie+memtable+implementation[CEP-19], https://issues.apache.org/jira/browse/CASSANDRA-17240[JIRA ticket]
-* Trie SSTables: https://cwiki.apache.org/confluence/display/CASSANDRA/CEP-25%3A+Trie-indexed+SSTable+format[CEP-25], https://issues.apache.org/jira/browse/CASSANDRA-18398[JIRA ticket]
-* JDK 17: xref:Cassandra:cassandra:reference/java17.adoc[Docs], https://issues.apache.org/jira/browse/CASSANDRA-16895[JIRA ticket]
-* More guardrails: https://github.com/apache/cassandra/blob/trunk/NEWS.txt[NEWS.txt]
-* TTL and writetime on collections and UDTs: xref:Cassandra:cassandra:developing/cql/dml.html#writetime-and-ttl-function[Docs], https://issues.apache.org/jira/browse/CASSANDRA-8877[JIRA ticket]
-* New vector data type: xref:Cassandra:cassandra:reference/vector-data-type.adoc[Docs], https://cwiki.apache.org/confluence/display/CASSANDRA/CEP-30%3A+Approximate+Nearest+Neighbor%28ANN%29+Vector+Search+via+Storage-Attached+Indexes[CEP-30], https://issues.apache.org/jira/browse/CASSANDRA-18504[JIRA ticket]
-* New vector similarity functions: xref:Cassandra:cassandra:vector-search/overview.adoc[Docs], https://cwiki.apache.org/confluence/display/CASSANDRA/CEP-30%3A+Approximate+Nearest+Neighbor%28ANN%29+Vector+Search+via+Storage-Attached+Indexes[CEP-30], https://issues.apache.org/jira/browse/CASSANDRA-18640[JIRA ticket]
-* Unified Compaction Strategy: xref:Cassandra:cassandra:managing/operating/compaction/ucs.adoc[Docs], https://cwiki.apache.org/confluence/display/CASSANDRA/CEP-26%3A+Unified+Compaction+Strategy[CEP-26], https://issues.apache.org/jira/browse/CASSANDRA-18397[JIRA ticket]
-* New Mathematical CQL functions: abs, exp, log, log10 and round: xref:Cassandra:cassandra:developing/cql/functions.adoc[Docs], https://issues.apache.org/jira/browse/CASSANDRA-17221[JIRA ticket]
-* Dynamic Data Masking: xref:Cassandra:cassandra:developing/cql/dynamic-data-masking.adoc[Docs], https://cwiki.apache.org/confluence/display/CASSANDRA/CEP-20%3A+Dynamic+Data+Masking[CEP-20], https://issues.apache.org/jira/browse/CASSANDRA-17940[JIRA ticket]
-* New CIDR authorizer: https://cwiki.apache.org/confluence/display/CASSANDRA/CEP-33%3A+CIDR+filtering+authorizer[CEP-33], https://issues.apache.org/jira/browse/CASSANDRA-18592[JIRA ticket]
-* Extend maximum expiration date (TTL): https://github.com/apache/cassandra/blob/trunk/NEWS.txt[NEWS.txt], https://issues.apache.org/jira/browse/CASSANDRA-14227[JIRA ticket]
-* New CQL native scalar functions for collections: https://issues.apache.org/jira/browse/CASSANDRA-18060[JIRA ticket]
-* New sstablepartitions offline tool to find large partitions: https://issues.apache.org/jira/browse/CASSANDRA-8720[JIRA ticket]
-* New snitch for Microsoft Azure: https://issues.apache.org/jira/browse/CASSANDRA-18646[JIRA ticket]
-* Pluggable crypto provider: https://issues.apache.org/jira/browse/CASSANDRA-18624[JIRA ticket]
-* New virtual table to view system logs: https://issues.apache.org/jira/browse/CASSANDRA-17948[JIRA ticket]
-// LLP: waiting to see if they make 5.0
+Constraints::
+CEP-42 (https://issues.apache.org/jira/browse/CASSANDRA-19947[CASSANDRA-19947]) adds a pluggable constraints framework. Supported constraint types include `NOT NULL`, scalar range checks, `LENGTH`, `OCTET_LENGTH`, `REGEXP`, and `JSON`. Constraints can be applied via `CREATE TABLE`, `ALTER TABLE`, `CREATE CONSTRAINT`, and `ALTER CONSTRAINT`.
++
+xref:developers::cql/constraints.adoc[Constraints Reference]
+
+BETWEEN Operator::
+https://issues.apache.org/jira/browse/CASSANDRA-19604[CASSANDRA-19604] adds `BETWEEN` support in `WHERE` clauses for SAI-indexed columns and clustering columns. Syntax: `WHERE col BETWEEN val1 AND val2`.
++
+xref:developers::cql/dml.adoc#between[Data Manipulation Reference]
+
+NOT Operators::
+https://issues.apache.org/jira/browse/CASSANDRA-18584[CASSANDRA-18584] adds `NOT IN`, `NOT CONTAINS`, and `NOT CONTAINS KEY` operators for `WHERE` clauses, enabling exclusion-based filtering with SAI indexes.
++
+xref:developers::cql/dml.adoc[Data Manipulation Reference]
+
+LIKE Expressions::
+https://issues.apache.org/jira/browse/CASSANDRA-17198[CASSANDRA-17198] adds `LIKE` operator support in `WHERE` clauses for SASI and SAI indexes with prefix, suffix, and contains matching.
++
+xref:developers::cql/dml.adoc[Data Manipulation Reference]
+
+CREATE TABLE LIKE::
+https://issues.apache.org/jira/browse/CASSANDRA-19964[CASSANDRA-19964] adds the ability to create a new table with the same schema as an existing table.
++
+xref:developers::cql/ddl.adoc[Data Definition Reference]
+
+Schema Annotations (COMMENT ON / SECURITY LABEL)::
+https://issues.apache.org/jira/browse/CASSANDRA-20943[CASSANDRA-20943] adds `COMMENT ON` and `SECURITY LABEL` statements for annotating keyspaces, tables, columns, and other schema objects.
++
+xref:developers::cql/ddl.adoc[Data Definition Reference]
+
+LIST SUPERUSERS::
+https://issues.apache.org/jira/browse/CASSANDRA-19417[CASSANDRA-19417] adds a new CQL statement to list all roles with superuser privileges.
++
+xref:developers::cql/security.adoc[CQL Security Reference]
+
+New String and Formatting Functions::
+`length()`, `octet_length()` (https://issues.apache.org/jira/browse/CASSANDRA-20102[CASSANDRA-20102]), `format_bytes()`, `format_time()` (https://issues.apache.org/jira/browse/CASSANDRA-19546[CASSANDRA-19546]) provide human-readable output formatting.
++
+xref:developers::cql/functions.adoc[Functions Reference]
+
+SAI Frozen Collection Indexing::
+https://issues.apache.org/jira/browse/CASSANDRA-18492[CASSANDRA-18492] enables SAI indexes on frozen collections, supporting `CONTAINS` queries on frozen lists, sets, and maps.
++
+xref:developers::cql/indexing/sai/collections.adoc[SAI Collections Indexing]
+
+Index Hints::
+https://issues.apache.org/jira/browse/CASSANDRA-18112[CASSANDRA-18112] allows manual secondary index selection in CQL `SELECT` statements.
++
+xref:developers::cql/dml.adoc[Data Manipulation Reference]
+
+== Operational Changes
+
+=== Topology and Snitches
+
+Snitch Deprecation::
+https://issues.apache.org/jira/browse/CASSANDRA-19488[CASSANDRA-19488] deprecates `IEndpointSnitch` in favor of new `initial_location_provider`, `node_proximity`, `addresses_config`, and `prefer_local_connections` settings in cassandra.yaml. Cloud-specific snitches (GoogleCloudSnitch, Ec2Snitch, AzureSnitch) are removed.
++
+xref:operators::operate/snitch.adoc[Snitches and Topology]
+
+Live DC/Rack Changes::
+https://issues.apache.org/jira/browse/CASSANDRA-20528[CASSANDRA-20528] adds `nodetool altertopology` to change a live node's datacenter or rack assignment without restart.
+
+=== Security
+
+JMX in cassandra.yaml::
+https://issues.apache.org/jira/browse/CASSANDRA-11695[CASSANDRA-11695] moves JMX server configuration from `cassandra-env.sh` scripts to structured cassandra.yaml settings.
++
+xref:operators::secure/security.adoc[Security Overview]
+
+native_transport_port_ssl Removed::
+https://issues.apache.org/jira/browse/CASSANDRA-19397[CASSANDRA-19397] removes the deprecated `native_transport_port_ssl` setting. Use `native_transport_port` with `client_encryption_options` instead.
+
+Password Validation::
+CEP-24 (https://issues.apache.org/jira/browse/CASSANDRA-17457[CASSANDRA-17457]) adds pluggable password validation with dictionary checks, length requirements, and generated passwords.
++
+xref:operators::secure/password_validation.adoc[Password Validation]
+
+Role Name Generation::
+CEP-55 adds UUID-based role name generation with configurable prefixes and suffixes.
++
+xref:operators::secure/role_name_generation.adoc[Role Name Generation]
+
+Periodic Disconnect of Revoked Roles::
+https://issues.apache.org/jira/browse/CASSANDRA-19385[CASSANDRA-19385] adds background task to disconnect clients whose roles have been revoked or set to `LOGIN = false`.
+
+=== Compaction and Compression
+
+ZSTD Dictionary Compression::
+https://issues.apache.org/jira/browse/CASSANDRA-17021[CASSANDRA-17021] adds `ZstdDictionaryCompressor` with nodetool-managed dictionary training.
++
+xref:operators::operate/compression.adoc[Compression]
+
+Compaction Parallelization::
+https://issues.apache.org/jira/browse/CASSANDRA-18802[CASSANDRA-18802] adds `parallelize_output_shards` option for UCS and compaction `--jobs` parallelism.
++
+xref:operators::operate/ucs.adoc[Unified Compaction Strategy]
+
+Direct I/O for Compaction Reads::
+https://issues.apache.org/jira/browse/CASSANDRA-19987[CASSANDRA-19987] adds `compaction_read_disk_access_mode` setting for O_DIRECT bypass of OS page cache during compaction.
+
+=== Repair and Recovery
+
+Auto Repair::
+CEP-37 (https://issues.apache.org/jira/browse/CASSANDRA-19918[CASSANDRA-19918]) adds automated, adaptive repair scheduling with configurable splitter algorithms and per-table policies.
++
+xref:operators::operate/auto_repair.adoc[Automated Repair]
+
+=== Monitoring and Observability
+
+Slow Query Virtual Table::
+https://issues.apache.org/jira/browse/CASSANDRA-13001[CASSANDRA-13001] adds `system_views.slow_queries` for CQL-queryable slow query logging.
+
+system_metrics Virtual Keyspace::
+https://issues.apache.org/jira/browse/CASSANDRA-14572[CASSANDRA-14572] exposes all Dropwizard metrics as CQL-queryable virtual tables in the `system_metrics` keyspace.
+
+uncaught_exceptions Virtual Table::
+https://issues.apache.org/jira/browse/CASSANDRA-20858[CASSANDRA-20858] adds `system_views.uncaught_exceptions` tracking thread exceptions.
+
+Partition Key Statistics::
+https://issues.apache.org/jira/browse/CASSANDRA-20161[CASSANDRA-20161] adds `system_views.partition_key_statistics` exposing per-table partition size estimates.
++
+xref:operators::observe/virtualtables.adoc[Virtual Tables]
+
+=== Guardrails
+
+Cassandra 6.0 adds several new guardrails for operational safety:
+
+* *Bulk loading guardrail* (https://issues.apache.org/jira/browse/CASSANDRA-18781[CASSANDRA-18781]) — control sstableloader and bulk import permissions
+* *Keyspace DDL guardrails* (https://issues.apache.org/jira/browse/CASSANDRA-20913[CASSANDRA-20913]) — protect against accidental ALTER/DROP of keyspace properties
+* *Disk usage guardrails* (https://issues.apache.org/jira/browse/CASSANDRA-21024[CASSANDRA-21024]) — strategy-aware disk usage protection per datacenter
+* *Per-type max size* (https://issues.apache.org/jira/browse/CASSANDRA-19677[CASSANDRA-19677]) — configurable size limits for collections, UDTs, and other types
++
+xref:operators::guardrails-reference.adoc[Guardrails Reference]
+
+=== Tools
+
+Custom Startup Checks (SPI)::
+https://issues.apache.org/jira/browse/CASSANDRA-21093[CASSANDRA-21093] adds a pluggable SPI for custom pre-startup validation checks.
++
+xref:operators::startup-checks-spi.adoc[Custom Startup Checks]
+
+Async Profiler Integration::
+https://issues.apache.org/jira/browse/CASSANDRA-20854[CASSANDRA-20854] adds `nodetool profile` subcommands for CPU, allocation, and lock profiling.
++
+xref:operators::tune/async-profiler.adoc[Async Profiler]
+
+=== Configuration
+
+JDK 21 and Generational ZGC::
+https://issues.apache.org/jira/browse/CASSANDRA-18831[CASSANDRA-18831] adds JDK 21 support with Generational ZGC as the default garbage collector. New `jvm21-server.options` file.
+
+Environment Variable Overrides::
+https://issues.apache.org/jira/browse/CASSANDRA-20749[CASSANDRA-20749] allows cassandra.yaml settings to be overridden via environment variables.
+
+TriggersPolicy::
+https://issues.apache.org/jira/browse/CASSANDRA-19532[CASSANDRA-19532] adds `triggers_policy` setting (enabled/disabled/forbidden) to control trigger usage at the cluster level.
+
+== Breaking Changes and Deprecations
+
+* `native_transport_port_ssl` has been removed (https://issues.apache.org/jira/browse/CASSANDRA-19397[CASSANDRA-19397])
+* Cloud-specific snitches removed; use `initial_location_provider` settings instead (https://issues.apache.org/jira/browse/CASSANDRA-19488[CASSANDRA-19488])
+* `IEndpointSnitch` interface deprecated; replaced by new location/proximity interfaces
+* Sigar replaced by OSHI for hardware detection (https://issues.apache.org/jira/browse/CASSANDRA-16565[CASSANDRA-16565])
+* JDK 17 is the minimum supported version; JDK 11 is no longer supported
+* `use_deterministic_table_id` deprecated and removed from default cassandra.yaml (https://issues.apache.org/jira/browse/CASSANDRA-19809[CASSANDRA-19809])
+
+== Previous Releases
+
+For features introduced in earlier releases, see:
+
+* xref:Cassandra:cassandra:new/index.adoc[What's New in Cassandra 5.0]
