@@ -1,1 +1,5 @@
 * xref:index.adoc[Home]
+* xref:operators::index.adoc[Operators]
+* xref:developers::index.adoc[Developers]
+* xref:contributors::index.adoc[Contributors]
+* xref:reference::index.adoc[Reference]
