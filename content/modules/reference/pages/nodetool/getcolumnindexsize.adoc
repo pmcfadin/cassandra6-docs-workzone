@@ -1,0 +1,7 @@
+= getcolumnindexsize
+
+== Usage
+[source,plaintext]
+----
+include::reference:example$TEXT/NODETOOL/getcolumnindexsize.txt[]
+----

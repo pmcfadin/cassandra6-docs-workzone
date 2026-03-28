@@ -1,7 +1,0 @@
-= getcidrgroupsofip
-
-== Usage
-[source,plaintext]
-----
-include::cassandra:example$TEXT/NODETOOL/getcidrgroupsofip.txt[]
-----

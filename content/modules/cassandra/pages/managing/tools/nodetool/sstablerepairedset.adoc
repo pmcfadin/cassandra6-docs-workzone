@@ -1,7 +1,0 @@
-= sstablerepairedset
-
-== Usage
-[source,plaintext]
-----
-include::cassandra:example$TEXT/NODETOOL/sstablerepairedset.txt[]
-----

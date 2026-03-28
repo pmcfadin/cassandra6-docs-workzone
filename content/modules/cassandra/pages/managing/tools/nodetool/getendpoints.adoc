@@ -1,7 +1,0 @@
-= getendpoints
-
-== Usage
-[source,plaintext]
-----
-include::cassandra:example$TEXT/NODETOOL/getendpoints.txt[]
-----

@@ -1,7 +1,0 @@
-= verify
-
-== Usage
-[source,plaintext]
-----
-include::cassandra:example$TEXT/NODETOOL/verify.txt[]
-----

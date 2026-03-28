@@ -1,0 +1,7 @@
+= decommission
+
+== Usage
+[source,plaintext]
+----
+include::reference:example$TEXT/NODETOOL/decommission.txt[]
+----

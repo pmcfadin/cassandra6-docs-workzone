@@ -1,7 +1,0 @@
-= setcachecapacity
-
-== Usage
-[source,plaintext]
-----
-include::cassandra:example$TEXT/NODETOOL/setcachecapacity.txt[]
-----

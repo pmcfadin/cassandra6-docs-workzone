@@ -1,0 +1,7 @@
+= updatecidrgroup
+
+== Usage
+[source,plaintext]
+----
+include::reference:example$TEXT/NODETOOL/updatecidrgroup.txt[]
+----

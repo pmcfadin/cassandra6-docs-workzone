@@ -1,0 +1,7 @@
+= getstreamthroughput
+
+== Usage
+[source,plaintext]
+----
+include::reference:example$TEXT/NODETOOL/getstreamthroughput.txt[]
+----

@@ -1,1 +1,17 @@
 * xref:index.adoc[Reference]
+* Configuration
+** xref:configuration/cassandra_yaml_file.adoc[cassandra.yaml Reference]
+* Nodetool
+** xref:nodetool/nodetool.adoc[Nodetool Command Reference]
+* Tools
+** xref:cqlsh.adoc[cqlsh]
+** SSTable Tools
+*** xref:sstable/sstabledump.adoc[sstabledump]
+*** xref:sstable/sstableloader.adoc[sstableloader]
+*** xref:sstable/sstablescrub.adoc[sstablescrub]
+*** xref:sstable/sstableexpiredblockers.adoc[sstableexpiredblockers]
+* xref:native-protocol.adoc[Native Protocol]
+* CQL Commands
+** xref:cql-commands/commands-toc.adoc[Commands Reference]
+** xref:cql-commands/compact-subproperties.adoc[Compaction Subproperties]
+* xref:sai-virtual-table-indexes.adoc[SAI Virtual Table Indexes]

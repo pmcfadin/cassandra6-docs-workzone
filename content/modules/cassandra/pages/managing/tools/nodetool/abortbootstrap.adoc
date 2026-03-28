@@ -1,7 +1,0 @@
-= abortbootstrap
-
-== Usage
-[source,plaintext]
-----
-include::cassandra:example$TEXT/NODETOOL/abortbootstrap.txt[]
-----

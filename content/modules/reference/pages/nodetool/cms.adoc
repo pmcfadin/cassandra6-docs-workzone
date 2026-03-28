@@ -1,0 +1,7 @@
+= cms
+
+== Usage
+[source,plaintext]
+----
+include::reference:example$TEXT/NODETOOL/cms.txt[]
+----

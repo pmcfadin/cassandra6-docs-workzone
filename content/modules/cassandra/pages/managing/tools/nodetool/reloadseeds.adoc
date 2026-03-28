@@ -1,7 +1,0 @@
-= reloadseeds
-
-== Usage
-[source,plaintext]
-----
-include::cassandra:example$TEXT/NODETOOL/reloadseeds.txt[]
-----

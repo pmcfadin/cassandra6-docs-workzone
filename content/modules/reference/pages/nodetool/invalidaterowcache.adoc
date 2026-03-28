@@ -1,0 +1,7 @@
+= invalidaterowcache
+
+== Usage
+[source,plaintext]
+----
+include::reference:example$TEXT/NODETOOL/invalidaterowcache.txt[]
+----

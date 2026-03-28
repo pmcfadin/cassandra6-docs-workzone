@@ -1,1 +1,7 @@
 * xref:index.adoc[Contributors]
+* Architecture
+** xref:architecture/index.adoc[Architecture Overview]
+** xref:architecture/dynamo.adoc[Dynamo]
+** xref:architecture/accord.adoc[Accord]
+*** xref:architecture/accord-architecture.adoc[Accord Architecture]
+*** xref:architecture/cql-on-accord.adoc[CQL on Accord]

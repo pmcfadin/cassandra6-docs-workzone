@@ -1,7 +1,0 @@
-= enableautocompaction
-
-== Usage
-[source,plaintext]
-----
-include::cassandra:example$TEXT/NODETOOL/enableautocompaction.txt[]
-----

@@ -1,0 +1,7 @@
+= listsnapshots
+
+== Usage
+[source,plaintext]
+----
+include::reference:example$TEXT/NODETOOL/listsnapshots.txt[]
+----

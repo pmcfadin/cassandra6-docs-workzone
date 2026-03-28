@@ -1,0 +1,7 @@
+= setinterdcstreamthroughput
+
+== Usage
+[source,plaintext]
+----
+include::reference:example$TEXT/NODETOOL/setinterdcstreamthroughput.txt[]
+----

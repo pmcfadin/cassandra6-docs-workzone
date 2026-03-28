@@ -1,7 +1,0 @@
-= drain
-
-== Usage
-[source,plaintext]
-----
-include::cassandra:example$TEXT/NODETOOL/drain.txt[]
-----

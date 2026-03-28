@@ -1,7 +1,0 @@
-= gettraceprobability
-
-== Usage
-[source,plaintext]
-----
-include::cassandra:example$TEXT/NODETOOL/gettraceprobability.txt[]
-----

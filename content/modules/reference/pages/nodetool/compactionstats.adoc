@@ -1,0 +1,7 @@
+= compactionstats
+
+== Usage
+[source,plaintext]
+----
+include::reference:example$TEXT/NODETOOL/compactionstats.txt[]
+----

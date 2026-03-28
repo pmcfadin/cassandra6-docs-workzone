@@ -1,7 +1,0 @@
-= getguardrailsconfig
-
-== Usage
-[source,plaintext]
-----
-include::cassandra:example$TEXT/NODETOOL/getguardrailsconfig.txt[]
-----

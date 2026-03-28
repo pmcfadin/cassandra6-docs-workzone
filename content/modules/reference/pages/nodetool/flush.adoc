@@ -1,0 +1,7 @@
+= flush
+
+== Usage
+[source,plaintext]
+----
+include::reference:example$TEXT/NODETOOL/flush.txt[]
+----

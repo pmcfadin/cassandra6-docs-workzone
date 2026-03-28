@@ -1,0 +1,7 @@
+= invalidatecidrpermissionscache
+
+== Usage
+[source,plaintext]
+----
+include::reference:example$TEXT/NODETOOL/invalidatecidrpermissionscache.txt[]
+----

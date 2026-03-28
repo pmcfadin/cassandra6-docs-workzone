@@ -1,7 +1,0 @@
-= decommission
-
-== Usage
-[source,plaintext]
-----
-include::cassandra:example$TEXT/NODETOOL/decommission.txt[]
-----

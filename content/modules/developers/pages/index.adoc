@@ -6,3 +6,37 @@
 ====
 
 This section covers CQL, drivers, data modeling, and application patterns for Apache Cassandra 6 developers.
+
+== Drivers
+
+* xref:drivers.adoc[Client Drivers]
+
+== CQL
+
+* xref:cql/index.adoc[CQL Overview]
+* xref:cql/definitions.adoc[Definitions]
+* xref:cql/types.adoc[Data Types]
+* xref:cql/ddl.adoc[Data Definition (DDL)]
+* xref:cql/dml.adoc[Data Manipulation (DML)]
+* xref:cql/functions.adoc[Functions]
+* xref:cql/security.adoc[CQL Security]
+* xref:cql/constraints.adoc[Constraints]
+* xref:cql/triggers.adoc[Triggers]
+* xref:cql/txn-reference.adoc[BEGIN TRANSACTION Reference]
+
+=== SAI (Storage-Attached Indexes)
+
+* xref:cql/indexing/sai/sai-concepts.adoc[SAI Concepts]
+* xref:cql/indexing/sai/sai-faq.adoc[SAI FAQ]
+* xref:cql/indexing/sai/collections.adoc[SAI Collections]
+* xref:cql/indexing/sai/operations/monitoring.adoc[SAI Monitoring]
+
+=== Collections
+
+* xref:cql/collections/list.adoc[Lists]
+* xref:cql/collections/map.adoc[Maps]
+* xref:cql/collections/set.adoc[Sets]
+
+== Integration
+
+* xref:integration-patterns.adoc[Integration Patterns]

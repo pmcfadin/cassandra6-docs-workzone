@@ -1,0 +1,7 @@
+= cidrfilteringstats
+
+== Usage
+[source,plaintext]
+----
+include::reference:example$TEXT/NODETOOL/cidrfilteringstats.txt[]
+----

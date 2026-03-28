@@ -1,7 +1,0 @@
-= clearsnapshot
-
-== Usage
-[source,plaintext]
-----
-include::cassandra:example$TEXT/NODETOOL/clearsnapshot.txt[]
-----

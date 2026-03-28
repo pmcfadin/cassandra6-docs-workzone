@@ -1,0 +1,464 @@
+= CQL Transaction Reference (BEGIN TRANSACTION)
+:description: Reference documentation for the BEGIN TRANSACTION CQL syntax in Apache Cassandra 6 Accord-based distributed transactions.
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+This page documents the `BEGIN TRANSACTION` CQL statement introduced in Apache Cassandra 6 as part of the Accord distributed transaction system (CEP-15, xref:contributors:architecture/accord.adoc[Accord]).
+It is a user-facing reference for the syntax and semantics of writing multi-partition atomic transactions in CQL.
+
+For the operational guide covering table configuration, migration, and consistency level semantics, see xref:operators:upgrade/onboarding-to-accord.adoc[Onboarding to Accord].
+For the internal architecture of the Accord protocol, see xref:contributors:architecture/accord-architecture.adoc[Accord Architecture].
+For the CQL-to-Accord implementation internals, see xref:contributors:architecture/cql-on-accord.adoc[Developers guide to CQL on Accord].
+
+NOTE: `BEGIN TRANSACTION` requires Accord to be enabled (`accord.enabled: true` in `cassandra.yaml`) and the target tables to have `transactional_mode = 'full'` or `transactional_mode = 'mixed_reads'`.
+See xref:operators:upgrade/onboarding-to-accord.adoc[Onboarding to Accord] for enablement steps.
+
+== Prerequisites
+
+Before using `BEGIN TRANSACTION`:
+
+* Accord must be enabled in `cassandra.yaml`: `accord.enabled: true`.
+  Source: https://github.com/apache/cassandra/blob/trunk/conf/cassandra.yaml[`conf/cassandra.yaml`] lines 2737-2754.
+* Every table accessed inside the transaction must have `transactional_mode = 'full'` set as a table property (or `'mixed_reads'` for tables where non-transactional reads are also needed).
+  Source: https://github.com/apache/cassandra/blob/trunk/src/java/org/apache/cassandra/cql3/statements/TransactionStatement.java[`TransactionStatement.java`] `TRANSACTIONS_DISABLED_ON_TABLE_MESSAGE`.
+* `BEGIN TRANSACTION` statements cannot be used as prepared statements.
+  Source: `TransactionStatement.java` `eligibleAsPreparedStatement()` returns `false`.
+
+== Statement Overview
+
+A `BEGIN TRANSACTION` block is an atomic, isolated CQL transaction coordinated by the Accord protocol.
+It can span multiple partitions and multiple tables.
+
+Three patterns are supported:
+
+[horizontal]
+Read-only:: One or more `SELECT` statements with no writes.
+Write-only:: One or more `INSERT`, `UPDATE`, or `DELETE` statements with no reads.
+Conditional read-write:: `LET` assignments that read data, an optional result `SELECT`, a conditional `IF ... THEN ... END IF` block, and write statements.
+
+== BNF Grammar
+
+The grammar below is derived from the ANTLR parser at https://github.com/apache/cassandra/blob/trunk/src/antlr/Parser.g[`src/antlr/Parser.g`] lines 780-798.
+
+----
+transaction_statement
+  : BEGIN TRANSACTION
+      let_assignment*
+      ( returning_select | reference_select )?
+      ( IF txn_conditions THEN )?
+      modification_statement*
+      ( END IF )?
+    COMMIT TRANSACTION
+  ;
+
+let_assignment
+  : LET identifier '=' '(' SELECT let_selectors
+      FROM table_name WHERE where_clause
+      ( LIMIT integer )? ')' ';'
+  ;
+
+let_selectors
+  : '*'
+  | let_selector ( ',' let_selector )*
+  ;
+
+returning_select
+  : SELECT selectors FROM table_name WHERE where_clause ';'
+  ;
+
+reference_select
+  : SELECT row_data_reference ( ',' row_data_reference )* ';'
+  ;
+
+row_data_reference
+  : identifier '.' column_reference
+  ;
+
+txn_conditions
+  : txn_column_condition ( AND txn_column_condition )*
+  ;
+
+txn_column_condition
+  : row_data_reference IS NOT NULL
+  | row_data_reference IS NULL
+  | row_data_reference txn_condition_op term
+  | term txn_condition_op row_data_reference
+  ;
+
+txn_condition_op
+  : '=' | '<' | '<=' | '>' | '>=' | '!='
+  ;
+
+modification_statement
+  : ( insert_statement | update_statement | delete_statement ) ';'
+  ;
+----
+
+Source: https://github.com/apache/cassandra/blob/trunk/src/antlr/Parser.g[`src/antlr/Parser.g`] lines 350-372 (letStatement), 780-850 (batchTxnStatement, txnConditions, txnColumnCondition, txnConditionKind), 750-754 (batchStatementObjective).
+
+NOTE: When the transaction contains a conditional (`IF ... THEN`), the closing delimiter is `END IF` followed immediately by `COMMIT TRANSACTION`, not `END IF COMMIT TRANSACTION` on separate lines.
+Source: parser rule line 793: `{isTxnConditional}? (K_END K_IF K_COMMIT K_TRANSACTION)`.
+
+== Statement Types and Their Roles
+
+=== LET Assignments
+
+`LET` statements declare named row-variables by executing a `SELECT` at transaction read time.
+The bound identifier can then be referenced in conditions and write expressions.
+
+Syntax:
+[source,cql]
+----
+LET <name> = (SELECT <columns> FROM <table> WHERE <where_clause> [LIMIT <n>]);
+----
+
+Rules derived from https://github.com/apache/cassandra/blob/trunk/src/java/org/apache/cassandra/cql3/statements/TransactionStatement.java[`TransactionStatement.java`]:
+
+* Each `LET` name must be unique within the transaction.
+* The `SELECT` inside `LET` must specify all partition key columns with equality operators and must identify at most one row (either full primary key or partition key + `LIMIT 1`).
+  Partition range queries are not allowed inside `LET`.
+* `ORDER BY` and `GROUP BY` are not allowed inside `LET` selects.
+* Aggregation functions are not allowed.
+* Counter columns are not allowed.
+* When the partition key is an `IN` clause, `LIMIT` must not be present.
+
+=== Returning SELECT
+
+A `SELECT` statement inside the transaction body returns data to the caller as the transaction result.
+Only one returning select is allowed per transaction, and it cannot be combined with a reference select (`SELECT <ref>.<col>`).
+
+Rules:
+
+* The `SELECT` must specify all partition key columns with equality operators.
+* Partition range queries are not allowed.
+* Multiple partitions can be targeted via an `IN` clause, but `LIMIT` is not allowed when the partition key is an `IN` clause.
+
+=== Reference SELECT
+
+Instead of a full `SELECT`, you can return specific columns from `LET`-bound rows:
+
+[source,cql]
+----
+SELECT <name>.<col> [, <name>.<col> ...];
+----
+
+Each reference must specify a column name (`row1.v`); selecting an entire row variable (`SELECT row1`) is not permitted.
+Source: `TransactionStatement.java` `SELECT_REFS_NEED_COLUMN_MESSAGE`.
+
+=== IF Conditions
+
+The `IF` block tests conditions derived from `LET`-bound row references.
+It is optional; if absent, writes execute unconditionally.
+
+Supported condition forms (source: https://github.com/apache/cassandra/blob/trunk/src/antlr/Parser.g[`Parser.g`] lines 839-850):
+
+[source,cql]
+----
+IF <ref> IS NOT NULL                 -- row or column exists
+   AND <ref> IS NULL                 -- row or column is null / absent
+   AND <ref> <op> <literal>          -- comparison: =, <, <=, >, >=, !=
+   AND <literal> <op> <ref>          -- comparison with literal on left
+THEN
+----
+
+Conditions are joined with `AND`; `OR` is not supported.
+
+=== Modification Statements (INSERT / UPDATE / DELETE)
+
+`INSERT`, `UPDATE`, and `DELETE` statements are the write operations within a transaction.
+They are subject to the following restrictions (source: `TransactionStatement.java` lines 767-774):
+
+* `IF [NOT] EXISTS` and other CAS conditions are not allowed on individual modification statements inside a transaction.
+  Use the transaction-level `IF ... THEN` block instead.
+* `USING TIMESTAMP` is not allowed on writes inside a transaction.
+  The timestamp is assigned by Accord.
+* `USING TTL` is not allowed.
+* Counter columns are not allowed.
+* The target table must have Accord enabled (`transactional_mode != 'off'`).
+
+Write values can reference `LET`-bound column values using `<name>.<column>` notation (read-before-write pattern).
+
+== Examples
+
+=== Write-only transaction (unconditional, multi-partition)
+
+[source,cql]
+----
+BEGIN TRANSACTION
+  INSERT INTO purchases (user_id, order_id, total) VALUES (42, 1001, 99);
+  UPDATE inventory SET stock = stock - 1 WHERE product_id = 7;
+COMMIT TRANSACTION
+----
+
+Both writes commit atomically across partitions.
+
+=== Read-only transaction
+
+[source,cql]
+----
+BEGIN TRANSACTION
+  SELECT user_id, balance FROM accounts WHERE user_id = 42;
+COMMIT TRANSACTION
+----
+
+Returns the balance under serializable isolation.
+
+=== Conditional update (check-and-set across partitions)
+
+[source,cql]
+----
+BEGIN TRANSACTION
+  LET row1 = (SELECT * FROM accounts WHERE user_id = 1);
+  LET row2 = (SELECT * FROM accounts WHERE user_id = 2);
+  SELECT row1.balance, row2.balance;
+  IF row1.balance >= 100 THEN
+    UPDATE accounts SET balance = balance - 100 WHERE user_id = 1;
+    UPDATE accounts SET balance = balance + 100 WHERE user_id = 2;
+  END IF
+COMMIT TRANSACTION
+----
+
+Reads both accounts, returns the balances, and transfers funds only if the sender has sufficient balance.
+All reads and writes commit atomically.
+
+Source pattern: https://github.com/apache/cassandra/blob/trunk/src/antlr/Parser.g[`Parser.g`] lines 759-766 (comment example).
+
+=== Read-write with reference (read current value, write derived value)
+
+[source,cql]
+----
+BEGIN TRANSACTION
+  LET current = (SELECT * FROM counters WHERE id = 'pageviews');
+  SELECT current.count;
+  IF current IS NOT NULL THEN
+    UPDATE counters SET count = current.count + 1 WHERE id = 'pageviews';
+  END IF
+COMMIT TRANSACTION
+----
+
+Reads the current count and increments it conditionally.
+Source: https://github.com/apache/cassandra/blob/trunk/test/unit/org/apache/cassandra/cql3/PreparedStatementsTest.java[`PreparedStatementsTest.java`] lines 800-810.
+
+=== Existence check before insert
+
+[source,cql]
+----
+BEGIN TRANSACTION
+  LET existing = (SELECT * FROM users WHERE user_id = 7);
+  IF existing IS NULL THEN
+    INSERT INTO users (user_id, name) VALUES (7, 'Alice');
+  END IF
+COMMIT TRANSACTION
+----
+
+Inserts a row only if it does not already exist.
+
+== Consistency Semantics
+
+Accord transactions provide **serializable isolation**.
+All reads within a transaction observe a consistent snapshot as of the transaction's `executeAt` timestamp, and all writes are committed atomically.
+
+=== Supported Consistency Levels
+
+The consistency level passed to the transaction controls interoperability behavior during migration.
+Source: https://github.com/apache/cassandra/blob/trunk/src/java/org/apache/cassandra/service/accord/IAccordService.java[`IAccordService.java`] lines 79-80.
+
+[cols="1,2"]
+|===
+| Direction | Supported Levels
+
+| Read / commit
+| `ONE`, `QUORUM`, `SERIAL`, `ALL`
+
+| Write / commit
+| `ANY`, `ONE`, `QUORUM`, `SERIAL`, `ALL`
+|===
+
+[IMPORTANT]
+====
+The following consistency levels are *not supported* by Accord: `LOCAL_ONE`, `LOCAL_QUORUM`, `LOCAL_SERIAL`, `EACH_QUORUM`, `TWO`, `THREE`.
+Accord rejects unsupported levels even when they would not affect execution, to ensure future migration compatibility.
+Source: https://github.com/apache/cassandra/blob/trunk/src/java/org/apache/cassandra/service/accord/IAccordService.java[`IAccordService.java`].
+====
+
+When `ONE` is specified as the write consistency level, Accord silently performs the commit at `QUORUM`.
+Source: xref:contributors:architecture/cql-on-accord.adoc[CQL on Accord], "Supported consistency levels" section.
+
+The effective consistency level also depends on the table's `transactional_mode` and its migration state.
+See xref:operators:upgrade/onboarding-to-accord.adoc[Onboarding to Accord] for the full consistency semantics table.
+
+=== Isolation
+
+Accord provides serializable isolation for transactions.
+All reads within a transaction execute at a single consistent `executeAt` timestamp determined by the Accord protocol.
+Source: https://github.com/apache/cassandra/blob/trunk/src/java/org/apache/cassandra/cql3/statements/TransactionStatement.java[`TransactionStatement.java`] `createTxn` method.
+
+=== Timestamp Assignment
+
+The transaction timestamp is assigned by Accord and cannot be overridden with `USING TIMESTAMP`.
+Source: `TransactionStatement.java` `NO_TIMESTAMPS_IN_UPDATES_MESSAGE`.
+
+=== Paging Behavior
+
+[NOTE]
+====
+Each page of a paged result runs as a separate Accord transaction.
+This is an inference from the per-statement execution model; the exact paging contract is not fully documented in trunk sources and should be verified before release.
+====
+
+== Restrictions
+
+The following are not permitted inside a `BEGIN TRANSACTION` block.
+All restrictions are derived from https://github.com/apache/cassandra/blob/trunk/src/java/org/apache/cassandra/cql3/statements/TransactionStatement.java[`TransactionStatement.java`].
+
+[cols="2,3"]
+|===
+| Restriction | Error message (truncated)
+
+| Empty transaction (no reads or writes)
+| `Transaction contains no reads or writes`
+
+| `USING TIMESTAMP` on modification statements
+| `Updates within transactions may not specify custom timestamps`
+
+| `USING TTL` on modification statements
+| `Updates within transactions may not specify custom ttls`
+
+| `IF [NOT] EXISTS` or other CAS conditions on individual statements
+| `Updates within transactions may not specify their own conditions`
+
+| Counter column access (read or write)
+| `Counter columns cannot be accessed within a transaction`
+
+| Aggregation functions in `SELECT`
+| `No aggregation functions allowed within a transaction`
+
+| `ORDER BY` in `SELECT`
+| `No ORDER BY clause allowed within a transaction`
+
+| `GROUP BY` in `SELECT`
+| `No GROUP BY clause allowed within a transaction`
+
+| Partition range query in `LET` or returning `SELECT`
+| `Range queries are not allowed for reads within a transaction`
+
+| Incomplete partition key in `LET` or `SELECT`
+| `SELECT must specify either all partition key elements`
+
+| Duplicate `LET` name
+| `The name '<name>' has already been used by a LET assignment`
+
+| `LET`-only transaction (no SELECT, no writes)
+| `Transaction contains no reads or writes`
+
+| `IN` clause + `LIMIT` on partition key
+| `Partition key is present in IN clause and there is a LIMIT`
+
+| Selecting entire LET row variable without column (`SELECT row1`)
+| `SELECT references must specify a column`
+
+| Table with `transactional_mode = 'off'`
+| `Accord transactions are disabled on table`
+
+| Accord globally disabled (`accord.enabled: false`)
+| `Accord transactions are disabled. (See accord.enabled in cassandra.yaml)`
+
+| Using `USING TIMESTAMP` in primary key value via reference
+| `Cannot set partition key column '<col>' to a LET reference value`
+
+| Transaction with no SELECT and no writes after conditional evaluation
+| Write operations are silently ignored (logged at WARN level); source: `TransactionStatement.java` `WRITE_TXN_EMPTY_WITH_IGNORED_READS`
+
+| Multi-partition transaction while table is migrating away from Accord
+| `Transaction Statement is unsupported when migrating away from Accord or before migration to Accord is complete for a range`
+|===
+
+== Error Conditions
+
+=== At Parse Time (SyntaxException)
+
+* `IF ... THEN` block without closing `END IF`: parse fails with `failed predicate`.
+* `END IF` without a preceding `IF`: parse fails with `failed predicate`.
+* Referencing `<name>.<column>` outside a transaction (no `BEGIN TRANSACTION` context): parse fails.
+
+=== At Prepare Time (InvalidRequestException)
+
+All `checkFalse`/`checkTrue`/`checkNotNull` assertions in `TransactionStatement.Parsed.prepare()` raise `InvalidRequestException` at statement preparation.
+See the restrictions table above for the corresponding messages.
+
+=== At Execution Time (InvalidRequestException)
+
+* Accord disabled globally: raised at execution.
+* Table migrating away from Accord: `UNSUPPORTED_MIGRATION` raised as `InvalidRequestException`.
+* Validation rejection from the Accord protocol (e.g., constraint violations propagated from replicas): raised via `TxnValidationRejection`.
+  Source: `TransactionStatement.java` line 566.
+
+[NOTE]
+====
+As of CASSANDRA-21061 (included in 6.0-alpha1), Accord write rejections are returned as `INVALID` responses rather than server errors.
+Source: `CHANGES-tail-triage.md` entry for CASSANDRA-21061.
+====
+
+=== Consistency Level Errors
+
+Unsupported consistency levels (`LOCAL_QUORUM`, `TWO`, etc.) are rejected at execution time by Accord.
+Source: https://github.com/apache/cassandra/blob/trunk/src/java/org/apache/cassandra/service/accord/IAccordService.java[`IAccordService.java`].
+
+== Prepared Statements
+
+`BEGIN TRANSACTION` statements cannot be used as traditional CQL prepared statements (the `PREPARE` command will succeed but the statement is not cached in the usual way).
+Source: `TransactionStatement.java` `eligibleAsPreparedStatement()` returns `false`.
+
+[NOTE]
+====
+Driver-level prepared statement APIs (Java driver `session.prepare(...)`) do work for transactions in practice, as shown in
+https://github.com/apache/cassandra/blob/trunk/test/unit/org/apache/cassandra/cql3/PreparedStatementsTest.java[`PreparedStatementsTest.java`] lines 796-810.
+The server-side behavior of `eligibleAsPreparedStatement()` returning `false` means the statement is not eligible for the server-side prepared statement cache.
+The exact driver interaction semantics should be confirmed before publication.
+====
+
+== Bind Variables
+
+Bind variables (`?`) are supported within the statements inside a transaction body, following the same rules as standalone CQL statements.
+Source: https://github.com/apache/cassandra/blob/trunk/test/unit/org/apache/cassandra/cql3/PreparedStatementsTest.java[`PreparedStatementsTest.java`] lines 243-249 (SELECT with `WHERE a = ?`), lines 806-808 (LET and UPDATE with `WHERE pk = ?`).
+
+== Audit Logging
+
+`BEGIN TRANSACTION` statements are logged with audit entry type `TRANSACTION`.
+Source: `TransactionStatement.java` `getAuditLogContext()`.
+
+== Permission Model
+
+Authorization for a transaction checks:
+
+* `SELECT` permission for every table referenced in `LET` and returning `SELECT` statements.
+* Write permission (`MODIFY`) for every table referenced in `INSERT`, `UPDATE`, and `DELETE` statements.
+
+Source: `TransactionStatement.java` `authorize(ClientState state)`.
+
+== Related Pages
+
+* xref:contributors:architecture/accord.adoc[Accord] — Overview of the Accord transaction protocol.
+* xref:contributors:architecture/accord-architecture.adoc[Accord Architecture] — Internal implementation details for contributors.
+* xref:contributors:architecture/cql-on-accord.adoc[Developers guide to CQL on Accord] — How CQL statements map to Accord transactions internally.
+* xref:operators:upgrade/onboarding-to-accord.adoc[Onboarding to Accord] — Operator guide: enabling Accord, configuring tables, migration procedures.
+* xref:cql/dml.adoc[Data Manipulation Language] — Standard INSERT, UPDATE, DELETE, SELECT reference.
+
+== Unresolved Questions
+
+The following items require verification or additional research before this page can be promoted from draft status:
+
+. *Prepared statement behavior*: The interaction between `eligibleAsPreparedStatement() = false` and driver-level `PREPARE` needs clarification. The server-side vs. driver-side semantics are not fully documented in trunk sources.
+
+. *Paging semantics*: Whether each page of a paged result constitutes a separate transaction is inferred but not explicitly documented in the grammar or TransactionStatement. Confirm with a contributor.
+
+. *CASSANDRA-20883 binary protocol conditions*: The triage file notes binary protocol multiple conditions for transactions. The exact new error codes or result types introduced by this JIRA have not been investigated.
+
+. *`accord.enabled` default*: The `cassandra.yaml` default for `accord.enabled` is `false` per the research file. Verify this is still the case in the final 6.0 release before publishing this page.
+
+. *`transactional_mode = 'mixed_reads'` in transactions*: Whether a table with `mixed_reads` can participate in a `BEGIN TRANSACTION` block (as opposed to only having non-transactional reads routed outside Accord) should be clarified.
+
+. *Multi-table transaction key type restriction*: Accord supports only key transactions or range transactions, not both within the same transaction. The user-visible restriction (if any, beyond partition range queries being rejected) should be documented explicitly.

@@ -5,4 +5,30 @@
 *Preview | Unofficial | For review only*
 ====
 
-This section covers configuration reference, metrics, virtual tables, and generated documentation for Apache Cassandra 6.
+Lookup-oriented reference material for Apache Cassandra 6.
+
+== Configuration
+
+* xref:configuration/cassandra_yaml_file.adoc[cassandra.yaml Reference]
+
+== Tools
+
+* xref:nodetool/nodetool.adoc[Nodetool Command Reference]
+* xref:cqlsh.adoc[cqlsh]
+* xref:sstable/sstabledump.adoc[sstabledump]
+* xref:sstable/sstableloader.adoc[sstableloader]
+* xref:sstable/sstablescrub.adoc[sstablescrub]
+* xref:sstable/sstableexpiredblockers.adoc[sstableexpiredblockers]
+
+== Protocol
+
+* xref:native-protocol.adoc[Native Protocol Specification]
+
+== CQL Commands
+
+* xref:cql-commands/commands-toc.adoc[CQL Commands Reference]
+* xref:cql-commands/compact-subproperties.adoc[Compaction Subproperties]
+
+== SAI
+
+* xref:sai-virtual-table-indexes.adoc[SAI Virtual Table Indexes]

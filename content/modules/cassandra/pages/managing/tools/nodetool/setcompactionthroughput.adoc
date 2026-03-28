@@ -1,7 +1,0 @@
-= setcompactionthroughput
-
-== Usage
-[source,plaintext]
-----
-include::cassandra:example$TEXT/NODETOOL/setcompactionthroughput.txt[]
-----
