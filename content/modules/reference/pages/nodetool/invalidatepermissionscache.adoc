@@ -1,7 +1,0 @@
-= invalidatepermissionscache
-
-== Usage
-[source,plaintext]
-----
-include::reference:example$TEXT/NODETOOL/invalidatepermissionscache.txt[]
-----

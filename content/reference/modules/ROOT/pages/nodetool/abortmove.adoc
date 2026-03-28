@@ -1,0 +1,7 @@
+= abortmove
+
+== Usage
+[source,plaintext]
+----
+include::example$TEXT/NODETOOL/abortmove.txt[]
+----

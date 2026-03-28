@@ -1,7 +1,0 @@
-= dropcidrgroup
-
-== Usage
-[source,plaintext]
-----
-include::reference:example$TEXT/NODETOOL/dropcidrgroup.txt[]
-----

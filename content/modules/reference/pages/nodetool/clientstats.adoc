@@ -1,7 +1,0 @@
-= clientstats
-
-== Usage
-[source,plaintext]
-----
-include::reference:example$TEXT/NODETOOL/clientstats.txt[]
-----

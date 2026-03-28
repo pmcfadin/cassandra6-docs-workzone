@@ -1,7 +1,0 @@
-= getfullquerylog
-
-== Usage
-[source,plaintext]
-----
-include::reference:example$TEXT/NODETOOL/getfullquerylog.txt[]
-----

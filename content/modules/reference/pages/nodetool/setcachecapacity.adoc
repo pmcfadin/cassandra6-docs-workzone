@@ -1,7 +1,0 @@
-= setcachecapacity
-
-== Usage
-[source,plaintext]
-----
-include::reference:example$TEXT/NODETOOL/setcachecapacity.txt[]
-----

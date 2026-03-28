@@ -1,7 +1,0 @@
-= resetlocalschema
-
-== Usage
-[source,plaintext]
-----
-include::reference:example$TEXT/NODETOOL/resetlocalschema.txt[]
-----

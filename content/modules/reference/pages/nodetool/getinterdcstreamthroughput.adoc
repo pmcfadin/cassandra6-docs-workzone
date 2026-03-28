@@ -1,7 +1,0 @@
-= getinterdcstreamthroughput
-
-== Usage
-[source,plaintext]
-----
-include::reference:example$TEXT/NODETOOL/getinterdcstreamthroughput.txt[]
-----

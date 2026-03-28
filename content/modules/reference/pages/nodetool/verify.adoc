@@ -1,7 +1,0 @@
-= verify
-
-== Usage
-[source,plaintext]
-----
-include::reference:example$TEXT/NODETOOL/verify.txt[]
-----

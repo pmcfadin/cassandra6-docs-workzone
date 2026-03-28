@@ -1,7 +1,0 @@
-= forcecompact
-
-== Usage
-[source,plaintext]
-----
-include::reference:example$TEXT/NODETOOL/forcecompact.txt[]
-----

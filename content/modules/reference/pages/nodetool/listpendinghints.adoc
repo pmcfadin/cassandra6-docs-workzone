@@ -1,7 +1,0 @@
-= listpendinghints
-
-== Usage
-[source,plaintext]
-----
-include::reference:example$TEXT/NODETOOL/listpendinghints.txt[]
-----

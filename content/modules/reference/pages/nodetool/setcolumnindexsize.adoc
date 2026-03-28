@@ -1,7 +1,0 @@
-= setcolumnindexsize
-
-== Usage
-[source,plaintext]
-----
-include::reference:example$TEXT/NODETOOL/setcolumnindexsize.txt[]
-----

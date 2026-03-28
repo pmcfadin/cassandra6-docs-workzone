@@ -1,7 +1,0 @@
-= getendpoints
-
-== Usage
-[source,plaintext]
-----
-include::reference:example$TEXT/NODETOOL/getendpoints.txt[]
-----

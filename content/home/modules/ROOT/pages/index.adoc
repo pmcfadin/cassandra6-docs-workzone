@@ -1,0 +1,28 @@
+= Apache Cassandra 6 Documentation (Draft)
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+
+This site is a *draft preview* of proposed Apache Cassandra 6 documentation.
+It is maintained in the https://github.com/patrickdmccarthy/cassandra6-docs-workzone[cassandra6-docs-workzone] repository and is *not* an official Apache Software Foundation publication.
+
+Approved content will be migrated to the official https://cassandra.apache.org/doc/[Apache Cassandra documentation] through the standard ASF review process.
+====
+
+== What are you trying to do?
+
+Operators:: xref:operators::index.adoc[Run Cassandra] — install, configure, operate, secure, upgrade, and monitor your cluster.
+
+Developers:: xref:developers::index.adoc[Build with Cassandra] — CQL, drivers, data modeling, and application patterns.
+
+Contributors:: xref:contributors::index.adoc[Contribute to Cassandra] — architecture, building from source, testing, and the contribution workflow.
+
+Reference:: xref:reference::index.adoc[Browse Reference] — configuration, nodetool, native protocol, and CQL command reference.
+
+== Quick Links
+
+* xref:cassandra:new/index.adoc[What's new in Cassandra 6]
+* xref:operators::upgrade/onboarding-to-accord.adoc[Upgrade to Cassandra 6]
+* xref:operators::tcm-overview.adoc[Transactional Cluster Metadata (TCM)]
+* xref:operators::troubleshoot/use_nodetool.adoc[Troubleshoot a cluster]

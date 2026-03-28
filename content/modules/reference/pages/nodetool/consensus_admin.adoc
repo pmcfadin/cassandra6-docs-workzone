@@ -1,7 +1,0 @@
-= consensus_admin
-
-== Usage
-[source,plaintext]
-----
-include::reference:example$TEXT/NODETOOL/consensus_admin.txt[]
-----

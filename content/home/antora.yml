@@ -1,0 +1,17 @@
+name: home
+version: 'draft'
+display_version: '6.0-draft'
+prerelease: true
+title: 'Apache Cassandra 6'
+
+asciidoc:
+  attributes:
+    cass_url: 'http://cassandra.apache.org/'
+    product: 'Apache Cassandra'
+    cassandra: 'Cassandra'
+    cass-version: '6.0'
+    draft-banner: 'Preview | Unofficial | For review only'
+
+nav:
+- modules/ROOT/nav.adoc
+- modules/cassandra/nav.adoc

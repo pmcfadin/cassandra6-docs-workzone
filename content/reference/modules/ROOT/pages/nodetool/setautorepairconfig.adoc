@@ -1,0 +1,7 @@
+= setautorepairconfig
+
+== Usage
+[source,plaintext]
+----
+include::example$TEXT/NODETOOL/setautorepairconfig.txt[]
+----

@@ -1,7 +1,0 @@
-= getbatchlogreplaythrottle
-
-== Usage
-[source,plaintext]
-----
-include::reference:example$TEXT/NODETOOL/getbatchlogreplaythrottle.txt[]
-----

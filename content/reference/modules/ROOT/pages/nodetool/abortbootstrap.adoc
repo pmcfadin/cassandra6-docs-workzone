@@ -1,0 +1,7 @@
+= abortbootstrap
+
+== Usage
+[source,plaintext]
+----
+include::example$TEXT/NODETOOL/abortbootstrap.txt[]
+----

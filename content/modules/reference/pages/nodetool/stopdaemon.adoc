@@ -1,7 +1,0 @@
-= stopdaemon
-
-== Usage
-[source,plaintext]
-----
-include::reference:example$TEXT/NODETOOL/stopdaemon.txt[]
-----

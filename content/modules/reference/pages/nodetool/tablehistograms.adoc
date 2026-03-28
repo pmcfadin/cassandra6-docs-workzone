@@ -1,7 +1,0 @@
-= tablehistograms
-
-== Usage
-[source,plaintext]
-----
-include::reference:example$TEXT/NODETOOL/tablehistograms.txt[]
-----

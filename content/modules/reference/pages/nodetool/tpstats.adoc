@@ -1,7 +1,0 @@
-= tpstats
-
-== Usage
-[source,plaintext]
-----
-include::reference:example$TEXT/NODETOOL/tpstats.txt[]
-----

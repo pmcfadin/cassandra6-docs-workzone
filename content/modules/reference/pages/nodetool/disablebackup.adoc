@@ -1,7 +1,0 @@
-= disablebackup
-
-== Usage
-[source,plaintext]
-----
-include::reference:example$TEXT/NODETOOL/disablebackup.txt[]
-----

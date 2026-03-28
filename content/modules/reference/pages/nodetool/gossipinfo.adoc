@@ -1,7 +1,0 @@
-= gossipinfo
-
-== Usage
-[source,plaintext]
-----
-include::reference:example$TEXT/NODETOOL/gossipinfo.txt[]
-----

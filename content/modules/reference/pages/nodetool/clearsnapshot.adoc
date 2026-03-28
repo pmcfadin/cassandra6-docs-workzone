@@ -1,7 +1,0 @@
-= clearsnapshot
-
-== Usage
-[source,plaintext]
-----
-include::reference:example$TEXT/NODETOOL/clearsnapshot.txt[]
-----

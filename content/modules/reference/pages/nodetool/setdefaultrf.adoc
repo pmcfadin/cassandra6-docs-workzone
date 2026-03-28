@@ -1,7 +1,0 @@
-= setdefaultrf
-
-== Usage
-[source,plaintext]
-----
-include::reference:example$TEXT/NODETOOL/setdefaultrf.txt[]
-----

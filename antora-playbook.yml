@@ -10,12 +10,24 @@
 site:
   title: 'Apache Cassandra 6 Docs — Preview'
   url: ~
-  start_page: cassandra-6-draft::index.adoc
+  start_page: home::index.adoc
 
 content:
   sources:
     - url: .
-      start_path: content
+      start_path: content/home
+      branches: HEAD
+    - url: .
+      start_path: content/operators
+      branches: HEAD
+    - url: .
+      start_path: content/developers
+      branches: HEAD
+    - url: .
+      start_path: content/contributors
+      branches: HEAD
+    - url: .
+      start_path: content/reference
       branches: HEAD
 
 ui:

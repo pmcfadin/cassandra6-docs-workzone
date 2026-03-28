@@ -1,7 +1,0 @@
-= autorepairstatus
-
-== Usage
-[source,plaintext]
-----
-include::reference:example$TEXT/NODETOOL/autorepairstatus.txt[]
-----

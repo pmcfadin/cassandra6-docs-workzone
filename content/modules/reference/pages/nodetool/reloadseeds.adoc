@@ -1,7 +1,0 @@
-= reloadseeds
-
-== Usage
-[source,plaintext]
-----
-include::reference:example$TEXT/NODETOOL/reloadseeds.txt[]
-----

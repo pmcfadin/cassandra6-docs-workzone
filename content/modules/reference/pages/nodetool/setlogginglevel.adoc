@@ -1,7 +1,0 @@
-= setlogginglevel
-
-== Usage
-[source,plaintext]
-----
-include::reference:example$TEXT/NODETOOL/setlogginglevel.txt[]
-----

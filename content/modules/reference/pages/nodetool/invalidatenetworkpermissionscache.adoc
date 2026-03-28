@@ -1,7 +1,0 @@
-= invalidatenetworkpermissionscache
-
-== Usage
-[source,plaintext]
-----
-include::reference:example$TEXT/NODETOOL/invalidatenetworkpermissionscache.txt[]
-----
