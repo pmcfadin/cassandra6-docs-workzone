@@ -22,7 +22,7 @@ A function is identifier by its name:
 
 [source, bnf]
 ----
-include::cassandra:example$BNF/function.bnf[]
+include::Cassandra:cassandra:example$BNF/function.bnf[]
 ----
 
 == Scalar functions
@@ -114,7 +114,7 @@ For example, consider the following table:
 
 [source,sql]
 ----
-include::cassandra:example$CQL/create_table_simple.cql[]
+include::Cassandra:cassandra:example$CQL/create_table_simple.cql[]
 ----
 
 The table uses the default Murmur3Partitioner.
@@ -139,7 +139,7 @@ For example, a query of the form:
 
 [source,sql]
 ----
-include::cassandra:example$CQL/timeuuid_now.cql[]
+include::Cassandra:cassandra:example$CQL/timeuuid_now.cql[]
 ----
 
 will not return a result, by design, since the value returned by
@@ -157,7 +157,7 @@ For example:
 
 [source,sql]
 ----
-include::cassandra:example$CQL/timeuuid_min_max.cql[]
+include::Cassandra:cassandra:example$CQL/timeuuid_min_max.cql[]
 ----
 
 will select all rows where the `timeuuid` column `t` is later than `'2013-01-01 00:05+0000'` and earlier than `'2013-02-02 10:00+0000'`.
@@ -192,7 +192,7 @@ For example the last two days of data can be retrieved using:
 
 [source,sql]
 ----
-include::cassandra:example$CQL/current_date.cql[]
+include::Cassandra:cassandra:example$CQL/current_date.cql[]
 ----
 
 ===== Time conversion functions
@@ -222,7 +222,7 @@ For example, a timestamp can be converted to a date with the following:
 
 [source,cql]
 ----
-include::cassandra:example$CQL/to_date.cql[]
+include::Cassandra:cassandra:example$CQL/to_date.cql[]
 ----
 
 ==== Blob conversion functions
@@ -329,14 +329,14 @@ A number of functions are provided to operate on collection columns.
 
 A number of functions allow to obscure the real contents of a column containing sensitive data.
 
-include::cassandra:partial$masking_functions.adoc[]
+include::Cassandra:cassandra:partial$masking_functions.adoc[]
 
 [[vector-similarity-functions]]
 ===== Vector similarity functions
 
 A number of functions allow to obtain the similarity score between vectors of floats.
 
-include::cassandra:partial$vector-search/vector_functions.adoc[]
+include::Cassandra:cassandra:partial$vector-search/vector_functions.adoc[]
 
 [[human-helper-functions]]
 ==== Human helper functions
@@ -541,7 +541,7 @@ For example:
 
 [source,sql]
 ----
-include::cassandra:example$CQL/function_overload.cql[]
+include::Cassandra:cassandra:example$CQL/function_overload.cql[]
 ----
 
 User-defined functions (UDFs) are prone to the typical issues associated with the programming language they are written in.
@@ -562,28 +562,28 @@ For example:
 
 [source,sql]
 ----
-include::cassandra:example$CQL/function_dollarsign.cql[]
+include::Cassandra:cassandra:example$CQL/function_dollarsign.cql[]
 ----
 
 The implicitly available `udfContext` field (or binding for script UDFs) provides the necessary functionality to create new UDT and tuple values:
 
 [source,sql]
 ----
-include::cassandra:example$CQL/function_udfcontext.cql[]
+include::Cassandra:cassandra:example$CQL/function_udfcontext.cql[]
 ----
 
 The definition of the `UDFContext` interface can be found in the Apache Cassandra source code for `org.apache.cassandra.cql3.functions.UDFContext`.
 
 [source,java]
 ----
-include::cassandra:example$JAVA/udfcontext.java[]
+include::Cassandra:cassandra:example$JAVA/udfcontext.java[]
 ----
 
 Java UDFs already have some imports for common interfaces and classes defined. These imports are:
 
 [source,java]
 ----
-include::cassandra:example$JAVA/udf_imports.java[]
+include::Cassandra:cassandra:example$JAVA/udf_imports.java[]
 ----
 
 Please note, that these convenience imports are not available for script UDFs.
@@ -595,14 +595,14 @@ Creating a new user-defined function uses the `CREATE FUNCTION` statement:
 
 [source,bnf]
 ----
-include::cassandra:example$BNF/create_function_statement.bnf[]
+include::Cassandra:cassandra:example$BNF/create_function_statement.bnf[]
 ----
 
 For example:
 
 [source,sql]
 ----
-include::cassandra:example$CQL/create_function.cql[]
+include::Cassandra:cassandra:example$CQL/create_function.cql[]
 ----
 
 `CREATE FUNCTION` with the optional `OR REPLACE` keywords creates either a function or replaces an existing one with the same signature.
@@ -632,14 +632,14 @@ Dropping a function uses the `DROP FUNCTION` statement:
 
 [source, bnf]
 ----
-include::cassandra:example$BNF/drop_function_statement.bnf[]
+include::Cassandra:cassandra:example$BNF/drop_function_statement.bnf[]
 ----
 
 For example:
 
 [source,sql]
 ----
-include::cassandra:example$CQL/drop_function.cql[]
+include::Cassandra:cassandra:example$CQL/drop_function.cql[]
 ----
 
 You must specify the argument types of the function, the arguments_signature, in the drop command if there are multiple overloaded functions with the same name but different signatures.
@@ -665,14 +665,14 @@ For example:
 
 [source,sql]
 ----
-include::cassandra:example$CQL/count.cql[]
+include::Cassandra:cassandra:example$CQL/count.cql[]
 ----
 
 It also can count the non-null values of a given column:
 
 [source,sql]
 ----
-include::cassandra:example$CQL/count_nonnull.cql[]
+include::Cassandra:cassandra:example$CQL/count_nonnull.cql[]
 ----
 
 ==== Max and Min
@@ -683,7 +683,7 @@ For example:
 
 [source,sql]
 ----
-include::cassandra:example$CQL/min_max.cql[]
+include::Cassandra:cassandra:example$CQL/min_max.cql[]
 ----
 
 ==== Sum
@@ -696,7 +696,7 @@ For example:
 
 [source,sql]
 ----
-include::cassandra:example$CQL/sum.cql[]
+include::Cassandra:cassandra:example$CQL/sum.cql[]
 ----
 
 The returned value is of the same type as the input values, so there is a risk of overflowing the type if the sum of the
@@ -705,7 +705,7 @@ type large enough to contain the type. For example:
 
 [source,sql]
 ----
-include::cassandra:example$CQL/sum_with_cast.cql[]
+include::Cassandra:cassandra:example$CQL/sum_with_cast.cql[]
 ----
 
 ==== Avg
@@ -716,7 +716,7 @@ For example:
 
 [source,sql]
 ----
-include::cassandra:example$CQL/avg.cql[]
+include::Cassandra:cassandra:example$CQL/avg.cql[]
 ----
 
 The average of an empty collection returns zero.
@@ -727,7 +727,7 @@ You can use type casting to cast to a type with the desired decimal precision. F
 
 [source,sql]
 ----
-include::cassandra:example$CQL/avg_with_cast.cql[]
+include::Cassandra:cassandra:example$CQL/avg_with_cast.cql[]
 ----
 
 [[user-defined-aggregates-functions]]
@@ -751,7 +751,7 @@ keyspace has been selected using the `USE` statement):
 
 [source,sql]
 ----
-include::cassandra:example$CQL/uda.cql[]
+include::Cassandra:cassandra:example$CQL/uda.cql[]
 ----
 
 [[create-aggregate-statement]]
@@ -762,7 +762,7 @@ Creating (or replacing) a user-defined aggregate function uses the
 
 [source, bnf]
 ----
-include::cassandra:example$BNF/create_aggregate_statement.bnf[]
+include::Cassandra:cassandra:example$BNF/create_aggregate_statement.bnf[]
 ----
 
 See above for a complete example.
@@ -797,14 +797,14 @@ statement:
 
 [source, bnf]
 ----
-include::cassandra:example$BNF/drop_aggregate_statement.bnf[]
+include::Cassandra:cassandra:example$BNF/drop_aggregate_statement.bnf[]
 ----
 
 For instance:
 
 [source,sql]
 ----
-include::cassandra:example$CQL/drop_aggregate.cql[]
+include::Cassandra:cassandra:example$CQL/drop_aggregate.cql[]
 ----
 
 The `DROP AGGREGATE` statement removes an aggregate created using `CREATE AGGREGATE`.

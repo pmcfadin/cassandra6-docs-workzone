@@ -5,10 +5,10 @@ This example uses the following table and indexes:
 
 [source,sql]
 ----
-include::cassandra:example$CQL/sai/cyclist_teams-table.cql[tag=mapColumn]
-include::cassandra:example$CQL/sai/index-sai-from-map-match.cql[tag=keysidx]
-include::cassandra:example$CQL/sai/index-sai-from-map-match.cql[tag=entriesidx]
-include::cassandra:example$CQL/sai/index-sai-from-map-match.cql[tag=valuesidx]
+include::Cassandra:cassandra:example$CQL/sai/cyclist_teams-table.cql[tag=mapColumn]
+include::Cassandra:cassandra:example$CQL/sai/index-sai-from-map-match.cql[tag=keysidx]
+include::Cassandra:cassandra:example$CQL/sai/index-sai-from-map-match.cql[tag=entriesidx]
+include::Cassandra:cassandra:example$CQL/sai/index-sai-from-map-match.cql[tag=valuesidx]
 ----
 
 Indexes created on the map column `teams` in the `cyclist_career_teams` table target the keys, values, and full entries of the column data.
@@ -22,7 +22,7 @@ CQL::
 --
 [source,language-cql]
 ----
-include::cassandra:example$CQL/sai/index-sai-select-from-map-key.cql[]
+include::Cassandra:cassandra:example$CQL/sai/index-sai-select-from-map-key.cql[]
 ----
 --
 
@@ -31,7 +31,7 @@ Result::
 --
 [source,console]
 ----
-include::cassandra:example$RESULTS/sai/index-sai-select-from-map-key.result[]
+include::Cassandra:cassandra:example$RESULTS/sai/index-sai-select-from-map-key.result[]
 ----
 --
 ====
@@ -45,7 +45,7 @@ CQL::
 --
 [source,language-cql]
 ----
-include::cassandra:example$CQL/sai/index-sai-select-from-map-value.cql[]
+include::Cassandra:cassandra:example$CQL/sai/index-sai-select-from-map-value.cql[]
 ----
 --
 
@@ -54,7 +54,7 @@ Result::
 --
 [source,console]
 ----
-include::cassandra:example$RESULTS/sai/index-sai-select-from-map-value.result[]
+include::Cassandra:cassandra:example$RESULTS/sai/index-sai-select-from-map-value.result[]
 ----
 --
 ====
@@ -68,7 +68,7 @@ CQL::
 --
 [source,language-cql]
 ----
-include::cassandra:example$CQL/sai/index-sai-select-from-map-entries.cql[]
+include::Cassandra:cassandra:example$CQL/sai/index-sai-select-from-map-entries.cql[]
 ----
 --
 
@@ -77,7 +77,7 @@ Result::
 --
 [source,console]
 ----
-include::cassandra:example$RESULTS/sai/index-sai-select-from-map-entries.result[]
+include::Cassandra:cassandra:example$RESULTS/sai/index-sai-select-from-map-entries.result[]
 ----
 --
 ====

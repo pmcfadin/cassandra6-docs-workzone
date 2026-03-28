@@ -120,8 +120,8 @@ include::_collections-map.adoc[leveloffset=+1]
 
 For more information, see:
 
-* xref:developing/cql/create-custom-index.adoc[CREATE CUSTOM INDEX]
-* xref:developing/cql/collections/collection-create.adoc[Creating collections]
-* xref:developing/cql/collections/set.adoc[Using set type]
-* xref:developing/cql/collections/list.adoc[Using list type]
-* xref:developing/cql/collections/map.adoc[Using map type]
+* xref:Cassandra:cassandra:developing/cql/create-custom-index.adoc[CREATE CUSTOM INDEX]
+* xref:Cassandra:cassandra:developing/cql/collections/collection-create.adoc[Creating collections]
+* xref:Cassandra:cassandra:developing/cql/collections/set.adoc[Using set type]
+* xref:Cassandra:cassandra:developing/cql/collections/list.adoc[Using list type]
+* xref:Cassandra:cassandra:developing/cql/collections/map.adoc[Using map type]

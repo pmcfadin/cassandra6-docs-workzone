@@ -13,7 +13,7 @@ From the index state, the data reveals if the index is currently building, and w
 +
 [TIP]
 ====
-include::cassandra:partial$sai/queryable-paragraph.adoc[]
+include::Cassandra:cassandra:partial$sai/queryable-paragraph.adoc[]
 ====
 
 * `system_views.sai_sstable_indexes` -- describes individual SSTable indexes, and includes information around disk size, min/max row ID, the min/max ring token, and the write-time version of the index.
@@ -51,7 +51,7 @@ The categorized data:
 * Range slice metrics
 
 For example, you can use metrics to get the current count of total partition reads since the node started for `cycling.cyclist_semi_pro`.
-The keyspace and table were defined in xref:home:cassandra:getting-started/sai-quickstart.adoc[SAI quickstart].
+The keyspace and table were defined in xref:Cassandra:cassandra:getting-started/sai-quickstart.adoc[SAI quickstart].
 This metric's `ObjectName`: `org.apache.cassandra.metrics:type=StorageAttachedIndex,keyspace=cycling,table=cyclist_semi_pro,scope=TableQueryMetrics,name=TotalPartitionReads`.
 
 The metrics are exposed via JMX, so any JMX-based tool can be used to monitor.
@@ -148,7 +148,7 @@ ObjectName: org.apache.cassandra.metrics:type=StorageAttachedIndex,keyspace=<key
 
 The column query metrics for the given keyspace, table, and index include:
 
-* `KDTreeNiceTryLatency` -- For numeric indexes, such as `age_sai_idx` in the xref:home:cassandra:getting-started/sai-quickstart.adoc[quickstart] examples, this metric may be used to present a histogram of the times spent waiting for chunk cache misses during kd-tree intersection (in microseconds) and one/five/fifteen minute chunk miss throughputs.
+* `KDTreeNiceTryLatency` -- For numeric indexes, such as `age_sai_idx` in the xref:Cassandra:cassandra:getting-started/sai-quickstart.adoc[quickstart] examples, this metric may be used to present a histogram of the times spent waiting for chunk cache misses during kd-tree intersection (in microseconds) and one/five/fifteen minute chunk miss throughputs.
 +
 [NOTE]
 ====
@@ -163,7 +163,7 @@ ObjectName: org.apache.cassandra.metrics:type=StorageAttachedIndex,keyspace=<key
 
 The column query metrics for the given keyspace, table, and index include:
 
-* `TermsLookupLatency` -- For string indexes, such as `country_sai_idx` in the xref:home:cassandra:getting-started/sai-quickstart.adoc[quickstart] examples, this metric shows terms lookup latency percentiles (in microseconds) per one/five/fifteen minute query throughput.
+* `TermsLookupLatency` -- For string indexes, such as `country_sai_idx` in the xref:Cassandra:cassandra:getting-started/sai-quickstart.adoc[quickstart] examples, this metric shows terms lookup latency percentiles (in microseconds) per one/five/fifteen minute query throughput.
 
 == Range slice metrics
 

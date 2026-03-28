@@ -2,9 +2,9 @@
 
 This section describes the general architecture of Apache Cassandra.
 
-* xref:architecture/overview.adoc[Overview]
+* xref:Cassandra:cassandra:architecture/overview.adoc[Overview]
 * xref:architecture/dynamo.adoc[Dynamo]
-* xref:architecture/storage-engine.adoc[Storage Engine]
-* xref:architecture/guarantees.adoc[Guarantees]
-* xref:architecture/snitch.adoc[Snitches]
+* xref:Cassandra:cassandra:architecture/storage-engine.adoc[Storage Engine]
+* xref:Cassandra:cassandra:architecture/guarantees.adoc[Guarantees]
+* xref:Cassandra:cassandra:architecture/snitch.adoc[Snitches]
 * xref:architecture/accord.adoc[Accord]

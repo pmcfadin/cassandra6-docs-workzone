@@ -5,8 +5,8 @@ This example uses the following table and index:
 
 [source,sql]
 ----
-include::cassandra:example$CQL/sai/cyclist_career_teams-table.cql[tag=setColumn]
-include::cassandra:example$CQL/sai/index-sai-from-set-match.cql[]
+include::Cassandra:cassandra:example$CQL/sai/cyclist_career_teams-table.cql[tag=setColumn]
+include::Cassandra:cassandra:example$CQL/sai/index-sai-from-set-match.cql[]
 ----
 
 An index is created on the set column `teams` in the `cyclist_career_teams` table.
@@ -20,7 +20,7 @@ CQL::
 --
 [source,language-cql]
 ----
-include::cassandra:example$CQL/sai/index-sai-select-from-set.cql[]
+include::Cassandra:cassandra:example$CQL/sai/index-sai-select-from-set.cql[]
 ----
 --
 
@@ -29,7 +29,7 @@ Result::
 --
 [source,console]
 ----
-include::cassandra:example$RESULTS/sai/index-sai-select-from-set.result[]
+include::Cassandra:cassandra:example$RESULTS/sai/index-sai-select-from-set.result[]
 ----
 --
 ====

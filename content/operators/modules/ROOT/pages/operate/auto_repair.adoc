@@ -85,14 +85,14 @@ In particular one should be mindful of the xref:operate/compaction-overview.adoc
 you use for your tables and how it might impact incremental repair before running incremental repair for the first
 time:
 
-- *Large SSTables*: When using xref:home:cassandra:managing/operating/compaction/stcs.adoc[SizeTieredCompactionStrategy] or any
+- *Large SSTables*: When using xref:Cassandra:cassandra:managing/operating/compaction/stcs.adoc[SizeTieredCompactionStrategy] or any
   compaction strategy which can create large SSTables including many partitions the amount of
   xref:operate/compaction-overview.adoc#types-of-compaction[anticompaction] that might be required could be
   excessive. Using a small `bytes_per_assignment` might contribute to repeated anticompactions over the same
   unrepaired data.
 - *Partitions overlapping many SSTables*: If partitions overlap between many SSTables, the amount of SSTables included
   in a repair might be large.  Therefore it is important to consider that many SSTables may be included in a repair
-  session and must all be anticompacted. xref:home:cassandra:managing/operating/compaction/lcs.adoc[LeveledCompactionStrategy] is less
+  session and must all be anticompacted. xref:Cassandra:cassandra:managing/operating/compaction/lcs.adoc[LeveledCompactionStrategy] is less
   susceptible to this issue as it prevents overlapping of partitions within levels outside of L0, but if SSTables
   start accumulating in L0 between incremental repairs, the cost of anticompaction will increase.
   xref:operate/ucs.adoc#sharding[UnifiedCompactionStrategy's sharding] can also be used to avoid

@@ -29,6 +29,12 @@ content:
     - url: .
       start_path: content/reference
       branches: HEAD
+    # Upstream Apache Cassandra trunk docs — provides all "unchanged" pages
+    # that the workzone didn't import (CQL commands, compaction strategies,
+    # getting-started, architecture, vector-search, data-modeling, etc.)
+    - url: https://github.com/apache/cassandra.git
+      start_path: doc
+      branches: trunk
 
 ui:
   bundle:

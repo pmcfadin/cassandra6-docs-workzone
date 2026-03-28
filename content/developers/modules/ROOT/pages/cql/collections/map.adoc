@@ -11,7 +11,7 @@ Each element can have an individual time-to-live and expire when the TTL ends.
 
 == Prerequisite
 
-* xref:developing/cql/keyspace-check.adoc[Keyspace] must exist
+* xref:Cassandra:cassandra:developing/cql/keyspace-check.adoc[Keyspace] must exist
 
 In the following example, each team listed in the `map` called `teams` will have a `year` of integer type and a `team name` of text type.
 The table is named `cyclist_teams`.
@@ -24,7 +24,7 @@ CQL::
 --
 [source,language-cql]
 ----
-include::cassandra:example$CQL/sai/cyclist_teams-table.cql[tag=mapColumn]
+include::Cassandra:cassandra:example$CQL/sai/cyclist_teams-table.cql[tag=mapColumn]
 ----
 --
 
@@ -33,7 +33,7 @@ Result::
 --
 [source,results]
 ----
-include::cassandra:example$RESULTS/sai/select_all_from_cyclist_teams.result[]
+include::Cassandra:cassandra:example$RESULTS/sai/select_all_from_cyclist_teams.result[]
 ----
 --
 ====

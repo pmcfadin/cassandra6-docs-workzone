@@ -9,7 +9,7 @@ Use the `list` data type to store data that has a possible many-to-many relation
 
 == Prerequisite
 
-* xref:developing/cql/keyspace-check.adoc[Keyspace] must exist
+* xref:Cassandra:cassandra:developing/cql/keyspace-check.adoc[Keyspace] must exist
 
 In the following example, a `list` called `events` stores all the race events on an upcoming calendar.
 The table is called `upcoming_calendar`. Each event listed in the `list` will have a `text` data type.
@@ -23,7 +23,7 @@ CQL::
 --
 [source,language-cql]
 ----
-include::cassandra:example$CQL/sai/upcoming_calendar-table.cql[tag=listColumn]
+include::Cassandra:cassandra:example$CQL/sai/upcoming_calendar-table.cql[tag=listColumn]
 ----
 --
 
@@ -32,7 +32,7 @@ Result::
 --
 [source,results]
 ----
-include::cassandra:example$RESULTS/sai/select_all_from_upcoming_calendar.result[]
+include::Cassandra:cassandra:example$RESULTS/sai/select_all_from_upcoming_calendar.result[]
 ----
 --
 ====

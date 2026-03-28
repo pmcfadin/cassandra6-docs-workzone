@@ -17,8 +17,8 @@ migrating from CQL running on Cassandra to CQL running on Accord.
 This guide doesn't cover how Accord works and doesn't cover all parts of
 Accord that are implemented in Cassandra like threading, caching,
 persistence, and messaging. It also isn't intended to be a user guide
-and doesn't fully overlap with the xref:operators::operate/onboarding-to-accord.adoc[user guide]. You should start with the
-xref:operators::operate/onboarding-to-accord.adoc[user guide] to get any context that may be missing here.
+and doesn't fully overlap with the xref:operators::upgrade/onboarding-to-accord.adoc[user guide]. You should start with the
+xref:operators::upgrade/onboarding-to-accord.adoc[user guide] to get any context that may be missing here.
 
 == Anatomy of a transaction
 

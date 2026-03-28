@@ -601,7 +601,7 @@ UCS handles the problem of space amplification by sharding on specific token bou
 LCS splits SSTables based on a fixed size with boundaries usually falling inside SSTables on the next level, kicking off compaction more frequently than necessary. Therefore UCS aids with tight write amplification control.
 Those boundaries guarantee that we can efficiently select higher-density SSTables that exactly match the span of the lower-density ones.
 
-// include::cassandra:partial$default-compaction-strategy.adoc[]
+// include::Cassandra:cassandra:partial$default-compaction-strategy.adoc[]
 
 [[ucs_options]]
 == UCS Options

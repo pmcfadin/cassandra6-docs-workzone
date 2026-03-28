@@ -34,6 +34,9 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Clone Apache Cassandra trunk docs
+        run: git clone --depth 1 --branch trunk https://github.com/apache/cassandra.git cassandra-upstream
+
       - name: Build Antora site
         run: npx antora antora-playbook.yml
 
@@ -66,6 +69,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+
+      - name: Clone Apache Cassandra trunk docs
+        run: git clone --depth 1 --branch trunk https://github.com/apache/cassandra.git cassandra-upstream
 
       - name: Build Antora site
         run: npx antora antora-playbook.yml

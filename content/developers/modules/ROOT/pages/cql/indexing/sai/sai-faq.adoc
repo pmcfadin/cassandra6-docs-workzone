@@ -13,14 +13,14 @@ SAI combines:
 
 == Which databases are supported?
 
-include::cassandra:partial$sai/support-databases.adoc[]
+include::Cassandra:cassandra:partial$sai/support-databases.adoc[]
 
 After creating your database, a keyspace, and one or more tables, use `+CREATE INDEX ...
 USING 'sai'+` to define one or more SAI indexes on the table.
 For Cassandra databases, use `cqlsh`.
 The same `+CREATE INDEX ...
 USING 'sai'+` command is available for both.
-See xref:home:cassandra:getting-started/sai-quickstart.adoc[SAI quickstart].
+See xref:Cassandra:cassandra:getting-started/sai-quickstart.adoc[SAI quickstart].
 
 == What configuration settings should I use with SAI?
 
@@ -38,7 +38,7 @@ If this occurs in your environment, increase `memtable_flush_writers`.
 Aside from memory, SAI uses the same tunable parameters for Cassandra, such as compaction throughput and compaction executors.
 This matters for write performance.
 For read performance, again, maximizing use of the Chunk Cache will benefit SAI reads because all on-disk index components are accessed through this mechanism.
-Refer to xref:cql/indexing/sai/operations/configuring.adoc[Configure SAI indexes].
+Refer to xref:Cassandra:cassandra:developing/cql/indexing/sai/operations/configuring.adoc[Configure SAI indexes].
 
 == What computing challenges does SAI solve?
 
@@ -91,7 +91,7 @@ At a high level, SAI indexes are:
 
 * Created and dropped per column via CQL `+CREATE INDEX ...
 USING 'sai'+` commands and `DROP INDEX` commands.
-Start in xref:home:cassandra:getting-started/sai-quickstart.adoc[SAI quickstart].
+Start in xref:Cassandra:cassandra:getting-started/sai-quickstart.adoc[SAI quickstart].
 
 * Rebuilt and backed up via nodetool.
 See xref:reference::nodetool/nodetool.adoc[nodetool].
@@ -103,7 +103,7 @@ See xref:cql/indexing/sai/operations/monitoring.adoc[Monitor SAI indexes].
 // [[saiLimitsFaq]]
 // == Are there limits on the number of SAI indexes per table, and total per cluster?
 
-// include::cassandra:partial$sai/config-limits.adoc[]
+// include::Cassandra:cassandra:partial$sai/config-limits.adoc[]
 
 == On which column in a database table can I base an SAI index?
 
@@ -121,14 +121,14 @@ Starting in Cassandra 6.0, SAI additionally supports element-level (`VALUES`, `K
 See <<saiFrozenCollectionFaq,frozen collection FAQ>> for details.
 
 --
-include::cassandra:partial$sai/collections-note.adoc[]
+include::Cassandra:cassandra:partial$sai/collections-note.adoc[]
 --
 
 == When I `DROP` and recreate an SAI index on the same column, does that block any read operations? And is there a way to check the indexing status?
 
 
 --
-include::cassandra:partial$sai/queryable-paragraph.adoc[]
+include::Cassandra:cassandra:partial$sai/queryable-paragraph.adoc[]
 --
 
 See xref:cql/indexing/sai/operations/monitoring.adoc#saiMonitorVirtualTables[Virtual tables] and xref:reference::sai-virtual-table-indexes.adoc[Virtual tables for SAI indexes and SSTables].
@@ -174,9 +174,9 @@ Yes -- SAI supports collections of type `map`, `list`, and `set`.
 See the following topics:
 
 * xref:cql/indexing/sai/collections.adoc[Using collections with SAI]
-// * xref:reference::cql-commands/create-custom-index.adoc[CREATE CUSTOM INDEX]
+// * xref:Cassandra:cassandra:reference/cql-commands/create-custom-index.adoc[CREATE CUSTOM INDEX]
 
-include::cassandra:partial$sai/collections-note.adoc[]
+include::Cassandra:cassandra:partial$sai/collections-note.adoc[]
 
 [[saiFrozenCollectionFaq]]
 == Does SAI support element-level indexing on frozen collections?
@@ -200,17 +200,17 @@ Use `FULL`, `KEYS`, or `VALUES` for frozen map clustering columns.
 
 For queries on tables with SAI indexes:
 
-include::cassandra:partial$sai/supported-query-operators-list.adoc[]
+include::Cassandra:cassandra:partial$sai/supported-query-operators-list.adoc[]
 
 The unsupported query operators are:
 
-include::cassandra:partial$sai/notSupportedOperators.adoc[]
+include::Cassandra:cassandra:partial$sai/notSupportedOperators.adoc[]
 
 Examples:
 
 [source,language-cql]
 ----
-include::cassandra:example$CQL/sai/cyclist_semi_pro_select_date_range.cql[tag=cyclistSelectDateRange]
+include::Cassandra:cassandra:example$CQL/sai/cyclist_semi_pro_select_date_range.cql[tag=cyclistSelectDateRange]
 ----
 
 [source,language-cql]
@@ -242,7 +242,7 @@ The default is `false`.
 When set to `true`, SAI converts alphabetic, numeric, and symbolic characters that are not in the Basic Latin Unicode block (the first 127 ASCII characters) to the ASCII equivalent, if one exists.
 For example, this option changes `à` to `a`.
 
-See xref:reference::cql-commands/create-custom-index.adoc[CREATE CUSTOM INDEX] and examples in the xref:home:cassandra:getting-started/sai-quickstart.adoc[SAI quickstart] topic.
+See xref:Cassandra:cassandra:reference/cql-commands/create-custom-index.adoc[CREATE CUSTOM INDEX] and examples in the xref:Cassandra:cassandra:getting-started/sai-quickstart.adoc[SAI quickstart] topic.
 ====
 
 == Does SAI support composite indexing: meaning, a single index on multiple columns?
@@ -334,7 +334,7 @@ the post filtering on `col2` is carried out on the replicas themselves.
 Another case were post-filtering comes into play is when constructing a query that involves more than two SAI indexes.
 Refer to this xref:#saiAndQueriesFaq[related FAQ] about `AND` queries.
 
-== Can I create an SAI index based on a xref:reference::static.adoc[static column]?
+== Can I create an SAI index based on a xref:Cassandra:cassandra:reference/static.adoc[static column]?
 
 Yes.
 For example, consider a `transaction_by_customer` table where you have a primary key `customer_id`, plus static columns to contain each customer's `address`, `phone_number`, and `date_of_birth`.
@@ -358,7 +358,7 @@ When you create an SAI index based on a string column, set the `normalize` optio
 SAI supports Normalization Form C (NFC) Unicode.
 When set to `true`, SAI normalizes the different versions of a given Unicode character to a single version, retaining all the marks and symbols in the index.
 For example, SAI would change the character Å (U+212B) to Å (U+00C5).
-See xref:reference::cql-commands/create-custom-index.adoc[CREATE CUSTOM INDEX].
+See xref:Cassandra:cassandra:reference/cql-commands/create-custom-index.adoc[CREATE CUSTOM INDEX].
 
 == Can the index's column name have special characters?
 

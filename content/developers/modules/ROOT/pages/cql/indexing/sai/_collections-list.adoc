@@ -5,8 +5,8 @@ This example uses the following table and index:
 
 [source,sql]
 ----
-include::cassandra:example$CQL/sai/upcoming_calendar-table.cql[tag=listColumn]
-include::cassandra:example$CQL/sai/index-sai-from-list-match.cql[]
+include::Cassandra:cassandra:example$CQL/sai/upcoming_calendar-table.cql[tag=listColumn]
+include::Cassandra:cassandra:example$CQL/sai/index-sai-from-list-match.cql[]
 ----
 
 An index is created on the list column `events` in the `upcoming_calendar` table.
@@ -20,7 +20,7 @@ CQL::
 --
 [source,language-cql]
 ----
-include::cassandra:example$CQL/sai/index-sai-select-from-list.cql[]
+include::Cassandra:cassandra:example$CQL/sai/index-sai-select-from-list.cql[]
 ----
 --
 
@@ -29,7 +29,7 @@ Result::
 --
 [source,console]
 ----
-include::cassandra:example$RESULTS/sai/index-sai-select-from-list.result[]
+include::Cassandra:cassandra:example$RESULTS/sai/index-sai-select-from-list.result[]
 ----
 --
 ====
@@ -43,7 +43,7 @@ CQL::
 --
 [source,language-cql]
 ----
-include::cassandra:example$CQL/sai/index-sai-select-from-list-two-columns.cql[]
+include::Cassandra:cassandra:example$CQL/sai/index-sai-select-from-list-two-columns.cql[]
 ----
 --
 
@@ -52,7 +52,7 @@ Result::
 --
 [source,console]
 ----
-include::cassandra:example$RESULTS/sai/index-sai-select-from-list-two-columns.result[]
+include::Cassandra:cassandra:example$RESULTS/sai/index-sai-select-from-list-two-columns.result[]
 ----
 --
 ====

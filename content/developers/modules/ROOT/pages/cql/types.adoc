@@ -7,7 +7,7 @@ types]:
 
 [source, bnf]
 ----
-include::cassandra:example$BNF/cql_type.bnf[]
+include::Cassandra:cassandra:example$BNF/cql_type.bnf[]
 ----
 
 [[native-types]]
@@ -17,7 +17,7 @@ The native types supported by CQL are:
 
 [source, bnf]
 ----
-include::cassandra:example$BNF/native_type.bnf[]
+include::Cassandra:cassandra:example$BNF/native_type.bnf[]
 ----
 
 The following table gives additional information on the native data
@@ -180,7 +180,7 @@ For example:
 
 [source,cql]
 ----
-include::cassandra:example$CQL/insert_duration.cql[]
+include::Cassandra:cassandra:example$CQL/insert_duration.cql[]
 ----
 
 [[duration-limitation]]
@@ -200,14 +200,14 @@ types of those collections is defined by:
 
 [source,bnf]
 ----
-include::cassandra:example$BNF/collection_type.bnf[]
+include::Cassandra:cassandra:example$BNF/collection_type.bnf[]
 ----
 
 and their values can be inputd using collection literals:
 
 [source,bnf]
 ----
-include::cassandra:example$BNF/collection_literal.bnf[]
+include::Cassandra:cassandra:example$BNF/collection_literal.bnf[]
 ----
 
 Note however that neither `bind_marker` nor `NULL` are supported inside
@@ -245,7 +245,7 @@ the map is sorted by its keys. You can define and insert a map with:
 
 [source,cql]
 ----
-include::cassandra:example$CQL/map.cql[]
+include::Cassandra:cassandra:example$CQL/map.cql[]
 ----
 
 Further, maps support:
@@ -254,14 +254,14 @@ Further, maps support:
 +
 [source,cql]
 ----
-include::cassandra:example$CQL/update_map.cql[]
+include::Cassandra:cassandra:example$CQL/update_map.cql[]
 ----
 * Removing one or more element (if an element doesn't exist, removing it
 is a no-op but no error is thrown):
 +
 [source,cql]
 ----
-include::cassandra:example$CQL/delete_map.cql[]
+include::Cassandra:cassandra:example$CQL/delete_map.cql[]
 ----
 +
 Note that for removing multiple elements in a `map`, you remove from it
@@ -273,7 +273,7 @@ other words:
 
 [source,cql]
 ----
-include::cassandra:example$CQL/update_ttl_map.cql[]
+include::Cassandra:cassandra:example$CQL/update_ttl_map.cql[]
 ----
 
 will only apply the TTL to the `{ 'color' : 'green' }` record, the rest
@@ -286,7 +286,7 @@ insert a set with:
 
 [source,cql]
 ----
-include::cassandra:example$CQL/set.cql[]
+include::Cassandra:cassandra:example$CQL/set.cql[]
 ----
 
 Further, sets support:
@@ -296,14 +296,14 @@ already existing element is a no-op):
 +
 [source,cql]
 ----
-include::cassandra:example$CQL/update_set.cql[]
+include::Cassandra:cassandra:example$CQL/update_set.cql[]
 ----
 * Removing one or multiple elements (if an element doesn't exist,
 removing it is a no-op but no error is thrown):
 +
 [source,cql]
 ----
-include::cassandra:example$CQL/delete_set.cql[]
+include::Cassandra:cassandra:example$CQL/delete_set.cql[]
 ----
 
 Lastly, for xref:cql/types.adoc#sets[sets], TTLs are only applied to newly inserted values.
@@ -324,7 +324,7 @@ insert a list with:
 
 [source,cql]
 ----
-include::cassandra:example$CQL/list.cql[]
+include::Cassandra:cassandra:example$CQL/list.cql[]
 ----
 
 Further, lists support:
@@ -333,7 +333,7 @@ Further, lists support:
 +
 [source,cql]
 ----
-include::cassandra:example$CQL/update_list.cql[]
+include::Cassandra:cassandra:example$CQL/update_list.cql[]
 ----
 
 [WARNING]
@@ -350,7 +350,7 @@ will be thrown if the list does not have the position:
 +
 [source,cql]
 ----
-include::cassandra:example$CQL/update_particular_list_element.cql[]
+include::Cassandra:cassandra:example$CQL/update_particular_list_element.cql[]
 ----
 * Removing an element by its position in the list that has a pre-existing element for that position. An error
 will be thrown if the list does not have the position. Further, as the operation removes an
@@ -359,7 +359,7 @@ the position of all the following elements one forward:
 +
 [source,cql]
 ----
-include::cassandra:example$CQL/delete_element_list.cql[]
+include::Cassandra:cassandra:example$CQL/delete_element_list.cql[]
 ----
 
 * Deleting _all_ the occurrences of particular values in the list (if a
@@ -368,7 +368,7 @@ ignored and no error is thrown):
 +
 [source,cql]
 ----
-include::cassandra:example$CQL/delete_all_elements_list.cql[]
+include::Cassandra:cassandra:example$CQL/delete_all_elements_list.cql[]
 ----
 
 [WARNING]
@@ -391,7 +391,7 @@ You can define, insert and update a vector with:
 
 [source,cql]
 ----
-include::cassandra:example$CQL/vector.cql[]
+include::Cassandra:cassandra:example$CQL/vector.cql[]
 ----
 
 Note that it isn't possible to change the individual values of a vector, and it isn't possible to select individual
@@ -408,7 +408,7 @@ referred to by its name:
 
 [source, bnf]
 ----
-include::cassandra:example$BNF/udt.bnf[]
+include::Cassandra:cassandra:example$BNF/udt.bnf[]
 ----
 
 === Creating a UDT
@@ -418,7 +418,7 @@ defined by:
 
 [source, bnf]
 ----
-include::cassandra:example$BNF/create_type.bnf[]
+include::Cassandra:cassandra:example$BNF/create_type.bnf[]
 ----
 
 A UDT has a name (used to declared columns of that type) and is a set of
@@ -427,7 +427,7 @@ collections or other UDT. For instance:
 
 [source,cql]
 ----
-include::cassandra:example$CQL/udt.cql[]
+include::Cassandra:cassandra:example$CQL/udt.cql[]
 ----
 
 Things to keep in mind about UDTs:
@@ -449,7 +449,7 @@ UDT literal:
 
 [source,bnf]
 ----
-include::cassandra:example$BNF/udt_literal.bnf[]
+include::Cassandra:cassandra:example$BNF/udt_literal.bnf[]
 ----
 
 In other words, a UDT literal is like a xref:cql/types.adoc#maps[map]` literal but its
@@ -458,7 +458,7 @@ insert into the table define in the previous section using:
 
 [source,cql]
 ----
-include::cassandra:example$CQL/insert_udt.cql[]
+include::Cassandra:cassandra:example$CQL/insert_udt.cql[]
 ----
 
 To be valid, a UDT literal can only include fields defined by the
@@ -471,7 +471,7 @@ statement:
 
 [source,bnf]
 ----
-include::cassandra:example$BNF/alter_udt_statement.bnf[]
+include::Cassandra:cassandra:example$BNF/alter_udt_statement.bnf[]
 ----
 If the type does not exist, the statement will return an error, unless `IF EXISTS` is used in which case the operation is a no-op.
 You can:
@@ -483,7 +483,7 @@ the addition. If the new field exists, the statement will return an error, unles
 
 [source,cql]
 ----
-include::cassandra:example$CQL/rename_udt_field.cql[]
+include::Cassandra:cassandra:example$CQL/rename_udt_field.cql[]
 ----
 
 === Dropping a UDT
@@ -493,7 +493,7 @@ statement:
 
 [source,bnf]
 ----
-include::cassandra:example$BNF/drop_udt_statement.bnf[]
+include::Cassandra:cassandra:example$BNF/drop_udt_statement.bnf[]
 ----
 
 Dropping a type results in the immediate, irreversible removal of that
@@ -511,14 +511,14 @@ with anonymous fields. Tuple types and tuple literals are defined by:
 
 [source,bnf]
 ----
-include::cassandra:example$BNF/tuple.bnf[]
+include::Cassandra:cassandra:example$BNF/tuple.bnf[]
 ----
 
 and can be created:
 
 [source,cql]
 ----
-include::cassandra:example$CQL/tuple.cql[]
+include::Cassandra:cassandra:example$CQL/tuple.cql[]
 ----
 
 Unlike other composed types, like collections and UDTs, a tuple is always
@@ -542,7 +542,7 @@ A custom type is defined by:
 
 [source,bnf]
 ----
-include::cassandra:example$BNF/custom_type.bnf[]
+include::Cassandra:cassandra:example$BNF/custom_type.bnf[]
 ----
 
 A custom type is a `string` that contains the name of Java class that

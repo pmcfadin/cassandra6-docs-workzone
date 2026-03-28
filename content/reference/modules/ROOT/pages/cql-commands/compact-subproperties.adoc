@@ -22,7 +22,7 @@ where the <compaction_strategy_name> is xref:UCS[UnifiedCompactionStrategy], xre
 [IMPORTANT]
 ====
 Use only compaction implementations bundled with {product}.
-See xref:operators::operate/compaction/index.adoc[Compaction Strategies] for more details.
+See xref:Cassandra:cassandra:managing/operating/compaction/index.adoc[Compaction Strategies] for more details.
 ====
 
 ==== Common properties
@@ -166,7 +166,7 @@ Default: `true`
 
 The compaction class `SizeTieredCompactionStrategy` (STCS) triggers a minor compaction when table meets the `min_threshold`.
 Minor compactions do not involve all the tables in a keyspace.
-See xref:operators::operate/compaction/stcs.adoc[SizeTieredCompactionStrategy (STCS)].
+See xref:Cassandra:cassandra:managing/operating/compaction/stcs.adoc[SizeTieredCompactionStrategy (STCS)].
 
 [NOTE]
 ====
@@ -224,7 +224,7 @@ Default: `50` (MB)
 
 [NOTE]
 ==== 
-The `cold_reads_to_omit` property for xref:operators::operate/compaction/stcs.adoc[SizeTieredCompactionStrategy (STCS)] is no longer supported.
+The `cold_reads_to_omit` property for xref:Cassandra:cassandra:managing/operating/compaction/stcs.adoc[SizeTieredCompactionStrategy (STCS)] is no longer supported.
 ====
 
 [[LCS]]
@@ -235,7 +235,7 @@ Within each level, SSTables are guaranteed to be non-overlapping.
 Each level (L0, L1, L2 and so on) is 10 times as large as the previous.
 Disk I/O is more uniform and predictable on higher than on lower levels as SSTables are continuously being compacted into progressively larger levels.
 At each level, row keys are merged into non-overlapping SSTables in the next level.
-See xref:operators::operate/compaction/lcs.adoc[LeveledCompactionStrategy (LCS)].
+See xref:Cassandra:cassandra:managing/operating/compaction/lcs.adoc[LeveledCompactionStrategy (LCS)].
 
 [NOTE]
 ==== 
@@ -279,7 +279,7 @@ TWCS creates a new time window within each successive time period.
 During the active time window, TWCS compacts all SSTables flushed from memory into larger SSTables using STCS.
 At the end of the time period, all of these SSTables are compacted into a single SSTable.
 Then the next time window starts and the process repeats.
-See xref:operators::operate/compaction/twcs.adoc[TimeWindowCompactionStrategy (TWCS)].
+See xref:Cassandra:cassandra:managing/operating/compaction/twcs.adoc[TimeWindowCompactionStrategy (TWCS)].
 
 [NOTE]
 ==== 

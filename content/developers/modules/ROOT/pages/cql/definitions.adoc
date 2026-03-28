@@ -32,7 +32,7 @@ expression `[a-zA-Z][a-zA-Z0-9_]*`.
 
 A number of such identifiers, like `SELECT` or `WITH`, are _keywords_.
 They have a fixed meaning for the language and most are reserved. The
-list of those keywords can be found in xref:cql/appendices.adoc#appendix-A[Appendix A].
+list of those keywords can be found in xref:Cassandra:cassandra:developing/cql/appendices.adoc#appendix-A[Appendix A].
 
 Identifiers and (unquoted) keywords are case-insensitive. Thus `SELECT`
 is the same as `select` or `sElEcT`, and `myId` is the same as
@@ -71,7 +71,7 @@ More formally, we have:
 
 [source, bnf]
 ----
-include::cassandra:example$BNF/identifier.bnf[]
+include::Cassandra:cassandra:example$BNF/identifier.bnf[]
 ----
 
 [[constants]]
@@ -81,7 +81,7 @@ CQL defines the following _constants_:
 
 [source, bnf]
 ----
-include::cassandra:example$BNF/constant.bnf[]
+include::Cassandra:cassandra:example$BNF/constant.bnf[]
 ----
 
 In other words:
@@ -113,17 +113,17 @@ CQL support. Terms are defined by:
 
 [source, bnf]
 ----
-include::cassandra:example$BNF/term.bnf[]
+include::Cassandra:cassandra:example$BNF/term.bnf[]
 ----
 
 A term is thus one of:
 
-* A xref:cql/defintions.adoc#constants[constant]
+* A xref:cql/definitions.adoc#constants[constant]
 * A literal for either a xref:cql/types.adoc#collections[collection], a xref:cql/types.adoc#vectors[vector],
 a xref:cql/types.adoc#udts[user-defined type] or a xref:cql/types.adoc#tuples[tuple]
 * A xref:cql/functions.adoc#cql-functions[function] call, either a xref:cql/functions.adoc#scalar-native-functions[native function]
 or a xref:cql/functions.adoc#user-defined-scalar-functions[user-defined function]
-* An xref:cql/operators.adoc#arithmetic_operators[arithmetic operation] between terms
+* An xref:Cassandra:cassandra:developing/cql/operators.adoc#arithmetic_operators[arithmetic operation] between terms
 * A type hint
 * A bind marker, which denotes a variable to be bound at execution time.
 See the section on `prepared-statements` for details. A bind marker can
@@ -169,7 +169,7 @@ this documentation (see links above):
 
 [source, bnf]
 ----
-include::cassandra:example$BNF/cql_statement.bnf[]
+include::Cassandra:cassandra:example$BNF/cql_statement.bnf[]
 ----
 
 [[prepared-statements]]

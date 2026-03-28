@@ -125,7 +125,7 @@ CQL support. Terms are defined by:
 
 [source,bnf]
 ----
-include::cassandra:example$BNF/term.bnf[]
+include::Cassandra:cassandra:example$BNF/term.bnf[]
 ----
 
 A term is thus one of:
@@ -135,7 +135,7 @@ A term is thus one of:
 a xref:cql/types.adoc#udts[user-defined type] or a xref:cql/types.adoc#tuples[tuple]
 * A xref:cql/functions.adoc#cql-functions[function] call, either a xref:cql/functions.adoc#scalar-native-functions[native function]
 or a xref:cql/functions.adoc#user-defined-scalar-functions[user-defined function]
-* An xref:cql/operators.adoc#arithmetic_operators[arithmetic operation] between terms
+* An xref:Cassandra:cassandra:developing/cql/operators.adoc#arithmetic_operators[arithmetic operation] between terms
 * A type hint
 * A bind marker, which denotes a variable to be bound at execution time.
 See the section on `prepared-statements` for details. A bind marker can
@@ -304,7 +304,7 @@ be re-prepared.
 _Syntax:_
 
 [source,bnf]
-include::cassandra:example$BNF/create_ks.bnf[]
+include::Cassandra:cassandra:example$BNF/create_ks.bnf[]
 
 _Sample:_
 
@@ -363,12 +363,12 @@ will be a no-op if the keyspace already exists.
 _Syntax:_
 
 [source,bnf]
-include::cassandra:example$BNF/use_ks.bnf[]
+include::Cassandra:cassandra:example$BNF/use_ks.bnf[]
 
 _Sample:_
 
 [source,sql]
-include::cassandra:example$CQL/use_ks.cql[]
+include::Cassandra:cassandra:example$CQL/use_ks.cql[]
 
 The `USE` statement takes an existing keyspace name as argument and set
 it as the per-connection current working keyspace. All subsequent
@@ -382,12 +382,12 @@ another USE statement is issued or the connection terminates.
 _Syntax:_
 
 [source,bnf]
-include::cassandra:example$BNF/alter_ks.bnf[]
+include::Cassandra:cassandra:example$BNF/alter_ks.bnf[]
 
 _Sample:_
 
 [source,sql]
-include::cassandra:example$CQL/alter_ks.cql[]
+include::Cassandra:cassandra:example$CQL/alter_ks.cql[]
 
 The `ALTER KEYSPACE` statement alters the properties of an existing
 keyspace. The supported `<properties>` are the same as for the
@@ -419,13 +419,13 @@ unless `IF EXISTS` is used in which case the operation is a no-op.
 _Syntax:_
 
 [source,bnf]
-include::cassandra:example$BNF/create_table.bnf[]
+include::Cassandra:cassandra:example$BNF/create_table.bnf[]
 
 _Sample:_
 
 [source,sql]
 ----
-include::cassandra:example$CQL/create_table.cql[]
+include::Cassandra:cassandra:example$CQL/create_table.cql[]
 ----
 
 The `CREATE TABLE` statement creates a new table. Each such table is a
@@ -515,10 +515,10 @@ partition (having the same partition key). For instance, in:
 
 [source,sql]
 ----
-include::cassandra:example$CQL/create_static_column.cql[]
+include::Cassandra:cassandra:example$CQL/create_static_column.cql[]
 
-include::cassandra:example$CQL/insert_static_data.cql[]
-include::cassandra:example$CQL/select_static_data.cql[]
+include::Cassandra:cassandra:example$CQL/insert_static_data.cql[]
+include::Cassandra:cassandra:example$CQL/select_static_data.cql[]
 ----
 
 the last query will return `'static1'` as value for `s`, since `s` is
@@ -736,13 +736,13 @@ haven’t) when creating a table.
 _Syntax:_
 
 [source,bnf]
-include::cassandra:example$BNF/create_table_like.bnf[]
+include::Cassandra:cassandra:example$BNF/create_table_like.bnf[]
 
 _Sample:_
 
 [source,sql]
 ----
-include::cassandra:example$CQL/create_table_like.cql[]
+include::Cassandra:cassandra:example$CQL/create_table_like.cql[]
 ----
 
 The `CREATE TABLE LIKE` statement creates a new empty table based on
@@ -785,15 +785,15 @@ Indexs will be created together with table if `INDEXES` keyword is used.
 _Syntax:_
 
 [source,bnf]
-include::cassandra:example$BNF/alter_table.bnf[]
+include::Cassandra:cassandra:example$BNF/alter_table.bnf[]
 
 
 _Sample:_
 
 [source,sql]
 ----
-include::cassandra:example$CQL/alter_table_add_column.cql[]
-include::cassandra:example$CQL/alter_table_with_comment.cql[]
+include::Cassandra:cassandra:example$CQL/alter_table_add_column.cql[]
+include::Cassandra:cassandra:example$CQL/alter_table_with_comment.cql[]
 ----
 
 The `ALTER` statement is used to manipulate table definitions. It allows
@@ -875,7 +875,7 @@ conversions are allowed.
 _Syntax:_
 
 [source,bnf]
-include::cassandra:example$BNF/drop_table.bnf[]
+include::Cassandra:cassandra:example$BNF/drop_table.bnf[]
 
 _Sample:_
 
@@ -895,7 +895,7 @@ If the table does not exist, the statement will return an error, unless
 _Syntax:_
 
 [source,bnf]
-include::cassandra:example$BNF/truncate_table.bnf[]
+include::Cassandra:cassandra:example$BNF/truncate_table.bnf[]
 
 _Sample:_
 
@@ -915,12 +915,12 @@ desired.
 _Syntax:_
 
 [source,bnf]
-include::cassandra:example$BNF/create_index_statement.bnf[]
+include::Cassandra:cassandra:example$BNF/create_index_statement.bnf[]
 
 _Sample:_
 
 [source,sql]
-include::cassandra:example$CQL/create_index.cql[]
+include::Cassandra:cassandra:example$CQL/create_index.cql[]
 
 If data already exists for the column, it will be indexed
 asynchronously. After the index is created, new data for the column is
@@ -953,7 +953,7 @@ the map values.
 _Syntax:_
 
 [source,bnf]
-include::cassandra:example$BNF/drop_index_statement.bnf[]
+include::Cassandra:cassandra:example$BNF/drop_index_statement.bnf[]
 
 _Sample:_
 
@@ -976,12 +976,12 @@ If the index does not exist, the statement will return an error, unless
 _Syntax:_
 
 [source,bnf]
-include::cassandra:example$BNF/create_mv_statement.bnf[]
+include::Cassandra:cassandra:example$BNF/create_mv_statement.bnf[]
 
 _Sample:_
 
 [source,sql]
-include::cassandra:example$CQL/create_mv_statement.cql[]
+include::Cassandra:cassandra:example$CQL/create_mv_statement.cql[]
 
 The `CREATE MATERIALIZED VIEW` statement creates a new materialized
 view. Each such view is a set of _rows_  corresponding to rows which
@@ -1022,7 +1022,7 @@ these options are the same as `CREATE TABLE`’s options.
 _Syntax:_
 
 [source,bnf]
-include::cassandra:example$BNF/drop_mv_statement.bnf[]
+include::Cassandra:cassandra:example$BNF/drop_mv_statement.bnf[]
 
 _Sample:_
 
@@ -1042,7 +1042,7 @@ no-op.
 _Syntax:_
 
 [source,bnf]
-include::cassandra:example$BNF/create_type.bnf[]
+include::Cassandra:cassandra:example$BNF/create_type.bnf[]
 
 _Sample:_
 
@@ -1127,12 +1127,12 @@ is used, in which case the operation is a no-op.
 _Syntax:_
 
 [source,bnf]
-include::cassandra:example$BNF/create_trigger_statement.bnf[]
+include::Cassandra:cassandra:example$BNF/create_trigger_statement.bnf[]
 
 _Sample:_
 
 [source,sql]
-include::cassandra:example$CQL/create_trigger.cql[]
+include::Cassandra:cassandra:example$CQL/create_trigger.cql[]
 
 The actual logic that makes up the trigger can be written in any Java
 (JVM) language and exists outside the database. You place the trigger
@@ -1148,12 +1148,12 @@ the transaction.
 _Syntax:_
 
 [source,bnf]
-include::cassandra:example$BNF/drop_trigger_statement.bnf[]
+include::Cassandra:cassandra:example$BNF/drop_trigger_statement.bnf[]
 
 _Sample:_
 
 [source,sql]
-include::cassandra:example$CQL/drop_trigger.cql[]
+include::Cassandra:cassandra:example$CQL/drop_trigger.cql[]
 
 `DROP TRIGGER` statement removes the registration of a trigger created
 using `CREATE TRIGGER`.
@@ -1165,14 +1165,14 @@ _Syntax:_
 
 [source,bnf]
 ----
-include::cassandra:example$BNF/create_function_statement.bnf[]
+include::Cassandra:cassandra:example$BNF/create_function_statement.bnf[]
 ----
 
 _Sample:_
 
 [source,sql]
 ----
-include::cassandra:example$CQL/create_function.cql[]
+include::Cassandra:cassandra:example$CQL/create_function.cql[]
 ----
 
 `CREATE FUNCTION` creates or replaces a user-defined function.
@@ -1223,12 +1223,12 @@ information.
 _Syntax:_
 
 [source,bnf]
-include::cassandra:example$BNF/drop_function_statement.bnf[]
+include::Cassandra:cassandra:example$BNF/drop_function_statement.bnf[]
 
 _Sample:_
 
 [source,sql]
-include::cassandra:example$CQL/drop_function.cql[]
+include::Cassandra:cassandra:example$CQL/drop_function.cql[]
 
 `DROP FUNCTION` statement removes a function created using
 `CREATE FUNCTION`. +
@@ -1245,7 +1245,7 @@ if it exists.
 _Syntax:_
 
 [source,bnf]
-include::cassandra:example$BNF/create_aggregate_statement.bnf[]
+include::Cassandra:cassandra:example$BNF/create_aggregate_statement.bnf[]
 
 _Sample:_
 
@@ -1314,12 +1314,12 @@ information.
 _Syntax:_
 
 [source,bnf]
-include::cassandra:example$BNF/drop_aggregate_statement.bnf[]
+include::Cassandra:cassandra:example$BNF/drop_aggregate_statement.bnf[]
 
 _Sample:_
 
 [source,sql]
-include::cassandra:example$CQL/drop_aggregate.cql[]
+include::Cassandra:cassandra:example$CQL/drop_aggregate.cql[]
 
 The `DROP AGGREGATE` statement removes an aggregate created using
 `CREATE AGGREGATE`. You must specify the argument types of the aggregate
@@ -1343,14 +1343,14 @@ _Syntax:_
 
 [source,bnf]
 ----
-include::cassandra:example$BNF/insert_statement.bnf[]
+include::Cassandra:cassandra:example$BNF/insert_statement.bnf[]
 ----
 
 _Sample:_
 
 [source,sql]
 ----
-include::cassandra:example$CQL/insert_statement.cql[]
+include::Cassandra:cassandra:example$CQL/insert_statement.cql[]
 ----
 
 The `INSERT` statement writes one or more columns for a given row in a
@@ -1385,14 +1385,14 @@ _Syntax:_
 
 [source,bnf]
 ----
-include::cassandra:example$BNF/update_statement.bnf[]
+include::Cassandra:cassandra:example$BNF/update_statement.bnf[]
 ----
 
 _Sample:_
 
 [source,sql]
 ----
-include::cassandra:example$CQL/update_statement.cql[]
+include::Cassandra:cassandra:example$CQL/update_statement.cql[]
 ----
 
 The `UPDATE` statement writes one or more columns for a given row in a
@@ -1451,13 +1451,13 @@ TTL of 0 will remove the TTL for the inserted or updated values.
 _Syntax:_
 
 [source,bnf]
-include::cassandra:example$BNF/delete_statement.bnf[]
+include::Cassandra:cassandra:example$BNF/delete_statement.bnf[]
 
 _Sample:_
 
 [source,sql]
 ----
-include::cassandra:example$CQL/delete_statement.cql[]
+include::Cassandra:cassandra:example$CQL/delete_statement.cql[]
 ----
 
 The `DELETE` statement deletes columns and rows. If column names are
@@ -1489,12 +1489,12 @@ sparingly.
 _Syntax:_
 
 [source,bnf]
-include::cassandra:example$BNF/batch_statement.bnf[]
+include::Cassandra:cassandra:example$BNF/batch_statement.bnf[]
 
 _Sample:_
 
 [source,sql]
-include::cassandra:example$CQL/batch_statement.cql[]
+include::Cassandra:cassandra:example$CQL/batch_statement.cql[]
 
 The `BATCH` statement group multiple modification statements
 (insertions/updates and deletions) into a single statement. It serves
@@ -1558,14 +1558,14 @@ _Syntax:_
 
 [source,bnf]
 ----
-include::cassandra:example$BNF/select_statement.bnf[]
+include::Cassandra:cassandra:example$BNF/select_statement.bnf[]
 ----
 
 _Sample:_
 
 [source,sql]
 ----
-include::cassandra:example$CQL/select_statement.cql[]
+include::Cassandra:cassandra:example$CQL/select_statement.cql[]
 ----
 
 The `SELECT` statements reads one or more columns for one or more rows
@@ -1770,7 +1770,7 @@ their year of birth (with a secondary index on it) and country of
 residence:
 
 [source,sql]
-include::cassandra:example$CQL/allow_filtering.cql[]
+include::Cassandra:cassandra:example$CQL/allow_filtering.cql[]
 
 Then the following queries are valid:
 
@@ -2219,7 +2219,7 @@ You can define, insert and update a vector with:
 
 [source,sql]
 ----
-include::cassandra:example$CQL/vector.cql[]
+include::Cassandra:cassandra:example$CQL/vector.cql[]
 ----
 
 Note that it isn't possible to change the individual values of a vector, and it isn't possible to select individual
@@ -2342,7 +2342,7 @@ executed). Note that this method is useful for insertion but is largely
 non-sensical in `WHERE` clauses. For instance, a query of the form
 
 [source,sql]
-include::cassandra:example$CQL/timeuuid_now.cql[]
+include::Cassandra:cassandra:example$CQL/timeuuid_now.cql[]
 
 will never return any result by design, since the value returned by
 `now()` is guaranteed to be unique.
@@ -2356,7 +2356,7 @@ _smallest_ (resp. _biggest_) possible `timeuuid` having for timestamp
 `t`. So for instance:
 
 [source,sql]
-include::cassandra:example$CQL/timeuuid_min_max.cql[]
+include::Cassandra:cassandra:example$CQL/timeuuid_min_max.cql[]
 
 will select all rows where the `timeuuid` column `t` is strictly older
 than `2013-01-01 00:05+0000' but strictly younger than `2013-02-02
@@ -2434,13 +2434,13 @@ The `count` function can be used to count the rows returned by a query.
 Example:
 
 [source,sql]
-include::cassandra:example$CQL/count.cql[]
+include::Cassandra:cassandra:example$CQL/count.cql[]
 
 It also can be used to count the non null value of a given column.
 Example:
 
 [source,sql]
-include::cassandra:example$CQL/count_nonnull.cql[]
+include::Cassandra:cassandra:example$CQL/count_nonnull.cql[]
 
 [[maxMinFcts]]
 ==== Max and Min
@@ -2449,7 +2449,7 @@ The `max` and `min` functions can be used to compute the maximum and the
 minimum value returned by a query for a given column.
 
 [source,sql]
-include::cassandra:example$CQL/min_max.cql[]
+include::Cassandra:cassandra:example$CQL/min_max.cql[]
 
 [[sumFct]]
 ==== Sum
@@ -2458,7 +2458,7 @@ The `sum` function can be used to sum up all the values returned by a
 query for a given column.
 
 [source,sql]
-include::cassandra:example$CQL/sum.cql[]
+include::Cassandra:cassandra:example$CQL/sum.cql[]
 
 [[avgFct]]
 ==== Avg
@@ -2467,7 +2467,7 @@ The `avg` function can be used to compute the average of all the values
 returned by a query for a given column.
 
 [source,sql]
-include::cassandra:example$CQL/avg.cql[]
+include::Cassandra:cassandra:example$CQL/avg.cql[]
 
 [[udfs]]
 === User-Defined Functions

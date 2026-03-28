@@ -10,14 +10,14 @@ Querying data from data is done using a `SELECT` statement:
 
 [source,bnf]
 ----
-include::cassandra:example$BNF/select_statement.bnf[]
+include::Cassandra:cassandra:example$BNF/select_statement.bnf[]
 ----
 
 For example:
 
 [source,cql]
 ----
-include::cassandra:example$CQL/select_statement.cql[]
+include::Cassandra:cassandra:example$CQL/select_statement.cql[]
 ----
 
 The `SELECT` statements reads one or more columns for one or more rows
@@ -66,7 +66,7 @@ that of the alias. For instance:
 
 [source,cql]
 ----
-include::cassandra:example$CQL/as.cql[]
+include::Cassandra:cassandra:example$CQL/as.cql[]
 ----
 
 [NOTE]
@@ -83,7 +83,7 @@ See the xref:cql/functions.adoc#writetime-and-ttl-functions[functions] section f
 
 The `WHERE` clause specifies which rows are queried. It specifies
 a relationship for `PRIMARY KEY` columns or a column that has
-a xref:cql/indexes.adoc#create-index-statement[secondary index] defined, along with a set value.
+a xref:Cassandra:cassandra:developing/cql/indexes.adoc#create-index-statement[secondary index] defined, along with a set value.
 
 Not all relationships are allowed in a query. For instance, only an equality
 is allowed on a partition key. The `IN` clause is considered an equality for one or more values.
@@ -95,14 +95,14 @@ For instance, given:
 
 [source,cql]
 ----
-include::cassandra:example$CQL/table_for_where.cql[]
+include::Cassandra:cassandra:example$CQL/table_for_where.cql[]
 ----
 
 The following query is allowed:
 
 [source,cql]
 ----
-include::cassandra:example$CQL/where.cql[]
+include::Cassandra:cassandra:example$CQL/where.cql[]
 ----
 
 But the following one is not, as it does not select a contiguous set of
@@ -110,7 +110,7 @@ rows (assuming no secondary indexes):
 
 [source,cql]
 ----
-include::cassandra:example$CQL/where_fail.cql[]
+include::Cassandra:cassandra:example$CQL/where_fail.cql[]
 ----
 
 When specifying relationships, the `TOKEN` function can be applied to the `PARTITION KEY` column to query.
@@ -128,7 +128,7 @@ For example:
 
 [source,cql]
 ----
-include::cassandra:example$CQL/token.cql[]
+include::Cassandra:cassandra:example$CQL/token.cql[]
 ----
 
 The `IN` relationship is only allowed on the last column of the
@@ -141,7 +141,7 @@ For example:
 
 [source,cql]
 ----
-include::cassandra:example$CQL/where_group_cluster_columns.cql[]
+include::Cassandra:cassandra:example$CQL/where_group_cluster_columns.cql[]
 ----
 
 This query will return all rows that sort after the one having “John's Blog” as
@@ -153,14 +153,14 @@ That would not be the case for this example:
 
 [source,cql]
 ----
-include::cassandra:example$CQL/where_no_group_cluster_columns.cql[]
+include::Cassandra:cassandra:example$CQL/where_no_group_cluster_columns.cql[]
 ----
 
 The tuple notation may also be used for `IN` clauses on clustering columns:
 
 [source,cql]
 ----
-include::cassandra:example$CQL/where_in_tuple.cql[]
+include::Cassandra:cassandra:example$CQL/where_in_tuple.cql[]
 ----
 
 The `CONTAINS` operator may only be used for collection columns (lists,
@@ -210,7 +210,7 @@ SELECT * FROM t WHERE TOKEN(pk) BETWEEN TOKEN(-9223372036854775808) AND TOKEN(0)
 
 `BETWEEN` on clustering columns does not require `ALLOW FILTERING`.
 `BETWEEN` on non-primary-key columns requires either `ALLOW FILTERING` or an
-xref:cql/indexes.adoc[SAI index] on that column.
+xref:Cassandra:cassandra:developing/cql/indexes.adoc[SAI index] on that column.
 When an SAI index is present, the range is pushed down to the index natively
 (source: `src/antlr/Parser.g` `relation` rule, `src/java/org/apache/cassandra/cql3/Operator.java`
 `BETWEEN(19)`, `src/java/org/apache/cassandra/index/sai/plan/Expression.java`; CASSANDRA-19604, CASSANDRA-19688).
@@ -354,14 +354,14 @@ The birth year has a secondary index defined.
 
 [source,cql]
 ----
-include::cassandra:example$CQL/allow_filtering.cql[]
+include::Cassandra:cassandra:example$CQL/allow_filtering.cql[]
 ----
 
 The following queries are valid:
 
 [source,cql]
 ----
-include::cassandra:example$CQL/query_allow_filtering.cql[]
+include::Cassandra:cassandra:example$CQL/query_allow_filtering.cql[]
 ----
 
 In both cases, the query performance is proportional to the amount of data returned.
@@ -375,7 +375,7 @@ The following query will be rejected:
 
 [source,cql]
 ----
-include::cassandra:example$CQL/query_fail_allow_filtering.cql[]
+include::Cassandra:cassandra:example$CQL/query_fail_allow_filtering.cql[]
 ----
 
 Cassandra cannot guarantee that large amounts of data won't have to scanned amount of data, even if the result is small.
@@ -384,7 +384,7 @@ execute:
 
 [source,cql]
 ----
-include::cassandra:example$CQL/query_nofail_allow_filtering.cql[]
+include::Cassandra:cassandra:example$CQL/query_nofail_allow_filtering.cql[]
 ----
 
 [[index-hints]]
@@ -416,14 +416,14 @@ Inserting data for a row is done using an `INSERT` statement:
 
 [source,bnf]
 ----
-include::cassandra:example$BNF/insert_statement.bnf[]
+include::Cassandra:cassandra:example$BNF/insert_statement.bnf[]
 ----
 
 For example:
 
 [source,cql]
 ----
-include::cassandra:example$CQL/insert_statement.cql[]
+include::Cassandra:cassandra:example$CQL/insert_statement.cql[]
 ----
 
 The `INSERT` statement writes one or more columns for a given row in a
@@ -431,7 +431,7 @@ table.
 Since a row is identified by its `PRIMARY KEY`, at least one column must be specified.
 The list of columns to insert must be supplied with the `VALUES` syntax.
 When using the `JSON` syntax, `VALUES` are optional.
-See the section on xref:cql/json.adoc[JSON support] for more detail.
+See the section on xref:Cassandra:cassandra:developing/cql/json.adoc[JSON support] for more detail.
 All updates for an `INSERT` are applied atomically and in isolation.
 
 Unlike in SQL, `INSERT` does not check the prior existence of the row by default.
@@ -454,7 +454,7 @@ Updating a row is done using an `UPDATE` statement:
 
 [source, bnf]
 ----
-include::cassandra:example$BNF/update_statement.bnf[]
+include::Cassandra:cassandra:example$BNF/update_statement.bnf[]
 ----
 
 The `UPDATE` statement writes one or more columns for a given row in a
@@ -475,7 +475,7 @@ Regarding the `SET` assignment:
 * `c = c + 3` will increment/decrement counters, the only operation allowed.
 The column name after the '=' sign *must* be the same as the one before the '=' sign.
 Increment/decrement is only allowed on counters.
-See the section on xref:cql/counter-column.adoc[counters] for details.
+See the section on xref:Cassandra:cassandra:developing/cql/counter-column.adoc[counters] for details.
 * `id = id + <some-collection>` and `id[value1] = value2` are for collections.
 See the xref:cql/types.adoc#collections[collections] for details.
 * `id.field = 3` is for setting the value of a field on a non-frozen user-defined types.
@@ -506,7 +506,7 @@ For instance:
 
 [source,cql]
 ----
-include::cassandra:example$CQL/update_statement.cql[]
+include::Cassandra:cassandra:example$CQL/update_statement.cql[]
 ----
 
 
@@ -517,14 +517,14 @@ Deleting rows or parts of rows uses the `DELETE` statement:
 
 [source,bnf]
 ----
-include::cassandra:example$BNF/delete_statement.bnf[]
+include::Cassandra:cassandra:example$BNF/delete_statement.bnf[]
 ----
 
 For example:
 
 [source,cql]
 ----
-include::cassandra:example$CQL/delete_statement.cql[]
+include::Cassandra:cassandra:example$CQL/delete_statement.cql[]
 ----
 
 The `DELETE` statement deletes columns and rows. If column names are
@@ -555,14 +555,14 @@ statement by grouping them through a `BATCH` statement:
 
 [source, bnf]
 ----
-include::cassandra:example$BNF/batch_statement.bnf[]
+include::Cassandra:cassandra:example$BNF/batch_statement.bnf[]
 ----
 
 For instance:
 
 [source,cql]
 ----
-include::cassandra:example$CQL/batch_statement.cql[]
+include::Cassandra:cassandra:example$CQL/batch_statement.cql[]
 ----
 
 The `BATCH` statement group multiple modification statements
