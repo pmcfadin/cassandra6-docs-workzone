@@ -306,7 +306,7 @@ recommended to change this for any non-trivial deployment to ensure that
 should nodes become unavailable, login is still possible. Best practice
 is to configure a replication factor of 3 to 5 per-DC.
 
-[source,cql]
+[source,sql]
 ----
 ALTER KEYSPACE system_auth WITH replication = {'class': 'NetworkTopologyStrategy', 'DC1': 3, 'DC2': 3};
 ----
@@ -339,7 +339,7 @@ optional, but highly recommended. While logged in as the default
 superuser, create another superuser role which can be used to bootstrap
 further configuration.
 
-[source,cql]
+[source,sql]
 ----
 # create a new superuser
 CREATE ROLE dba WITH SUPERUSER = true AND LOGIN = true AND PASSWORD = 'super';
@@ -349,7 +349,7 @@ CREATE ROLE dba WITH SUPERUSER = true AND LOGIN = true AND PASSWORD = 'super';
 . Start a new cqlsh session, this time logging in as the new_superuser
 and disable the default superuser.
 
-[source,cql]
+[source,sql]
 ----
 ALTER ROLE cassandra WITH SUPERUSER = false AND LOGIN = false;
 ----
@@ -425,7 +425,7 @@ link:cql.html#grant-permission[GRANT PERMISSION] statements. On the
 other nodes, until configuration is updated and the node restarted, this
 will have no effect so disruption to clients is avoided.
 
-[source,cql]
+[source,sql]
 ----
 GRANT SELECT ON ks.t1 TO db_user;
 ----
@@ -802,7 +802,7 @@ resources that they need. For example, a role with the necessary
 permissions to use tools such as jconsole or jmc in read-only mode would
 be defined as:
 
-[source,cql]
+[source,sql]
 ----
 CREATE ROLE jmx WITH LOGIN = false;
 GRANT SELECT ON ALL MBEANS TO jmx;
@@ -821,7 +821,7 @@ GRANT jmx TO ks_user;
 
 Fine grained access control to individual MBeans is also supported:
 
-[source,cql]
+[source,sql]
 ----
 GRANT EXECUTE ON MBEAN 'org.apache.cassandra.db:type=Tables,keyspace=test_keyspace,table=t1' TO ks_user;
 GRANT EXECUTE ON MBEAN 'org.apache.cassandra.db:type=Tables,keyspace=test_keyspace,table=*' TO ks_owner;

@@ -220,7 +220,7 @@ A number of functions are provided to convert a `timeuuid`, a `timestamp` or a `
 
 For example, a timestamp can be converted to a date with the following:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/to_date.cql[]
 ----

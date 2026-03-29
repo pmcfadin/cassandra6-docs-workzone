@@ -15,7 +15,7 @@ include::Cassandra:cassandra:example$BNF/select_statement.bnf[]
 
 For example:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/select_statement.cql[]
 ----
@@ -64,7 +64,7 @@ Every _top-level_ selector can also be aliased (using AS).
 If so, the name of the corresponding column in the result set will be
 that of the alias. For instance:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/as.cql[]
 ----
@@ -93,14 +93,14 @@ for clustering columns must specify a *contiguous* set of rows to order.
 
 For instance, given:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/table_for_where.cql[]
 ----
 
 The following query is allowed:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/where.cql[]
 ----
@@ -108,7 +108,7 @@ include::Cassandra:cassandra:example$CQL/where.cql[]
 But the following one is not, as it does not select a contiguous set of
 rows (assuming no secondary indexes):
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/where_fail.cql[]
 ----
@@ -126,7 +126,7 @@ particular).
 
 For example:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/token.cql[]
 ----
@@ -139,7 +139,7 @@ relation using the tuple notation.
 
 For example:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/where_group_cluster_columns.cql[]
 ----
@@ -151,14 +151,14 @@ long as their `blog_title > 'John''s Blog'`.
 
 That would not be the case for this example:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/where_no_group_cluster_columns.cql[]
 ----
 
 The tuple notation may also be used for `IN` clauses on clustering columns:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/where_in_tuple.cql[]
 ----
@@ -175,7 +175,7 @@ _Added in Cassandra 6.0 (CASSANDRA-19604, CASSANDRA-19688)._
 
 The `BETWEEN` operator expresses an inclusive range restriction as a single `WHERE` condition:
 
-[source,cql]
+[source,sql]
 ----
 column BETWEEN lower_bound AND upper_bound
 ----
@@ -187,21 +187,21 @@ Three forms are supported:
 
 Single-column range on a clustering or non-primary-key column:
 
-[source,cql]
+[source,sql]
 ----
 SELECT * FROM t WHERE ck BETWEEN 10 AND 20;
 ----
 
 Multi-column tuple range on clustering columns:
 
-[source,cql]
+[source,sql]
 ----
 SELECT * FROM t WHERE (ck1, ck2) BETWEEN (1, 'a') AND (3, 'z');
 ----
 
 Token range on the partition key:
 
-[source,cql]
+[source,sql]
 ----
 SELECT * FROM t WHERE TOKEN(pk) BETWEEN TOKEN(-9223372036854775808) AND TOKEN(0);
 ----
@@ -226,7 +226,7 @@ CQL supports negation variants of the `IN`, `CONTAINS`, and `CONTAINS KEY` opera
 
 `NOT IN` — excludes rows where the column value matches any element of the list:
 
-[source,cql]
+[source,sql]
 ----
 SELECT * FROM t WHERE status NOT IN ('deleted', 'archived');
 SELECT * FROM t WHERE status NOT IN ?;
@@ -234,21 +234,21 @@ SELECT * FROM t WHERE status NOT IN ?;
 
 Multi-column tuple form:
 
-[source,cql]
+[source,sql]
 ----
 SELECT * FROM t WHERE (ck1, ck2) NOT IN ((1, 'a'), (2, 'b'));
 ----
 
 `NOT CONTAINS` — applies to list, set, and map columns; for maps, matches against values:
 
-[source,cql]
+[source,sql]
 ----
 SELECT * FROM t WHERE tags NOT CONTAINS 'internal' ALLOW FILTERING;
 ----
 
 `NOT CONTAINS KEY` — applies to map columns; matches against keys:
 
-[source,cql]
+[source,sql]
 ----
 SELECT * FROM t WHERE metadata NOT CONTAINS KEY 'secret' ALLOW FILTERING;
 ----
@@ -291,7 +291,7 @@ Four pattern forms are supported:
 
 Example using `ALLOW FILTERING`:
 
-[source,cql]
+[source,sql]
 ----
 SELECT * FROM users WHERE name LIKE 'Jo%' ALLOW FILTERING;
 ----
@@ -352,14 +352,14 @@ the query can be unpredictable.
 For example, consider the following table of user profiles with birth year and country of residence.
 The birth year has a secondary index defined.
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/allow_filtering.cql[]
 ----
 
 The following queries are valid:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/query_allow_filtering.cql[]
 ----
@@ -373,7 +373,7 @@ Both queries may return very large result sets, but the addition of a `LIMIT` cl
 
 The following query will be rejected:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/query_fail_allow_filtering.cql[]
 ----
@@ -382,7 +382,7 @@ Cassandra cannot guarantee that large amounts of data won't have to scanned amou
 If you know that the dataset is small, and the performance will be reasonable, add `ALLOW FILTERING` to allow the query to
 execute:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/query_nofail_allow_filtering.cql[]
 ----
@@ -392,7 +392,7 @@ include::Cassandra:cassandra:example$CQL/query_nofail_allow_filtering.cql[]
 
 `SELECT` statements allow to provide sets of included and excluded indexes:
 
-[source,cql]
+[source,sql]
 ----
 include::example$CQL/query_with_index_hints.cql[]
 ----
@@ -421,7 +421,7 @@ include::Cassandra:cassandra:example$BNF/insert_statement.bnf[]
 
 For example:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/insert_statement.cql[]
 ----
@@ -504,7 +504,7 @@ default.
 
 For instance:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/update_statement.cql[]
 ----
@@ -522,7 +522,7 @@ include::Cassandra:cassandra:example$BNF/delete_statement.bnf[]
 
 For example:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/delete_statement.cql[]
 ----
@@ -560,7 +560,7 @@ include::Cassandra:cassandra:example$BNF/batch_statement.bnf[]
 
 For instance:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/batch_statement.cql[]
 ----

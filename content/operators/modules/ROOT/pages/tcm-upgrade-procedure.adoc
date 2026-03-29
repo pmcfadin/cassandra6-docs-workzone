@@ -382,7 +382,7 @@ In a healthy, quiescent cluster, every node should report the same epoch.
 
 === Querying the Metadata Log
 
-[source,cql]
+[source,sql]
 ----
 SELECT epoch, kind, entry_id, entry_time
 FROM system_views.cluster_metadata_log
@@ -406,7 +406,7 @@ Verify that `PRE_INITIALIZE_CMS` and `INITIALIZE_CMS` entries exist at epochs 1 
 
 === Querying the Node Directory
 
-[source,cql]
+[source,sql]
 ----
 SELECT node_id, host_id, state, cassandra_version, dc, rack,
        broadcast_address, multi_step_operation
@@ -435,7 +435,7 @@ Epoch: 5
 
 **Step 2. Create a test keyspace.**
 
-[source,cql]
+[source,sql]
 ----
 CREATE KEYSPACE test_tcm_validation
 WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 3};
@@ -453,7 +453,7 @@ Epoch: 6
 
 On a different node:
 
-[source,cql]
+[source,sql]
 ----
 DESCRIBE KEYSPACE test_tcm_validation;
 ----
@@ -462,7 +462,7 @@ The keyspace should exist.
 
 **Step 5. Verify in the metadata log.**
 
-[source,cql]
+[source,sql]
 ----
 SELECT epoch, kind
 FROM system_views.cluster_metadata_log
@@ -473,7 +473,7 @@ You should see a `SCHEMA_CHANGE` entry.
 
 **Step 6. Clean up.**
 
-[source,cql]
+[source,sql]
 ----
 DROP KEYSPACE test_tcm_validation;
 ----

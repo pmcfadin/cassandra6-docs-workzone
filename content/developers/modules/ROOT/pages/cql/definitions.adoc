@@ -139,7 +139,7 @@ double slash (`//`).
 Multi-line comments are also supported through enclosure within `+++/*+++` and
 `+++*/+++` (but nesting is not supported).
 
-[source,cql]
+[source,sql]
 ----
 -- This is a comment
 // This is a comment too

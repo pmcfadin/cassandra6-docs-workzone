@@ -71,7 +71,7 @@ Source: `src/java/org/apache/cassandra/cql3/statements/schema/CreateIndexStateme
 The following examples show `CREATE INDEX` syntax for frozen collection columns.
 All examples use `USING 'sai'`.
 
-[source,cql]
+[source,sql]
 ----
 -- Frozen set: VALUES index enables CONTAINS queries
 CREATE INDEX ON ks.tbl (VALUES(frozen_tags)) USING 'sai';
@@ -96,7 +96,7 @@ CREATE INDEX ON ks.tbl (FULL(frozen_tags)) USING 'sai';
 
 With element-level SAI indexes defined, you can query frozen collection columns using the same `CONTAINS`, `CONTAINS KEY`, and map entry equality syntax used for non-frozen collections.
 
-[source,cql]
+[source,sql]
 ----
 -- Query a frozen set or list (requires VALUES index)
 SELECT * FROM ks.tbl WHERE frozen_tags CONTAINS 'cassandra';

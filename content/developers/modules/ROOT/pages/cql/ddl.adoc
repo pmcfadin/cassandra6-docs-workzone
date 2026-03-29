@@ -64,7 +64,7 @@ include::Cassandra:cassandra:example$BNF/create_ks.bnf[]
 
 For example:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/create_ks.cql[]
 ----
@@ -132,7 +132,7 @@ have zero replicas.
 An example of auto-expanding datacenters with two datacenters: `DC1` and
 `DC2`:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/autoexpand_ks.cql[]
 ----
@@ -144,7 +144,7 @@ include::Cassandra:cassandra:example$RESULTS/autoexpand_ks.result[]
 
 An example of auto-expanding and overriding a datacenter:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/autoexpand_ks_override.cql[]
 ----
@@ -156,7 +156,7 @@ include::Cassandra:cassandra:example$RESULTS/autoexpand_ks_override.result[]
 
 An example that excludes a datacenter while using `replication_factor`:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/autoexpand_exclude_dc.cql[]
 ----
@@ -174,7 +174,7 @@ defining replication factors in the format
 For instance, this keyspace will have 3 replicas in DC1, 1 of which is
 transient, and 5 replicas in DC2, 2 of which are transient:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/create_ks_trans_repl.cql[]
 ----
@@ -193,7 +193,7 @@ A `USE` statement specifies the keyspace to use as an argument:
 include::Cassandra:cassandra:example$BNF/use_ks.bnf[]
 ----
 Using CQL:
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/use_ks.cql[]
 ----
@@ -210,7 +210,7 @@ include::Cassandra:cassandra:example$BNF/alter_ks.bnf[]
 
 For example:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/alter_ks.cql[]
 ----
@@ -229,7 +229,7 @@ include::Cassandra:cassandra:example$BNF/drop_ks.bnf[]
 
 For example:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/drop_ks.cql[]
 ----
@@ -253,7 +253,7 @@ include::Cassandra:cassandra:example$BNF/create_table.bnf[]
 
 For example, here are some CQL statements to create tables:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/create_table.cql[]
 ----
@@ -294,7 +294,7 @@ For example:
 Code::
 +
 --
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/create_static_column.cql[]
 include::Cassandra:cassandra:example$CQL/insert_static_data.cql[]
@@ -305,7 +305,7 @@ include::Cassandra:cassandra:example$CQL/select_static_data.cql[]
 Results::
 +
 --
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$RESULTS/select_static_data.result[]
 ----
@@ -344,7 +344,7 @@ xref:cql/ddl.adoc#partition-key[partition key]::
 It can be a single column or, using an additional set of parenthesis, can be multiple columns.
 A table must have at least one partition key, the smallest possible table definition is:
 +
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/create_table_single_pk.cql[]
 ----
@@ -377,7 +377,7 @@ when they have the same values for all those partition key columns.
 A hash is computed from the partition key columns and that hash value defines the partition location.
 So, for instance, given the following table definition and content:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/create_table_compound_pk.cql[]
 include::Cassandra:cassandra:example$CQL/insert_table_compound_pk.cql[]
@@ -385,7 +385,7 @@ include::Cassandra:cassandra:example$CQL/select_table_compound_pk.cql[]
 ----
 
 will result in
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$RESULTS/select_table_compound_pk.result[]
 ----
@@ -421,7 +421,7 @@ a row in a table.
 
 For instance, given:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/create_table_clustercolumn.cql[]
 include::Cassandra:cassandra:example$CQL/insert_table_clustercolumn.cql[]
@@ -429,7 +429,7 @@ include::Cassandra:cassandra:example$CQL/select_table_clustercolumn.cql[]
 ----
 
 will result in
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$RESULTS/select_table_clustercolumn.result[]
 ----
@@ -442,13 +442,13 @@ how those rows are stored on the node.
 
 That sorting allows the very efficient retrieval of a range of rows within a partition:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/select_range.cql[]
 ----
 
 will result in
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$RESULTS/select_range.result[]
 ----
@@ -540,14 +540,14 @@ Pre-Cassandra 4.0 speculative retry policy takes a single string as a parameter:
 
 An example of setting speculative retry sets a custom value:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/alter_table_spec_retry.cql[]
 ----
 
 This example uses a percentile for the setting:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/alter_table_spec_retry_percent.cql[]
 ----
@@ -588,7 +588,7 @@ In a hybrid value, one value must be a fixed time (ms) value and the other a per
 
 To illustrate variations, the following examples are all valid:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/spec_retry_values.cql[]
 ----
@@ -652,7 +652,7 @@ Block size may be adjusted based on read/write access patterns such as:
 
 For instance, to create a table with LZ4Compressor and a `chunk_length_in_kb` of 4 KB:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/chunk_length.cql[]
 ----
@@ -677,7 +677,7 @@ Valid values are: `ALL`, to cache all rows of a queried partition, or `NONE` to 
 
 For instance, to create a table with both a key cache and 10 rows cached per partition:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/caching_option.cql[]
 ----
@@ -731,7 +731,7 @@ If the table does not exist, the statement will return an error, unless `IF EXIS
 
 For example:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/alter_table_add_column.cql[]
 include::Cassandra:cassandra:example$CQL/alter_table_with_comment.cql[]
@@ -812,35 +812,35 @@ Grammar source: `src/antlr/Parser.g` `copyTableStatement` and `likeOption` rules
 
 For example, to create a copy of `orders` in the same keyspace:
 
-[source,cql]
+[source,sql]
 ----
 CREATE TABLE orders_copy LIKE orders;
 ----
 
 Cross-keyspace copy:
 
-[source,cql]
+[source,sql]
 ----
 CREATE TABLE reporting.orders_copy LIKE sales.orders;
 ----
 
 Conditional creation (no error if target already exists):
 
-[source,cql]
+[source,sql]
 ----
 CREATE TABLE IF NOT EXISTS orders_copy LIKE orders;
 ----
 
 Copying a table with its SAI and secondary indexes:
 
-[source,cql]
+[source,sql]
 ----
 CREATE TABLE orders_copy LIKE orders WITH INDEXES;
 ----
 
 Overriding table options at copy time:
 
-[source,cql]
+[source,sql]
 ----
 CREATE TABLE orders_copy LIKE orders
     WITH INDEXES
@@ -927,7 +927,7 @@ Comments are stored in the schema metadata and displayed when using `DESCRIBE` s
 
 Add or modify a comment on a keyspace:
 
-[source,cql]
+[source,sql]
 ----
 COMMENT ON KEYSPACE keyspace_name IS 'comment text';
 COMMENT ON KEYSPACE keyspace_name IS NULL;  -- Remove comment
@@ -935,7 +935,7 @@ COMMENT ON KEYSPACE keyspace_name IS NULL;  -- Remove comment
 
 Example:
 
-[source,cql]
+[source,sql]
 ----
 COMMENT ON KEYSPACE cycling IS 'Keyspace for cycling application data';
 ----
@@ -944,7 +944,7 @@ COMMENT ON KEYSPACE cycling IS 'Keyspace for cycling application data';
 
 Add or modify a comment on a table:
 
-[source,cql]
+[source,sql]
 ----
 COMMENT ON TABLE keyspace_name.table_name IS 'comment text';
 COMMENT ON TABLE keyspace_name.table_name IS NULL;  -- Remove comment
@@ -952,7 +952,7 @@ COMMENT ON TABLE keyspace_name.table_name IS NULL;  -- Remove comment
 
 Example:
 
-[source,cql]
+[source,sql]
 ----
 COMMENT ON TABLE cycling.cyclist_name IS 'Table storing cyclist names and basic information';
 ----
@@ -961,7 +961,7 @@ COMMENT ON TABLE cycling.cyclist_name IS 'Table storing cyclist names and basic 
 
 Add or modify a comment on a column:
 
-[source,cql]
+[source,sql]
 ----
 COMMENT ON COLUMN keyspace_name.table_name.column_name IS 'comment text';
 COMMENT ON COLUMN keyspace_name.table_name.column_name IS NULL;  -- Remove comment
@@ -969,7 +969,7 @@ COMMENT ON COLUMN keyspace_name.table_name.column_name IS NULL;  -- Remove comme
 
 Example:
 
-[source,cql]
+[source,sql]
 ----
 COMMENT ON COLUMN cycling.cyclist_name.id IS 'Unique identifier for each cyclist';
 ----
@@ -978,7 +978,7 @@ COMMENT ON COLUMN cycling.cyclist_name.id IS 'Unique identifier for each cyclist
 
 Add or modify a comment on a user-defined type:
 
-[source,cql]
+[source,sql]
 ----
 COMMENT ON TYPE keyspace_name.type_name IS 'comment text';
 COMMENT ON TYPE keyspace_name.type_name IS NULL;  -- Remove comment
@@ -986,7 +986,7 @@ COMMENT ON TYPE keyspace_name.type_name IS NULL;  -- Remove comment
 
 Example:
 
-[source,cql]
+[source,sql]
 ----
 COMMENT ON TYPE cycling.address IS 'User-defined type for storing address information';
 ----
@@ -995,7 +995,7 @@ COMMENT ON TYPE cycling.address IS 'User-defined type for storing address inform
 
 Add or modify a comment on a field within a user-defined type:
 
-[source,cql]
+[source,sql]
 ----
 COMMENT ON FIELD keyspace_name.type_name.field_name IS 'comment text';
 COMMENT ON FIELD keyspace_name.type_name.field_name IS NULL;  -- Remove comment
@@ -1003,7 +1003,7 @@ COMMENT ON FIELD keyspace_name.type_name.field_name IS NULL;  -- Remove comment
 
 Example:
 
-[source,cql]
+[source,sql]
 ----
 COMMENT ON FIELD cycling.address.street IS 'Street address line';
 ----
@@ -1022,7 +1022,7 @@ These labels can be used to mark data sensitivity levels or compliance requireme
 
 Add or modify a security label on a keyspace:
 
-[source,cql]
+[source,sql]
 ----
 SECURITY LABEL ON KEYSPACE keyspace_name IS 'label';
 SECURITY LABEL ON KEYSPACE keyspace_name IS NULL;  -- Remove label
@@ -1030,7 +1030,7 @@ SECURITY LABEL ON KEYSPACE keyspace_name IS NULL;  -- Remove label
 
 Example:
 
-[source,cql]
+[source,sql]
 ----
 SECURITY LABEL ON KEYSPACE cycling IS 'CONFIDENTIAL';
 ----
@@ -1039,7 +1039,7 @@ SECURITY LABEL ON KEYSPACE cycling IS 'CONFIDENTIAL';
 
 Add or modify a security label on a table:
 
-[source,cql]
+[source,sql]
 ----
 SECURITY LABEL ON TABLE keyspace_name.table_name IS 'label';
 SECURITY LABEL ON TABLE keyspace_name.table_name IS NULL;  -- Remove label
@@ -1047,7 +1047,7 @@ SECURITY LABEL ON TABLE keyspace_name.table_name IS NULL;  -- Remove label
 
 Example:
 
-[source,cql]
+[source,sql]
 ----
 SECURITY LABEL ON TABLE cycling.cyclist_name IS 'PII';
 ----
@@ -1056,7 +1056,7 @@ SECURITY LABEL ON TABLE cycling.cyclist_name IS 'PII';
 
 Add or modify a security label on a column:
 
-[source,cql]
+[source,sql]
 ----
 SECURITY LABEL ON COLUMN keyspace_name.table_name.column_name IS 'label';
 SECURITY LABEL ON COLUMN keyspace_name.table_name.column_name IS NULL;  -- Remove label
@@ -1064,7 +1064,7 @@ SECURITY LABEL ON COLUMN keyspace_name.table_name.column_name IS NULL;  -- Remov
 
 Example:
 
-[source,cql]
+[source,sql]
 ----
 SECURITY LABEL ON COLUMN cycling.cyclist_name.email IS 'PII-EMAIL';
 ----
@@ -1073,7 +1073,7 @@ SECURITY LABEL ON COLUMN cycling.cyclist_name.email IS 'PII-EMAIL';
 
 Add or modify a security label on a user-defined type:
 
-[source,cql]
+[source,sql]
 ----
 SECURITY LABEL ON TYPE keyspace_name.type_name IS 'label';
 SECURITY LABEL ON TYPE keyspace_name.type_name IS NULL;  -- Remove label
@@ -1081,7 +1081,7 @@ SECURITY LABEL ON TYPE keyspace_name.type_name IS NULL;  -- Remove label
 
 Example:
 
-[source,cql]
+[source,sql]
 ----
 SECURITY LABEL ON TYPE cycling.address IS 'SENSITIVE';
 ----
@@ -1090,7 +1090,7 @@ SECURITY LABEL ON TYPE cycling.address IS 'SENSITIVE';
 
 Add or modify a security label on a field within a user-defined type:
 
-[source,cql]
+[source,sql]
 ----
 SECURITY LABEL ON FIELD keyspace_name.type_name.field_name IS 'label';
 SECURITY LABEL ON FIELD keyspace_name.type_name.field_name IS NULL;  -- Remove label
@@ -1098,7 +1098,7 @@ SECURITY LABEL ON FIELD keyspace_name.type_name.field_name IS NULL;  -- Remove l
 
 Example:
 
-[source,cql]
+[source,sql]
 ----
 SECURITY LABEL ON FIELD cycling.personal_info.ssn IS 'PII-SSN';
 ----

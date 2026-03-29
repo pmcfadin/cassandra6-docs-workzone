@@ -175,7 +175,7 @@ Source: `src/java/org/apache/cassandra/tcm/transformations/AlterSchema.java`
 When CMS is initialized, Cassandra creates the `system_cluster_metadata` keyspace.
 The primary table is `distributed_metadata_log`:
 
-[source,cql]
+[source,sql]
 ----
 CREATE TABLE system_cluster_metadata.distributed_metadata_log (
     epoch bigint PRIMARY KEY,

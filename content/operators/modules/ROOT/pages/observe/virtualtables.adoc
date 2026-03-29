@@ -145,14 +145,14 @@ Source: `src/java/org/apache/cassandra/metrics/CassandraMetricsRegistry.java`, `
 
 To query all compaction metrics:
 
-[source,cql]
+[source,sql]
 ----
 SELECT * FROM system_metrics.compaction_group;
 ----
 
 To find all timer metrics with a high p99 latency:
 
-[source,cql]
+[source,sql]
 ----
 SELECT name, p99th FROM system_metrics.type_timer WHERE p99th > 100 ALLOW FILTERING;
 ----
@@ -607,7 +607,7 @@ It exposes token values, size estimates, and SSTable counts without requiring ex
 Source: `src/java/org/apache/cassandra/db/virtual/PartitionKeyStatsTable.java`
 
 .Schema
-[source,cql]
+[source,sql]
 ----
 VIRTUAL TABLE system_views.partition_key_statistics (
   keyspace_name text,    -- partition key (composite)
@@ -684,7 +684,7 @@ and exposes them via CQL. This provides cluster-wide slow query visibility witho
 Source: `src/java/org/apache/cassandra/db/virtual/SlowQueriesTable.java`
 
 .Schema
-[source,cql]
+[source,sql]
 ----
 VIRTUAL TABLE system_views.slow_queries (
   keyspace_name text,    -- partition key
@@ -712,14 +712,14 @@ Slow queries populate this table when they exceed the `slow_query_log_timeout_in
 
 To inspect slow queries for a specific keyspace:
 
-[source,cql]
+[source,sql]
 ----
 SELECT * FROM system_views.slow_queries WHERE keyspace_name = 'my_keyspace';
 ----
 
 To clear all entries for a keyspace (partition-level delete):
 
-[source,cql]
+[source,sql]
 ----
 DELETE FROM system_views.slow_queries WHERE keyspace_name = 'my_keyspace';
 ----
@@ -742,7 +742,7 @@ enabling programmatic health monitoring and alerting on exception frequency via 
 Source: `src/java/org/apache/cassandra/db/virtual/ExceptionsTable.java`
 
 .Schema
-[source,cql]
+[source,sql]
 ----
 VIRTUAL TABLE system_views.uncaught_exceptions (
   exception_class    text,     -- partition key
@@ -766,7 +766,7 @@ so early-startup exceptions are captured.
 
 To inspect all recorded exceptions:
 
-[source,cql]
+[source,sql]
 ----
 SELECT exception_class, exception_location, count, last_occurrence
 FROM system_views.uncaught_exceptions;
@@ -774,7 +774,7 @@ FROM system_views.uncaught_exceptions;
 
 To look up a specific exception class:
 
-[source,cql]
+[source,sql]
 ----
 SELECT * FROM system_views.uncaught_exceptions
 WHERE exception_class = 'java.lang.NullPointerException';
@@ -782,7 +782,7 @@ WHERE exception_class = 'java.lang.NullPointerException';
 
 To clear all entries:
 
-[source,cql]
+[source,sql]
 ----
 TRUNCATE system_views.uncaught_exceptions;
 ----

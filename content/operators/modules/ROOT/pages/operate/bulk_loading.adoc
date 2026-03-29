@@ -113,12 +113,12 @@ If the table was dropped, it can be created using the `schema.cql` file generate
 Prior to using `sstableloader` to load SSTables to the `magazine` table, the table must exist.
 The table does not need to be empty but we have used an empty table as indicated by a CQL query:
 
-[source,cql]
+[source,sql]
 ----
 SELECT * FROM magazine;
 ----
 results in
-[source,cql]
+[source,sql]
 ----
 id | name | publisher
 ----+------+-----------
@@ -176,12 +176,12 @@ progress: [35.173.233.153:7000]0:2/2 176% [10.0.2.238:7000]0:2/2 78 %
 
 After the `sstableloader` has finished loading the data, run a query the `magazine` table to check:
 
-[source,cql]
+[source,sql]
 ----
 SELECT * FROM magazine;
 ----
 results in
-[source,cql]
+[source,sql]
 ----
 id | name                      | publisher
 ----+---------------------------+------------------
@@ -388,7 +388,7 @@ directory.
 Using `nodetool import` to import SSTables from an incremental backup, and restoring
 the table is shown below.
 
-[source,cql]
+[source,sql]
 ----
 DROP table t;
 ----
@@ -398,7 +398,7 @@ If the schema definition is not kept as a separate
 backup, the `schema.cql` from a backup of the table may be used to
 create the table as follows:
 
-[source,cql]
+[source,sql]
 ----
 CREATE TABLE IF NOT EXISTS cqlkeyspace.t (
    id int PRIMARY KEY,
@@ -427,11 +427,11 @@ CREATE TABLE IF NOT EXISTS cqlkeyspace.t (
 
 Initially the table could be empty, but does not have to be.
 
-[source,cql]
+[source,sql]
 ----
 SELECT * FROM t;
 ----
-[source,cql]
+[source,sql]
 ----
 id | k | v
 ----+---+---
@@ -451,11 +451,11 @@ $ nodetool import -- cqlkeyspace t \
 
 The SSTables are imported into the table. Run a query in cqlsh to check:
 
-[source,cql]
+[source,sql]
 ----
 SELECT * FROM t;
 ----
-[source,cql]
+[source,sql]
 ----
 id | k | v
 ----+---+------
@@ -472,7 +472,7 @@ similar to importing SSTables from an incremental backup.
 Shown here is an import of a snapshot for table `catalogkeyspace.journal`, after
 dropping the table to demonstrate the restore.
 
-[source,cql]
+[source,sql]
 ----
 USE CATALOGKEYSPACE;
 DROP TABLE journal;
@@ -503,7 +503,7 @@ total 44
 Copy the DDL from the `schema.cql` and run in cqlsh to create the
 `catalogkeyspace.journal` table:
 
-[source,cql]
+[source,sql]
 ----
 CREATE TABLE IF NOT EXISTS catalogkeyspace.journal (
    id int PRIMARY KEY,
@@ -542,11 +542,11 @@ $ nodetool import -- catalogkeyspace journal \
 
 Subsequently run a CQL query on the `journal` table to check the imported data:
 
-[source,cql]
+[source,sql]
 ----
 SELECT * FROM journal;
 ----
-[source,cql]
+[source,sql]
 ----
 id | name                      | publisher
 ----+---------------------------+------------------

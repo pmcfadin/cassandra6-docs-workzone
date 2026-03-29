@@ -68,70 +68,70 @@ each.
 
 Create the keyspace `cqlkeyspace`:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/create_ks_backup.cql[]
 ----
 
 Create two tables `t` and `t2` in the `cqlkeyspace` keyspace.
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/create_table_backup.cql[]
 ----
 
 Add data to the tables:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/insert_data_backup.cql[]
 ----
 
 Query the table to list the data:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/select_data_backup.cql[]
 ----
 
 results in
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$RESULTS/select_data_backup.result[]
 ----
 
 Create a second keyspace `catalogkeyspace`:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/create_ks2_backup.cql[]
 ----
 
 Create two tables `journal`  and `magazine` in `catalogkeyspace`:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/create_table2_backup.cql[]
 ----
 
 Add data to the tables:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/insert_data2_backup.cql[]
 ----
 
 Query the tables to list the data:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/select_data2_backup.cql[]
 ----
 
 results in
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$RESULTS/select_data2_backup.result[]
 ----

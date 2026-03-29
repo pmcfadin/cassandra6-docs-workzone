@@ -205,7 +205,7 @@ Compression section above for training instructions.
 
 Users can set compression using the following syntax:
 
-[source,cql]
+[source,sql]
 ----
 CREATE TABLE keyspace.table (id int PRIMARY KEY)
    WITH compression = {'class': 'LZ4Compressor'};
@@ -213,7 +213,7 @@ CREATE TABLE keyspace.table (id int PRIMARY KEY)
 
 Or
 
-[source,cql]
+[source,sql]
 ----
 ALTER TABLE keyspace.table
    WITH compression = {'class': 'LZ4Compressor', 'chunk_length_in_kb': 64};
@@ -221,7 +221,7 @@ ALTER TABLE keyspace.table
 
 For dictionary compression:
 
-[source,cql]
+[source,sql]
 ----
 CREATE TABLE keyspace.table (id int PRIMARY KEY)
    WITH compression = {'class': 'ZstdDictionaryCompressor'};
@@ -229,7 +229,7 @@ CREATE TABLE keyspace.table (id int PRIMARY KEY)
 
 Or with a specific compression level:
 
-[source,cql]
+[source,sql]
 ----
 ALTER TABLE keyspace.table
    WITH compression = {
@@ -241,7 +241,7 @@ ALTER TABLE keyspace.table
 Once enabled, compression can be disabled with `ALTER TABLE` setting
 `enabled` to `false`:
 
-[source,cql]
+[source,sql]
 ----
 ALTER TABLE keyspace.table
    WITH compression = {'enabled':'false'};
@@ -309,7 +309,7 @@ table's compression options for `ZstdDictionaryCompressor`.
 
 Example:
 
-[source,cql]
+[source,sql]
 ----
 ALTER TABLE keyspace.table
    WITH compression = {

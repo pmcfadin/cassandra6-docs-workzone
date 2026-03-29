@@ -333,7 +333,7 @@ conservative this top level configuration could be increased to a larger value t
 If Auto Repair is enabled in cassandra.yaml, the `auto_repair` property may be optionally configured at the table
 level, e.g.:
 
-[source,cql]
+[source,sql]
 ----
 ALTER TABLE cycling.cyclist_races
 WITH auto_repair = {'incremental_enabled': 'false', 'priority': '0'};

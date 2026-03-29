@@ -110,7 +110,7 @@ Source: parser rule line 793: `{isTxnConditional}? (K_END K_IF K_COMMIT K_TRANSA
 The bound identifier can then be referenced in conditions and write expressions.
 
 Syntax:
-[source,cql]
+[source,sql]
 ----
 LET <name> = (SELECT <columns> FROM <table> WHERE <where_clause> [LIMIT <n>]);
 ----
@@ -140,7 +140,7 @@ Rules:
 
 Instead of a full `SELECT`, you can return specific columns from `LET`-bound rows:
 
-[source,cql]
+[source,sql]
 ----
 SELECT <name>.<col> [, <name>.<col> ...];
 ----
@@ -155,7 +155,7 @@ It is optional; if absent, writes execute unconditionally.
 
 Supported condition forms (source: https://github.com/apache/cassandra/blob/trunk/src/antlr/Parser.g[`Parser.g`] lines 839-850):
 
-[source,cql]
+[source,sql]
 ----
 IF <ref> IS NOT NULL                 -- row or column exists
    AND <ref> IS NULL                 -- row or column is null / absent
@@ -185,7 +185,7 @@ Write values can reference `LET`-bound column values using `<name>.<column>` not
 
 === Write-only transaction (unconditional, multi-partition)
 
-[source,cql]
+[source,sql]
 ----
 BEGIN TRANSACTION
   INSERT INTO purchases (user_id, order_id, total) VALUES (42, 1001, 99);
@@ -197,7 +197,7 @@ Both writes commit atomically across partitions.
 
 === Read-only transaction
 
-[source,cql]
+[source,sql]
 ----
 BEGIN TRANSACTION
   SELECT user_id, balance FROM accounts WHERE user_id = 42;
@@ -208,7 +208,7 @@ Returns the balance under serializable isolation.
 
 === Conditional update (check-and-set across partitions)
 
-[source,cql]
+[source,sql]
 ----
 BEGIN TRANSACTION
   LET row1 = (SELECT * FROM accounts WHERE user_id = 1);
@@ -228,7 +228,7 @@ Source pattern: https://github.com/apache/cassandra/blob/trunk/src/antlr/Parser.
 
 === Read-write with reference (read current value, write derived value)
 
-[source,cql]
+[source,sql]
 ----
 BEGIN TRANSACTION
   LET current = (SELECT * FROM counters WHERE id = 'pageviews');
@@ -244,7 +244,7 @@ Source: https://github.com/apache/cassandra/blob/trunk/test/unit/org/apache/cass
 
 === Existence check before insert
 
-[source,cql]
+[source,sql]
 ----
 BEGIN TRANSACTION
   LET existing = (SELECT * FROM users WHERE user_id = 7);

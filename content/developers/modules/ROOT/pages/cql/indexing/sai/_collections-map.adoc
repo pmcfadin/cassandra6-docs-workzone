@@ -91,7 +91,7 @@ Starting in Cassandra 6.0 (CASSANDRA-18492), SAI supports `KEYS`, `VALUES`, and 
 This enables element-level queries on frozen map columns using the same query syntax available for non-frozen maps.
 `FULL` indexing continues to work for exact equality on the complete frozen map.
 
-[source,cql]
+[source,sql]
 ----
 -- Table with a frozen map column
 CREATE TABLE ks.cyclist_teams (

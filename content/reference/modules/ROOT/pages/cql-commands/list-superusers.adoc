@@ -1,0 +1,63 @@
+= LIST SUPERUSERS
+:description: Lists all roles with effective superuser privilege.
+
+Lists all roles that have superuser privilege, including roles that have superuser status transitively through role grants.
+
+== Synopsis
+
+[source,sql]
+----
+LIST SUPERUSERS;
+----
+
+== Description
+
+The `LIST SUPERUSERS` statement returns a single-column result set containing every role that currently has effective superuser access. This includes:
+
+* Roles created with `WITH SUPERUSER = true`
+* Roles that inherit superuser status transitively through role grant chains (e.g., a role granted to a superuser role)
+
+This statement is useful for security auditing without needing to manually traverse the role hierarchy from `LIST ROLES`.
+
+== Permissions
+
+Requires `DESCRIBE` permission on all database roles. Callers without this permission receive an `UnauthorizedException`.
+
+== Output
+
+The result set contains a single column:
+
+[cols="1,3"]
+|===
+| Column | Description
+
+| `role`
+| The name of a role with effective superuser privilege.
+|===
+
+== Examples
+
+List all superusers:
+
+[source,sql]
+----
+LIST SUPERUSERS;
+----
+
+Example output:
+
+----
+ role
+-----------
+ cassandra
+ admin_role
+----
+
+== Audit Logging
+
+This statement is logged as `LIST_SUPERUSERS` under the `DCL` audit log category.
+
+== See Also
+
+* xref:developers::cql/security.adoc[CQL Security] — role management and authorization
+* xref:Cassandra:cassandra:reference/cql-commands/commands-toc.adoc[CQL Commands Reference]

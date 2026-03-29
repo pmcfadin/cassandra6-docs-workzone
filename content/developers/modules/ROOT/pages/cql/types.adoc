@@ -178,7 +178,7 @@ A duration can be input as:
 
 For example:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/insert_duration.cql[]
 ----
@@ -243,7 +243,7 @@ removed/improved upon in the future, it is a anti-pattern to use a
 A `map` is a (sorted) set of key-value pairs, where keys are unique and
 the map is sorted by its keys. You can define and insert a map with:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/map.cql[]
 ----
@@ -252,14 +252,14 @@ Further, maps support:
 
 * Updating or inserting one or more elements:
 +
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/update_map.cql[]
 ----
 * Removing one or more element (if an element doesn't exist, removing it
 is a no-op but no error is thrown):
 +
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/delete_map.cql[]
 ----
@@ -271,7 +271,7 @@ Lastly, TTLs are allowed for both `INSERT` and `UPDATE`, but in both
 cases the TTL set only apply to the newly inserted/updated elements. In
 other words:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/update_ttl_map.cql[]
 ----
@@ -284,7 +284,7 @@ of the map remaining unaffected.
 A `set` is a (sorted) collection of unique values. You can define and
 insert a set with:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/set.cql[]
 ----
@@ -294,14 +294,14 @@ Further, sets support:
 * Adding one or multiple elements (as this is a set, inserting an
 already existing element is a no-op):
 +
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/update_set.cql[]
 ----
 * Removing one or multiple elements (if an element doesn't exist,
 removing it is a no-op but no error is thrown):
 +
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/delete_set.cql[]
 ----
@@ -322,7 +322,7 @@ A `list` is a (sorted) collection of non-unique values where
 elements are ordered by their position in the list. You can define and
 insert a list with:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/list.cql[]
 ----
@@ -331,7 +331,7 @@ Further, lists support:
 
 * Appending and prepending values to a list:
 +
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/update_list.cql[]
 ----
@@ -348,7 +348,7 @@ appending/prepending the value twice.
 * Setting the value at a particular position in a list that has a pre-existing element for that position. An error
 will be thrown if the list does not have the position:
 +
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/update_particular_list_element.cql[]
 ----
@@ -357,7 +357,7 @@ will be thrown if the list does not have the position. Further, as the operation
 element from the list, the list size will decrease by one element, shifting
 the position of all the following elements one forward:
 +
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/delete_element_list.cql[]
 ----
@@ -366,7 +366,7 @@ include::Cassandra:cassandra:example$CQL/delete_element_list.cql[]
 particular element doesn't occur at all in the list, it is simply
 ignored and no error is thrown):
 +
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/delete_all_elements_list.cql[]
 ----
@@ -389,7 +389,7 @@ Vectors are fixed-size sequences of non-null values of a certain data type. They
 
 You can define, insert and update a vector with:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/vector.cql[]
 ----
@@ -425,7 +425,7 @@ A UDT has a name (used to declared columns of that type) and is a set of
 named and typed fields. Fields name can be any type, including
 collections or other UDT. For instance:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/udt.cql[]
 ----
@@ -456,7 +456,7 @@ In other words, a UDT literal is like a xref:cql/types.adoc#maps[map]` literal b
 keys are the names of the fields of the type. For instance, one could
 insert into the table define in the previous section using:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/insert_udt.cql[]
 ----
@@ -481,7 +481,7 @@ That new field will be `NULL` for any values of the type created before
 the addition. If the new field exists, the statement will return an error, unless `IF NOT EXISTS` is used in which case the operation is a no-op.
 * Rename the fields of the type. If the field(s) does not exist, the statement will return an error, unless `IF EXISTS` is used in which case the operation is a no-op.
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/rename_udt_field.cql[]
 ----
@@ -516,7 +516,7 @@ include::Cassandra:cassandra:example$BNF/tuple.bnf[]
 
 and can be created:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/tuple.cql[]
 ----

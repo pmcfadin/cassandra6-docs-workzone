@@ -15,4 +15,5 @@
 * CQL Commands
 ** xref:cql-commands/commands-toc.adoc[Commands Reference]
 ** xref:cql-commands/compact-subproperties.adoc[Compaction Subproperties]
+** xref:cql-commands/list-superusers.adoc[LIST SUPERUSERS]
 * xref:sai-virtual-table-indexes.adoc[SAI Virtual Table Indexes]

@@ -19,7 +19,7 @@ include::Cassandra:cassandra:example$BNF/create_trigger_statement.bnf[]
 
 For instance:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/create_trigger.cql[]
 ----
@@ -44,7 +44,7 @@ include::Cassandra:cassandra:example$BNF/drop_trigger_statement.bnf[]
 
 For instance:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/drop_trigger.cql[]
 ----

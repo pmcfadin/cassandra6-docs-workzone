@@ -137,7 +137,7 @@ by pointing `slow_queries` logger to a respective file appender of a given refer
 
 The structure of a table looks like this:
 
-[source,cql]
+[source,sql]
 ----
 cassandra@cqlsh> DESCRIBE system_views.slow_queries ;
 

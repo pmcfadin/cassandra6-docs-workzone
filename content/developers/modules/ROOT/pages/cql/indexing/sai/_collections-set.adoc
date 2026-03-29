@@ -41,7 +41,7 @@ Starting in Cassandra 6.0 (CASSANDRA-18492), SAI supports `VALUES` indexing on f
 This enables `CONTAINS` queries on individual set elements without requiring an exact match on the entire serialized value.
 `FULL` indexing continues to work for exact equality on the complete frozen set.
 
-[source,cql]
+[source,sql]
 ----
 -- Table with a frozen set column
 CREATE TABLE ks.cyclist_career_teams (

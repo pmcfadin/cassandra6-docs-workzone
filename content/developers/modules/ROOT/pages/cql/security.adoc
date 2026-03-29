@@ -23,7 +23,7 @@ include::Cassandra:cassandra:example$BNF/create_role_statement.bnf[]
 
 For instance:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/create_role.cql[]
 ----
@@ -86,7 +86,7 @@ Attempting to create an existing role results in an invalid query
 condition unless the `IF NOT EXISTS` option is used. If the option is
 used and the role exists, the statement is a no-op:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/create_role_ifnotexists.cql[]
 ----
@@ -103,7 +103,7 @@ include::Cassandra:cassandra:example$BNF/alter_role_statement.bnf[]
 
 For example:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/alter_role.cql[]
 ----
@@ -187,7 +187,7 @@ include::Cassandra:cassandra:example$BNF/grant_role_statement.bnf[]
 
 For example:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/grant_role.cql[]
 ----
@@ -198,7 +198,7 @@ permissions granted to `report_writer` are also acquired by `alice`.
 Roles are modelled as a directed acyclic graph, so circular grants are
 not permitted. The following examples result in error conditions:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/role_error.cql[]
 ----
@@ -215,7 +215,7 @@ include::Cassandra:cassandra:example$BNF/revoke_role_statement.bnf[]
 
 For example:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/revoke_role.cql[]
 ----
@@ -237,7 +237,7 @@ include::Cassandra:cassandra:example$BNF/list_roles_statement.bnf[]
 
 For instance:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/list_roles.cql[]
 ----
@@ -248,7 +248,7 @@ permission on the database roles resource.
 This example enumerates all roles granted to `alice`, including those transitively
 acquired:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/list_roles_of.cql[]
 ----
@@ -256,7 +256,7 @@ include::Cassandra:cassandra:example$CQL/list_roles_of.cql[]
 This example lists all roles directly granted to `bob` without including any of the
 transitively acquired ones:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/list_roles_nonrecursive.cql[]
 ----
@@ -274,7 +274,7 @@ transitively through role inheritance — can be listed using the `LIST SUPERUSE
 include::Cassandra:cassandra:example$BNF/list_superusers_statement.bnf[]
 ----
 
-[source,cql]
+[source,sql]
 ----
 LIST SUPERUSERS;
 ----
@@ -327,7 +327,7 @@ include::Cassandra:cassandra:example$BNF/create_user_statement.bnf[]
 
 For example:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/create_user.cql[]
 ----
@@ -335,7 +335,7 @@ include::Cassandra:cassandra:example$CQL/create_user.cql[]
 The `CREATE USER` command is equivalent to `CREATE ROLE` where the `LOGIN` option is `true`.
 So, the following pairs of statements are equivalent:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/create_user_role.cql[]
 ----
@@ -352,7 +352,7 @@ include::Cassandra:cassandra:example$BNF/alter_user_statement.bnf[]
 If the role does not exist, the statement will return an error, unless `IF EXISTS` is used in which case the operation is a no-op.
 For example:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/alter_user.cql[]
 ----
@@ -625,7 +625,7 @@ include::Cassandra:cassandra:example$BNF/grant_permission_statement.bnf[]
 
 For example:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/grant_perm.cql[]
 ----
@@ -633,7 +633,7 @@ include::Cassandra:cassandra:example$CQL/grant_perm.cql[]
 This example gives any user with the role `data_reader` permission to execute
 `SELECT` statements on any table across all keyspaces:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/grant_modify.cql[]
 ----
@@ -642,7 +642,7 @@ To give any user with the role `data_writer` permission to perform
 `UPDATE`, `INSERT`, `UPDATE`, `DELETE` and `TRUNCATE` queries on all
 tables in the `keyspace1` keyspace:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/grant_drop.cql[]
 ----
@@ -650,7 +650,7 @@ include::Cassandra:cassandra:example$CQL/grant_drop.cql[]
 To give any user with the `schema_owner` role permissions to `DROP` a specific
 `keyspace1.table1`:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/grant_execute.cql[]
 ----
@@ -659,7 +659,7 @@ This command grants any user with the `report_writer` role permission to execute
 `SELECT`, `INSERT` and `UPDATE` queries which use the function
 `keyspace1.user_function( int )`:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/grant_describe.cql[]
 ----
@@ -693,7 +693,7 @@ include::Cassandra:cassandra:example$BNF/revoke_permission_statement.bnf[]
 
 For example:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/revoke_perm.cql[]
 ----
@@ -703,7 +703,7 @@ cannot have their `SELECT` permissions revoked. The
 following tables will be available to all authorized users regardless of
 their assigned role:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/no_revoke.cql[]
 ----
@@ -720,7 +720,7 @@ include::Cassandra:cassandra:example$BNF/list_permissions_statement.bnf[]
 
 For example:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/list_perm.cql[]
 ----
@@ -728,7 +728,7 @@ include::Cassandra:cassandra:example$CQL/list_perm.cql[]
 Show all permissions granted to `alice`, including those acquired
 transitively from any other roles:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/list_all_perm.cql[]
 ----
@@ -741,7 +741,7 @@ permissions higher up the resource hierarchy which can be applied to
 the `NORECURSIVE` switch restricts the results to only those permissions
 which were directly granted to `bob` or one of `bob`'s roles:
 
-[source,cql]
+[source,sql]
 ----
 include::Cassandra:cassandra:example$CQL/list_select_perm.cql[]
 ----
