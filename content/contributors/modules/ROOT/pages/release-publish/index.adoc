@@ -1,0 +1,20 @@
+= Release and Publish
+
+This section covers the infrastructure supporting Apache Cassandra releases: continuous integration, dependency management, and the release process.
+
+== In This Section
+
+xref:release-publish/ci.adoc[CI Environment]::
+Continuous integration scripts, Docker-based test execution, and code analysis.
+
+xref:release-publish/dependencies.adoc[Dependency Management]::
+Submodule workflow, the `lib/` directory, and license compatibility requirements.
+
+xref:release-publish/release_process.adoc[Release Process]::
+The Apache Cassandra release workflow and ASF policy compliance.
+
+[NOTE]
+====
+The release process is governed by ASF policy and maintained by committers and PMC members.
+The pages in this section document what is publicly known; some details require committer-level access.
+====

@@ -1,0 +1,92 @@
+= Getting Started
+
+This page walks you through setting up a Cassandra development environment from scratch.
+
+== Prerequisites
+
+You need the following installed before building Cassandra:
+
+* **Java Development Kit (JDK)** -- JDK 11 or 17 for building; JDK 17 or 21 for running Cassandra 6.
+  Download from https://adoptium.net/[Eclipse Adoptium] or your preferred vendor.
+* **Apache Ant** -- Cassandra uses Ant as its build system. Install from https://ant.apache.org/[ant.apache.org] or via your package manager.
+* **Git** -- https://git-scm.com/[git-scm.com]
+* **Python 3** -- Required for running distributed tests (dtests) and cqlsh.
+
+== Clone the Repository
+
+Fork the https://github.com/apache/cassandra[Apache Cassandra repository] on GitHub, then clone your fork:
+
+[source,bash]
+----
+git clone https://github.com/<your-username>/cassandra.git
+cd cassandra
+----
+
+Add the upstream remote so you can pull future changes:
+
+[source,bash]
+----
+git remote add upstream https://github.com/apache/cassandra.git
+----
+
+== Initialize Submodules
+
+Cassandra uses git submodules for dependencies such as Accord.
+Initialize them after cloning:
+
+[source,bash]
+----
+git submodule update --init --recursive
+----
+
+TIP: When starting a development branch for a JIRA ticket, use the helper script to create matching branches across submodules: `.build/sh/development-switch.sh --jira CASSANDRA-<number>`
+(Source: https://github.com/apache/cassandra/blob/trunk/CONTRIBUTING.md[CONTRIBUTING.md])
+
+== Build Cassandra
+
+Build the project with Ant:
+
+[source,bash]
+----
+ant
+----
+
+This compiles the source, downloads dependencies, and produces build artifacts.
+The first build takes longer as it fetches dependencies.
+
+To verify everything compiled correctly:
+
+[source,bash]
+----
+ant jar build-test
+----
+
+== Run a Smoke Test
+
+Run a single unit test to verify your build:
+
+[source,bash]
+----
+ant test -Dtest.name=org.apache.cassandra.utils.UUIDTest
+----
+
+Or run the full unit test suite:
+
+[source,bash]
+----
+ant test
+----
+
+See xref:build-test/testing.adoc[Testing] for comprehensive guidance on all test types.
+
+== Next Steps
+
+* xref:build-test/ide.adoc[Set up your IDE] for IntelliJ IDEA or Eclipse
+* Read xref:patch-review/patches.adoc[Contributing Code Changes] for the contribution workflow
+* Review the xref:patch-review/code_style.adoc[Code Style] guidelines
+
+[NOTE]
+====
+This page provides the essential getting-started workflow.
+For build helper scripts and Docker-based builds, see the https://github.com/apache/cassandra/blob/trunk/.build/README.md[`.build/README.md`] in the Cassandra repository.
+====

@@ -1,0 +1,54 @@
+= Review Checklist
+
+When reviewing patches in Apache JIRA or GitHub pull requests, cover the following areas.
+This checklist is adapted from the project's legacy development documentation.
+
+== General
+
+* Does it conform to the xref:patch-review/code_style.adoc[code style] guidelines?
+* Is there any redundant or duplicate code?
+* Is the code as modular as possible?
+* Can any singletons be avoided?
+* Can any of the code be replaced with library functions?
+* Are units of measurement used in the code consistent, both internally and with the rest of the ecosystem?
+
+== Error Handling
+
+* Are all data inputs and outputs checked (for the correct type, length, format, and range) and encoded?
+* Where third-party utilities are used, are returned errors being caught?
+* Are invalid parameter values handled?
+* Are any `Throwable`/`Exception` instances passed to the `JVMStabilityInspector`?
+* Are errors well-documented? Does the error message tell the user how to proceed?
+* Do exceptions propagate to the appropriate level in the code?
+
+== Documentation
+
+* Do comments exist and describe the _intent_ of the code (the "why", not the "how")?
+* Are Javadocs added where appropriate?
+* Is any unusual behavior or edge-case handling described?
+* Are data structures and units of measurement explained?
+* Is there any incomplete code? If so, should it be removed or flagged with `TODO`?
+* Does the code self-document via clear naming, abstractions, and flow control?
+* Have `NEWS.txt`, the CQL docs, and the native protocol spec been updated if needed?
+* Is the ticket tagged with `client-impacting` and `doc-impacting` where appropriate?
+* Has `lib/licenses` been updated for third-party libs? Are they Apache License compatible?
+* Is the Component on the JIRA ticket set appropriately?
+
+== Testing
+
+* Is the code testable? (No hidden dependencies, objects can be initialized, test frameworks can call methods)
+* Do tests exist and are they comprehensive?
+* Do unit tests actually test that the code performs the intended functionality?
+* Could any test code use common functionality (e.g., CCM, dtest, or `CqlTester` methods) or abstract it for reuse?
+* If the code may be affected by multi-node clusters, are there dtests?
+* If the code may take a long time to test properly, are there CVH tests?
+* Is the test passing on CI for all affected branches (up to trunk, if applicable)? Are there any regressions?
+* If the patch affects the read/write path, was it tested for performance regressions with multiple workloads?
+* If adding a new feature, were tests added confirming it meets the expected SLA/use-case requirements?
+
+== Logging
+
+* Are logging statements logged at the correct level?
+* Are there logs in the critical path that could affect performance?
+* Is there any log that could be added to communicate status or troubleshoot potential problems?
+* Can any unnecessary logging statements be removed?

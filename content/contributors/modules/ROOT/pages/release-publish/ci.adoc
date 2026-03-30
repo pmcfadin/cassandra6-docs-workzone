@@ -1,0 +1,75 @@
+= CI Environment
+
+Apache Cassandra provides a set of build and test scripts in the `.build/` directory that support both local development and CI pipelines.
+
+== Build Helper Scripts
+
+All scripts are located under `.build/` in the Cassandra repository and accept `-h` for help.
+See the https://github.com/apache/cassandra/blob/trunk/.build/README.md[`.build/README.md`] for full documentation.
+
+=== Code Checks
+
+[source,bash]
+----
+# With Docker
+.build/docker/check-code.sh
+
+# Without Docker
+.build/check-code.sh
+
+# With a specific JDK
+.build/docker/check-code.sh 11
+----
+
+=== Building Artifacts
+
+[source,bash]
+----
+# Tarball and Maven artifacts
+.build/docker/build-artifacts.sh
+
+# Debian and RedHat packages (Docker only)
+.build/docker/build-debian.sh
+.build/docker/build-redhat.sh
+----
+
+=== Parallel Builds
+
+Use a custom build directory to run parallel builds from the same source:
+
+[source,bash]
+----
+build_dir=/tmp/cass_build1 .build/docker/check-code.sh
+----
+
+== Test Execution
+
+See xref:build-test/testing.adoc[Testing] for the full guide on running tests, including all test types and Docker options.
+
+== SonarQube Analysis
+
+Static analysis can be run with SonarQube:
+
+[source,bash]
+----
+ant sonar
+----
+
+This requires a SonarQube server.
+To start one locally in Docker:
+
+[source,bash]
+----
+ant sonar-create-server   # Creates and starts a local SonarQube container
+ant sonar                 # Run analysis
+# Results at http://localhost:9000 (admin/password)
+ant sonar-stop-server     # Stop (but keep container for later)
+----
+
+For an external server, set the environment variables `SONAR_HOST_URL`, `SONAR_CASSANDRA_TOKEN`, and `SONAR_PROJECT_KEY`.
+
+[NOTE]
+====
+Historical CI was provided by a DataStax-hosted Jenkins instance (`cassci.datastax.com`), which is no longer available.
+Current CI practices use the `.build/` scripts and CircleCI configuration in the repository.
+====

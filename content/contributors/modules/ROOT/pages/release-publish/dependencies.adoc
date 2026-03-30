@@ -1,0 +1,53 @@
+= Dependency Management
+
+Apache Cassandra manages dependencies through two mechanisms: git submodules for tightly coupled projects, and the `lib/` directory for third-party libraries.
+
+== Git Submodules
+
+Cassandra uses git submodules for dependencies where cross-cutting changes are common.
+The primary submodule is https://github.com/apache/cassandra-accord[Accord], the consensus protocol implementation.
+
+=== Initializing Submodules
+
+After cloning the repository:
+
+[source,bash]
+----
+git submodule update --init --recursive
+----
+
+=== Development Branches
+
+When starting work on a JIRA ticket, create matching branches across submodules:
+
+[source,bash]
+----
+.build/sh/development-switch.sh --jira CASSANDRA-<number>
+----
+
+=== Updating Submodule References
+
+After making changes to a submodule:
+
+[source,bash]
+----
+(cd modules/accord ; git commit -am 'Description of change')
+.build/sh/bump-accord.sh
+----
+
+See xref:patch-review/patches.adoc[Contributing Code Changes] for the full submodule merge workflow.
+
+== Third-Party Libraries
+
+Third-party dependencies are stored in the `lib/` directory.
+All libraries must be compatible with the https://www.apache.org/legal/resolved.html[Apache License].
+
+License information for each dependency is maintained in `lib/licenses/`.
+When adding or updating a third-party library:
+
+. Place the JAR in `lib/`
+. Add or update the corresponding license file in `lib/licenses/`
+. Ensure the license is Apache-compatible (Category A or B per ASF policy)
+
+The build enforces license compliance using the Apache RAT tool.
+See xref:patch-review/code_style.adoc[Code Style] for details on license header requirements.

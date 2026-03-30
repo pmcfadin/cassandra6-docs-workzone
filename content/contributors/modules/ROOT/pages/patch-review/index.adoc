@@ -1,0 +1,28 @@
+= Patches and Review
+
+This section covers the full lifecycle of a code contribution to Apache Cassandra: from finding something to work on through patch submission, code review, and committing.
+
+== In This Section
+
+xref:patch-review/patches.adoc[Contributing Code Changes]::
+The contribution workflow -- choosing what to work on, creating a patch, and submitting it for review.
+
+xref:patch-review/code_style.adoc[Code Style]::
+Java coding conventions, import ordering, exception handling, and license compliance.
+
+xref:patch-review/how_to_review.adoc[Review Checklist]::
+What reviewers look for when evaluating patches.
+
+xref:patch-review/how_to_commit.adoc[How to Commit]::
+For committers: the merge workflow across release branches, including submodule handling.
+
+== Quick Reference
+
+. Find or create a https://issues.apache.org/jira/browse/CASSANDRA/[JIRA ticket]
+. Fork https://github.com/apache/cassandra[apache/cassandra] and create a feature branch
+. Make your changes following the xref:patch-review/code_style.adoc[code style] guidelines
+. Write tests (see xref:build-test/testing.adoc[Testing])
+. Submit a pull request or attach a patch to the JIRA ticket
+. Address review feedback and iterate until the patch receives a `+1`
+
+See xref:patch-review/patches.adoc[Contributing Code Changes] for the full workflow.

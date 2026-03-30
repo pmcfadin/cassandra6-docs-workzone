@@ -1,0 +1,231 @@
+= Testing
+
+This page describes the types of tests in Apache Cassandra, how to run them, and guidelines for writing effective tests.
+It is grounded in the project's https://github.com/apache/cassandra/blob/trunk/TESTING.md[TESTING.md] and https://github.com/apache/cassandra/blob/trunk/.build/README.md[`.build/README.md`].
+
+== Test Types
+
+Cassandra has three main categories of tests: unit tests, integration tests, and distributed tests (dtests).
+
+=== Unit Tests
+
+JUnit tests of smaller components with narrow scope -- data structures, verb handlers, helper classes.
+
+**What to test:**
+
+* All state transitions, including illegal transitions (that they throw exceptions)
+* All conditional branches
+* Code that deals with ranges of values: expected ranges, unexpected ranges, boundary conditions
+* Exception handling
+
+**What not to test:**
+
+* Implementation details -- test that the system works a certain way, not _how_ it is implemented
+
+=== Integration Tests
+
+JUnit tests of larger components with multiple moving parts, often involving internode communication (Gossip, MessagingService).
+The individual components should have unit tests of their own.
+
+**What to test:**
+
+* Messages are sent when expected
+* Received messages have the intended side effects
+* Internal and external interfaces work as expected
+* Multiple instances of components interact correctly (with mocked messaging and dependencies where appropriate)
+* Startup behavior: clean first start, restart after clean shutdown, restart after unclean shutdown
+* Upgrade: system restarts with data from a previous version
+
+**What not to test:**
+
+* The rest of the application -- use mocks to isolate the system under test
+
+NOTE: Avoid mocking the storage layer if the component under test needs it.
+For tests where multiple instances share storage, parameterize the keyspace/table they use.
+
+=== Distributed Tests (dtests)
+
+Python/CCM tests that start local clusters and interact with them via the Python client.
+dtests are black-box tests for verifying cluster behavior and client-side interfaces.
+
+**What to test:**
+
+* End-to-end cluster functionality
+* Client contracts
+* Failure cases that are straightforward to create
+
+**What not to test:**
+
+* Internal implementation details -- use Java integration tests for that
+
+dtests are slower and less flexible than JUnit tests.
+Systems tested via dtests should also have more granular integration tests.
+
+== Running Tests
+
+=== With Ant
+
+[source,bash]
+----
+# Full unit test suite
+ant test
+
+# Single test class
+ant test -Dtest.name=org.apache.cassandra.utils.UUIDTest
+----
+
+=== With Docker (Recommended for CI Parity)
+
+The `.build/` scripts provide Docker-based test execution matching CI behavior:
+
+[source,bash]
+----
+# Unit tests
+.build/docker/run-tests.sh -a test
+
+# Only a split of unit tests (for parallelism)
+.build/docker/run-tests.sh -a test -c 1/64
+
+# Tests matching a regexp
+.build/docker/run-tests.sh -a test -t VerifyTest
+.build/docker/run-tests.sh -a test -t "Compaction*Test$"
+
+# With a specific JDK version
+.build/docker/run-tests.sh -a test -j 11
+----
+
+=== Other Test Types
+
+[source,bash]
+----
+.build/docker/run-tests.sh -a stress-test
+.build/docker/run-tests.sh -a fqltool-test
+.build/docker/run-tests.sh -a microbench
+.build/docker/run-tests.sh -a test-cdc
+.build/docker/run-tests.sh -a test-compression
+.build/docker/run-tests.sh -a test-burn
+.build/docker/run-tests.sh -a long-test
+.build/docker/run-tests.sh -a cqlsh-test
+.build/docker/run-tests.sh -a jvm-dtest
+.build/docker/run-tests.sh -a jvm-dtest-upgrade
+.build/docker/run-tests.sh -a dtest
+.build/docker/run-tests.sh -a dtest-novnode
+.build/docker/run-tests.sh -a dtest-offheap
+.build/docker/run-tests.sh -a dtest-large
+.build/docker/run-tests.sh -a dtest-upgrade
+----
+
+=== Repeating Tests
+
+Add the `-repeat` suffix to the test type:
+
+[source,bash]
+----
+.build/docker/run-tests.sh -a jvm-dtest-repeat -t BooleanTest -e REPEATED_TESTS_COUNT=2
+
+# Fail fast disabled
+.build/run-tests.sh -a jvm-dtest-repeat -t BooleanTest \
+  -e REPEATED_TESTS_COUNT=2 -e REPEATED_TESTS_STOP_ON_FAILURE=false
+----
+
+=== Without Docker
+
+[source,bash]
+----
+.build/run-tests.sh -a test
+.build/run-python-dtests.sh dtest
+----
+
+=== Debug Mode
+
+[source,bash]
+----
+DEBUG=true .build/docker/run-tests.sh -a test
+----
+
+== Writing Good Tests
+
+=== Test Structure
+
+Test cases should follow a clear progression: setup, precondition check, action, postcondition check.
+
+[source,java]
+----
+@Test
+public void increment() throws Exception
+{
+    // setup
+    int x = 1;
+
+    // precondition
+    assertEquals(1, x);
+
+    // action under test
+    x++;
+
+    // postcondition
+    assertEquals(2, x);
+}
+----
+
+=== Test All Branches and Inputs
+
+All branches and inputs of a method should be exercised.
+For conditions like `x > 10 && y < 100`, test:
+
+* Both criteria met (`x=11, y=99`)
+* Only one met (`x=11, y=200` and `x=5, y=99`)
+* Boundary values (`x=10, x=11`)
+
+=== Test State Transitions
+
+For stateful systems, test that:
+
+* States change under the intended circumstances
+* State changes have the intended side effects
+* Unsupported states or arguments throw appropriate exceptions (`IllegalStateException`, `IllegalArgumentException`)
+
+=== Dealing with Global State
+
+Cassandra has extensive global state.
+Having dependencies on global state is not an excuse to skip testing.
+
+**Preferred approach**: Pass dependencies as constructor arguments.
+
+[source,java]
+----
+class SomeVerbHandler implements IVerbHandler<SomeMessage>
+{
+    private final IFailureDetector failureDetector;
+    private final ICompactionManager compactionManager;
+
+    public SomeVerbHandler(IFailureDetector failureDetector,
+                           ICompactionManager compactionManager)
+    {
+        this.failureDetector = failureDetector;
+        this.compactionManager = compactionManager;
+    }
+    // ...
+}
+----
+
+This allows tests to inject instrumented implementations that track calls and control behavior.
+
+**Alternative**: When constructor injection is not practical (startup-order dependencies, bug-fix scope), wrap global state accesses in `@VisibleForTesting` protected methods and override them in test subclasses.
+
+=== Refactoring Existing Code
+
+When working on poorly-tested code:
+
+* You must verify the behavior you intend to modify before and after your patch
+* The amount of testing debt you pay back should be proportional to the scope of your change
+* Small bug fixes: refactor just enough to make the fix testable
+* Larger changes: invest more in test coverage
+* Prefer multiple small, focused patches over large refactors
+
+For untested components:
+
+* Get feedback on scope before starting
+* Start with smaller pieces and work outward iteratively
+* Each patch should add value in test coverage on its own
+* Patches heavy on refactoring and light on tests are unlikely to be committed

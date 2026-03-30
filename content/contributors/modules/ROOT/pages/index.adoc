@@ -5,12 +5,29 @@
 *Preview | Unofficial | For review only*
 ====
 
-This section covers building from source, testing, and the contribution workflow for Apache Cassandra 6 contributors.
+Apache Cassandra is an open-source project that welcomes contributions of all kinds: code, documentation, tests, bug reports, and tooling improvements.
+This section provides everything you need to go from first clone to committed patch.
 
-== Architecture
+== Where to Start
 
-* xref:architecture/index.adoc[Architecture Overview]
-* xref:architecture/dynamo.adoc[Dynamo]
-* xref:architecture/accord.adoc[Accord]
-* xref:architecture/accord-architecture.adoc[Accord Architecture Deep Dive]
-* xref:architecture/cql-on-accord.adoc[CQL on Accord]
+If you are new to the project, start with xref:build-test/gettingstarted.adoc[Getting Started] to set up your environment, then read xref:patch-review/patches.adoc[Contributing Code Changes] for the contribution workflow.
+
+== Sections
+
+Architecture::
+xref:architecture/index.adoc[Architecture Overview] -- Cassandra internals: the Dynamo-inspired storage engine, consistent hashing, and the Accord consensus protocol.
+
+Build and Test::
+xref:build-test/index.adoc[Build and Test Overview] -- Clone the repository, build from source, set up your IDE, and run the test suites.
+
+Patches and Review::
+xref:patch-review/index.adoc[Patches and Review Overview] -- The contribution workflow from JIRA ticket to committed patch, including code style, the review checklist, and the committer merge process.
+
+Documentation::
+xref:documentation/index.adoc[Working on Documentation] -- How Cassandra docs are structured, how to preview changes locally, and how to submit documentation patches.
+
+Release and Publish::
+xref:release-publish/index.adoc[Release and Publish Overview] -- CI infrastructure, dependency management, and the release process.
+
+Generated Docs::
+xref:generated-docs/index.adoc[Generated Documentation] -- How reference pages for `cassandra.yaml`, nodetool, and the native protocol are generated from source.

@@ -1,0 +1,103 @@
+= Building and IDE Integration
+
+This page covers setting up Apache Cassandra in IntelliJ IDEA and Eclipse for development and debugging.
+
+== Prerequisites
+
+Before IDE setup, ensure you have:
+
+* Built Cassandra from source (see xref:build-test/gettingstarted.adoc[Getting Started])
+* JDK 11 or 17 installed
+* Git installed and the repository cloned
+
+== IntelliJ IDEA
+
+https://www.jetbrains.com/idea/[IntelliJ IDEA] Community Edition includes everything needed for Cassandra development.
+
+=== Generate Project Files
+
+After building Cassandra, generate the IntelliJ project files:
+
+[source,bash]
+----
+ant generate-idea-files
+----
+
+This creates project files with:
+
+* Run/debug defaults for JUnit
+* Run/debug configuration for the Cassandra daemon
+* License header template for Java source files
+* Cassandra code style settings
+* Code inspections
+
+=== Open the Project
+
+. Start IntelliJ IDEA
+. Select **File > Open**
+. Navigate to your Cassandra checkout directory and confirm
+
+The project should load without errors.
+
+=== Running Tests
+
+Right-click any test class or method and select **Run** or **Debug** to execute it directly from the IDE.
+
+== Eclipse
+
+https://www.eclipse.org/downloads/eclipse-packages/[Eclipse IDE for Java Developers] can also be used for Cassandra development.
+
+=== Generate Eclipse Files
+
+[source,bash]
+----
+ant generate-eclipse-files
+----
+
+=== Import the Project
+
+. Start Eclipse
+. Select **File > Import > Existing Projects into Workspace**
+. Select the Cassandra git directory
+. Confirm the project is recognized and select **Finish**
+
+=== Running Tests
+
+Right-click a test class or method and select **Run As > JUnit Test**.
+Debug with **Debug As > JUnit Test** after setting breakpoints.
+
+== Debugging a Running Cassandra Instance
+
+You can attach your IDE's debugger to a running Cassandra process.
+
+=== Start Cassandra with Debug Options
+
+Set the JVM debug agent before starting Cassandra:
+
+[source,bash]
+----
+export JVM_EXTRA_OPTS="-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=1414"
+./bin/cassandra
+----
+
+=== Connect from Your IDE
+
+In IntelliJ IDEA or Eclipse, create a **Remote** debug configuration pointing to `localhost:1414` and start debugging.
+
+=== Start Cassandra Directly from IDE
+
+Alternatively, create a run configuration with:
+
+* **Main class**: `org.apache.cassandra.service.CassandraDaemon`
+* **VM options**: `-Xms1024M -Xmx1024M -ea -Djava.net.preferIPv4Stack=true`
+
+Adjust heap settings as needed for your workload.
+
+== Multiple Working Trees
+
+TIP: Use https://git-scm.com/docs/git-worktree[`git worktree`] to maintain separate working trees for different Cassandra versions from a single clone. This avoids full rebuilds when switching between branches.
+
+[source,bash]
+----
+git worktree add ../cassandra-5.0 cassandra-5.0
+----

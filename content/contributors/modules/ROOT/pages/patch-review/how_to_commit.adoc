@@ -1,0 +1,144 @@
+= How to Commit
+
+This page is for **committers** who merge contributed patches into the Apache Cassandra repository.
+It describes the multi-branch merge workflow required to maintain release branch consistency.
+
+NOTE: https://projects.apache.org/committee.html?cassandra[Committers] follow additional processes for handling patches, pull requests, and committing to https://gitbox.apache.org/[the official repo], which the Apache Cassandra GitHub repo mirrors.
+
+== Multi-Branch Merge Workflow
+
+Bug fixes typically target the earliest affected release branch and are merged forward.
+The merge order is:
+
+----
+cassandra-4.1 -> cassandra-5.0 -> trunk
+----
+
+Below are the two standard contribution models.
+
+== Patch-Based Contributions
+
+For a hypothetical CASSANDRA-12345 bug fix based on `cassandra-5.0`, with patches for `cassandra-5.0` and `trunk`:
+
+=== On cassandra-5.0
+
+[source,bash]
+----
+git am -3 12345-5.0.patch
+ant realclean && ant jar build-test
+----
+
+Fix any `CHANGES.txt` conflicts in place.
+
+=== Forward-merge to trunk
+
+[source,bash]
+----
+git checkout trunk
+git merge cassandra-5.0 -s ours
+git apply -3 12345-trunk.patch
+ant realclean && ant jar build-test
+git commit --amend
+----
+
+The `--amend` squashes the applied patch into the forward-merge commit.
+
+=== Push all branches atomically
+
+[source,bash]
+----
+git push origin cassandra-5.0 trunk --atomic -n   # dry run
+git push origin cassandra-5.0 trunk --atomic
+----
+
+== Branch-Based Contributions
+
+For contributions submitted as GitHub branches:
+
+=== On cassandra-5.0
+
+[source,bash]
+----
+git cherry-pick <sha-of-5.0-commit>
+ant realclean && ant jar build-test
+----
+
+=== Forward-merge to trunk
+
+[source,bash]
+----
+git checkout trunk
+git merge cassandra-5.0 -s ours
+git cherry-pick -n <sha-of-trunk-commit>
+ant realclean && ant jar build-test
+git commit --amend
+----
+
+=== Push atomically
+
+[source,bash]
+----
+git push origin cassandra-5.0 trunk --atomic -n   # dry run
+git push origin cassandra-5.0 trunk --atomic
+----
+
+== Contributions for Older Branches Only
+
+If a patch applies to an older branch but does not affect newer branches, you still need to merge forward with `-s ours` to maintain branch consistency:
+
+[source,bash]
+----
+# On cassandra-5.0
+git cherry-pick <sha-of-5.0-commit>
+ant realclean && ant jar build-test
+
+# Forward-merge to trunk (no code change, just merge record)
+git checkout trunk
+git merge cassandra-5.0 -s ours
+ant realclean && ant jar build-test
+
+# Push
+git push origin cassandra-5.0 trunk --atomic
+----
+
+== Submodule Commits
+
+For changes that touch submodules (e.g., Accord), the submodule must be committed and pushed _before_ the main Cassandra commit because they are separate repositories:
+
+[source,bash]
+----
+# Merge the submodule changes first
+.build/sh/change-submodule-accord.sh
+.build/sh/bump-accord.sh
+----
+
+`git push --atomic` does not protect against conflicts between separate repositories.
+
+== Commit Message Template
+
+[source,text]
+----
+<One sentence description, usually Jira title or CHANGES.txt summary>
+<Optional longer description>
+
+patch by <Authors>; reviewed by <Reviewers> for CASSANDRA-#####
+
+
+Co-authored-by: Name1 <email1>
+Co-authored-by: Name2 <email2>
+----
+
+== Tips
+
+`-3` flag:: Instructs `git am` and `git apply` to perform a 3-way merge. If a conflict is detected, resolve it manually or use `git mergetool`.
+
+`--atomic` flag:: Pushes all branches or none. Without it, a race condition could push only some branches, blocking other committers.
+
+Getting a patch from a GitHub commit:: Append `.patch` to the commit URL:
++
+[source,bash]
+----
+curl -O https://github.com/apache/cassandra/commit/<sha>.patch
+----
+
+`cherry-pick -n`:: Can replace the `format-patch` + `apply` steps: `git cherry-pick -n <sha>`.

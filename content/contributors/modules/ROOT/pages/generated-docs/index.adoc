@@ -1,0 +1,56 @@
+= Generated Documentation
+
+Some Cassandra reference pages are generated from source rather than authored by hand.
+This page documents which pages are generated, how the generation works, and how to regenerate them.
+
+== Generated Surfaces
+
+Three reference surfaces are generated from the Cassandra source tree:
+
+[cols="1,2,1"]
+|===
+| Surface | Description | Generator
+
+| `cassandra.yaml` reference
+| Configuration reference generated from the annotated `cassandra.yaml` and source code
+| `doc/scripts/convert_yaml_to_adoc.py`
+
+| Nodetool reference
+| One page per nodetool subcommand, generated from picocli annotations in the Java source
+| `doc/scripts/gen-nodetool-docs.py`
+
+| Native protocol spec
+| Protocol specification document generated from the protocol definition files
+| `doc/scripts/process-native-protocol-specs-in-docker.sh`
+|===
+
+== Generation Scripts
+
+The scripts live in `doc/scripts/` in the Cassandra repository:
+
+* **`convert_yaml_to_adoc.py`** -- Parses `cassandra.yaml` comments and source annotations to produce the configuration reference AsciiDoc page
+* **`gen-nodetool-docs.py`** -- Introspects picocli-annotated nodetool command classes to generate per-command reference pages
+* **`process-native-protocol-specs-in-docker.sh`** -- Processes the native protocol specification files in a Docker container to produce the protocol reference page
+
+== When to Regenerate
+
+Regenerate generated docs when:
+
+* New configuration parameters are added to `cassandra.yaml`
+* New nodetool subcommands are added or existing ones change their options
+* The native protocol specification is updated for a new protocol version
+* A new Cassandra version is being released
+
+== Authored vs. Generated Content
+
+Generated reference pages and hand-authored narrative pages are kept separate:
+
+* **Generated pages** live under the Reference module and are produced by scripts
+* **Authored pages** provide context, guidance, and explanation and live under Operators, Developers, or Contributors
+* Do not hand-edit generated pages -- changes will be overwritten on the next regeneration
+* If a generated page needs supplementary context, add it as a separate authored page that links to the generated reference
+
+[NOTE]
+====
+For details on how the generated docs are integrated into the Antora build, see the https://github.com/apache/cassandra/blob/trunk/doc/README.md[`doc/README.md`] in the Cassandra repository.
+====

@@ -6,3 +6,23 @@
 ** xref:architecture/accord.adoc[Accord]
 *** xref:architecture/accord-architecture.adoc[Accord Architecture]
 *** xref:architecture/cql-on-accord.adoc[CQL on Accord]
+* Build and Test
+** xref:build-test/index.adoc[Overview]
+** xref:build-test/gettingstarted.adoc[Getting Started]
+** xref:build-test/ide.adoc[Building and IDE Integration]
+** xref:build-test/testing.adoc[Testing]
+* Patches and Review
+** xref:patch-review/index.adoc[Overview]
+** xref:patch-review/patches.adoc[Contributing Code Changes]
+** xref:patch-review/code_style.adoc[Code Style]
+** xref:patch-review/how_to_review.adoc[Review Checklist]
+** xref:patch-review/how_to_commit.adoc[How to Commit]
+* Documentation
+** xref:documentation/index.adoc[Working on Documentation]
+* Release and Publish
+** xref:release-publish/index.adoc[Overview]
+** xref:release-publish/ci.adoc[CI Environment]
+** xref:release-publish/dependencies.adoc[Dependency Management]
+** xref:release-publish/release_process.adoc[Release Process]
+* Generated Docs
+** xref:generated-docs/index.adoc[Generated Documentation]

@@ -1,0 +1,141 @@
+= Contributing Code Changes
+
+This page describes the workflow for contributing code to Apache Cassandra.
+It is grounded in the project's https://github.com/apache/cassandra/blob/trunk/CONTRIBUTING.md[CONTRIBUTING.md].
+
+== What You Can Contribute
+
+Contributions include bug fixes, Java code changes, tooling improvements (Java or Python), documentation updates, and test improvements.
+
+As a general rule:
+
+* Major new features require discussion on the https://lists.apache.org/list.html?dev@cassandra.apache.org[dev mailing list] before implementation
+* Bug fixes take higher priority than features
+* Test requirements scale with the risk of your change -- storage engine changes need more tests than tooling changes
+* Smaller, focused patches are faster to review -- consider breaking large issues into smaller tasks
+
+TIP: Looking for a first contribution? Browse issues tagged https://issues.apache.org/jira/issues/?jql=project%20%3D%20CASSANDRA%20AND%20labels%20%3D%20lhf%20AND%20status%20!%3D%20resolved[low hanging fruit] in JIRA.
+
+== Before You Start Coding
+
+. **Search JIRA** for existing issues at https://issues.apache.org/jira/browse/CASSANDRA[issues.apache.org/jira/browse/CASSANDRA] to avoid redundant work
+. **Create a JIRA ticket** early describing what you plan to do -- not just after finishing
+. **Get feedback** on the dev mailing list or JIRA, especially for features or major changes
+. **Link related JIRA issues** to provide context
+. **Update your ticket** periodically with progress and link to your work-in-progress branch
+
+== Contribution Workflow
+
+The recommended workflow from https://github.com/apache/cassandra/blob/trunk/CONTRIBUTING.md[CONTRIBUTING.md]:
+
+. Find or create a JIRA ticket describing the work
+. Fork https://github.com/apache/cassandra[apache/cassandra] on GitHub
+. Clone your fork:
++
+[source,bash]
+----
+git clone https://github.com/<your-username>/cassandra.git
+cd cassandra
+git remote add upstream https://github.com/apache/cassandra.git
+----
++
+. Create a feature branch:
++
+[source,bash]
+----
+git checkout -b <your-name>/CASSANDRA-<number>/trunk
+----
++
+TIP: The naming convention `your-name/jira-id/base-branch` (e.g., `jsmith/CASSANDRA-12345/trunk`) helps manage collaboration on shared forks and patches across Cassandra versions.
++
+. Initialize submodules if not already done:
++
+[source,bash]
+----
+git submodule update --init --recursive
+----
++
+. Build, test, and self-review your changes
+. Submit: create a GitHub pull request, attach a patch to your JIRA, or post a link to your branch
+
+== Working with Submodules
+
+Apache Cassandra uses git submodules for dependencies such as Accord.
+When making cross-cutting changes that touch submodules:
+
+=== Start a Development Branch
+
+[source,bash]
+----
+.build/sh/development-switch.sh --jira CASSANDRA-<number>
+----
+
+This creates matching branches across submodules.
+
+=== Commit Submodule Changes
+
+When you modify a submodule (e.g., Accord):
+
+[source,bash]
+----
+(cd modules/accord ; git commit -am 'Saving progress')
+.build/sh/bump-accord.sh
+----
+
+=== Merge Order for Submodules
+
+Submodule changes must be committed and pushed _before_ the main Cassandra changes because they are separate repositories.
+The basic process:
+
+. Follow the normal merge process for the submodule
+. Update Cassandra's submodule entry:
++
+[source,bash]
+----
+.build/sh/change-submodule-accord.sh
+.build/sh/bump-accord.sh
+----
+
+== Choosing the Right Branch
+
+Create your patch against the appropriate branch.
+Bug fixes should target the earliest affected release branch.
+Merge order is always from older to newer:
+
+----
+cassandra-4.1 -> cassandra-5.0 -> trunk
+----
+
+New features should target `trunk` unless there is a specific reason to target a release branch.
+
+== Creating a Patch
+
+. Verify your changes follow the xref:patch-review/code_style.adoc[code style]
+. Ensure tests pass (see xref:build-test/testing.adoc[Testing])
+. Walk through the xref:patch-review/how_to_review.adoc[review checklist] for your own code
+. Squash commits into a clean history -- multiple commits are fine during review, but squash before final merge
+. Include a `CHANGES.txt` entry at the top of the list
+. Format commit messages as:
++
+----
+<One sentence description>
+
+patch by <Author>; reviewed by <Reviewer> for CASSANDRA-#####
+----
++
+. Submit via GitHub pull request or attach a patch file to JIRA
+. Click **Submit Patch** on the JIRA ticket to move it to "Patch Available"
+. Wait for review and a `+1` -- iterate on feedback as needed
+
+NOTE: Do not delete your branches immediately after they are committed.
+Keep them available in case a merge issue requires access to the original code.
+
+== Related Projects
+
+Contributions are also welcomed to https://github.com/apache?q=cassandra&type=all[other Cassandra-related projects], including:
+
+* https://github.com/apache/cassandra-website[Cassandra Website]
+* https://github.com/apache/cassandra-sidecar[Cassandra Sidecar]
+* https://github.com/apache/cassandra-analytics[Cassandra Analytics]
+* https://github.com/apache/cassandra-java-driver[Java Driver] and https://github.com/apache/cassandra-gocql-driver[Go Driver]
+* https://github.com/apache/cassandra-dtest[Distributed Tests (dtests)]

@@ -1,0 +1,65 @@
+= Working on Documentation
+
+This page describes how Apache Cassandra documentation is structured, how to preview changes locally, and how to submit documentation patches.
+
+== Documentation System
+
+Cassandra documentation is authored in https://docs.asciidoctor.org/asciidoc/latest/[AsciiDoc] and built with https://antora.org/[Antora].
+
+* **Documentation source**: `doc/` directory in the https://github.com/apache/cassandra[apache/cassandra] repository
+* **Site generation and publish tooling**: https://github.com/apache/cassandra-website[apache/cassandra-website] repository
+* **Module structure**: `doc/modules/cassandra/pages/` contains the main documentation pages
+* **Navigation**: Defined in `doc/modules/cassandra/nav.adoc` and `doc/modules/ROOT/nav.adoc`
+
+== Repository Layout
+
+[source,text]
+----
+apache/cassandra/
+└── doc/
+    ├── antora.yml              # Antora component descriptor
+    ├── modules/
+    │   ├── cassandra/
+    │   │   ├── nav.adoc        # Main navigation
+    │   │   └── pages/          # Documentation pages
+    │   └── ROOT/
+    │       ├── nav.adoc        # Development pages navigation
+    │       └── pages/          # Root-level pages
+    └── scripts/                # Generated docs scripts
+----
+
+== Local Preview
+
+To preview documentation changes locally, you need the https://github.com/apache/cassandra-website[cassandra-website] repository and Docker:
+
+[source,bash]
+----
+git clone https://github.com/apache/cassandra-website.git
+cd cassandra-website
+# Follow the README for Docker-based local preview
+----
+
+See the https://github.com/apache/cassandra-website/blob/trunk/README.md[cassandra-website README] for detailed instructions.
+
+== Submitting Documentation Changes
+
+Documentation changes follow the same contribution workflow as code changes:
+
+. Create a JIRA ticket (or find an existing one) for the documentation change
+. Make your changes in the `doc/` directory of your Cassandra fork
+. Submit a pull request or attach a patch to the JIRA ticket
+. Tag the ticket with `doc-impacting` if it accompanies a code change
+
+== Writing Conventions
+
+* Use one `= Title` (H1) per page
+* Use `==` through `=====` for subsections
+* Use `[source,sql]` for CQL code blocks, `[source,yaml]` for configuration, `[source,bash]` for shell commands
+* Use NOTE, TIP, IMPORTANT, WARNING, CAUTION admonition blocks
+* Use `+xref:page.adoc[Display Text]+` for cross-references within the documentation
+
+[IMPORTANT]
+====
+This page covers the basics of documentation contribution.
+For comprehensive details on the Antora build system, generated documentation, and the publish pipeline, see xref:release-publish/index.adoc[Release and Publish] and xref:generated-docs/index.adoc[Generated Documentation].
+====

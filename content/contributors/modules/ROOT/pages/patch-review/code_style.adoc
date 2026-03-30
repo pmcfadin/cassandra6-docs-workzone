@@ -1,0 +1,86 @@
+= Code Style
+
+Apache Cassandra follows https://www.oracle.com/java/technologies/javase/codeconventions-contents.html[Sun's Java coding conventions] with the modifications described on this page.
+
+== General Conventions
+
+* **Braces on new lines**: `{` and `}` are always placed on a new line, unlike the Sun convention
+* **Line length**: Try to keep lines under 120 characters, but use good judgment -- slightly exceeding 120 is better than splitting a line with no natural breaking point
+* **Indentation**: Use 4 spaces, never tabs
+* **Trailing whitespace**: Clean it up in a separate patch, or leave it alone -- avoid mixing whitespace changes with functional changes
+
+== Multiline Statements
+
+When splitting inside a method call, use one line per parameter and align:
+
+[source,java]
+----
+SSTableWriter writer = new SSTableWriter(cfs.getTempSSTablePath(),
+                                         columnFamilies.size(),
+                                         StorageService.getPartitioner());
+----
+
+When splitting a ternary, use one line per clause and carry the operator:
+
+[source,java]
+----
+var = bar == null
+    ? doFoo()
+    : doBar();
+----
+
+== Exception Handling
+
+* **Never** write `catch (...) {}` or `catch (...) { logger.error() }` just to satisfy compile-time exception checking.
+  Always propagate the exception or throw `RuntimeException` (or `AssertionError` if it "can't happen").
+* Avoid propagating checked exceptions that no caller handles. Rethrow as `RuntimeException` or `IOError`.
+* `logger.warn()` is often a cop-out: decide whether the condition is an error or not.
+* If you genuinely know an exception indicates an expected condition, you may ignore it -- but explain why in a comment.
+
+== Boilerplate
+
+* Avoid redundant `@Override` annotations when implementing abstract or interface methods
+* Do not implement `equals` or `hashCode` unless actually needed
+* Prefer `public final` fields to private fields with getters
+* Prefer constructor initialization to setters
+* Avoid redundant `this` references
+* Do not extract interfaces unless you need multiple implementations
+* Always include braces for nested levels of conditionals and loops; braces may be omitted for single-level only
+
+== Import Ordering
+
+Imports must follow this order:
+
+[source,text]
+----
+java
+<blank line>
+com.google.common
+org.apache.commons
+org.junit
+org.slf4j
+<blank line>
+everything else alphabetically
+----
+
+== IDE Format Files
+
+Code style files are available for both major IDEs:
+
+* **IntelliJ IDEA**: Run `ant generate-idea-files` to apply the Cassandra code style automatically
+* **Eclipse**: https://github.com/tjake/cassandra-style-eclipse[cassandra-style-eclipse] on GitHub
+
+== License Compliance
+
+All source files must include the Apache License header.
+The project enforces this using the Apache RAT (Release Audit Tool).
+
+RAT checks the following file types: `.bat`, `.btm`, `.cql`, `.css`, `.g`, `.html`, `.iml`, `.java`, `.jflex`, `.jks`, `.md`, `.mod`, `.name`, `.pom`, `.py`, `.sh`, `.spec`, `.textile`, `.yml`, `.yaml`, `.xml`.
+
+If a file is missing the license header, the build fails with:
+
+----
+Some files have missing or incorrect license information. Check RAT report in build/rat.txt for more details!
+----
+
+Third-party libraries in `lib/` must be Apache License compatible and documented in `lib/licenses/`.

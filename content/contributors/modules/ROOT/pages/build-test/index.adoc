@@ -1,0 +1,41 @@
+= Build and Test
+
+This section covers everything you need to build Apache Cassandra from source and validate your changes with the project's test suites.
+
+== In This Section
+
+xref:build-test/gettingstarted.adoc[Getting Started]::
+Prerequisites, cloning the repository, and your first build.
+
+xref:build-test/ide.adoc[Building and IDE Integration]::
+Setting up IntelliJ IDEA or Eclipse for Cassandra development.
+
+xref:build-test/testing.adoc[Testing]::
+Unit tests, integration tests, distributed tests (dtests), and guidelines for writing effective tests.
+
+== Quick Reference
+
+Build from source::
++
+[source,bash]
+----
+git clone https://github.com/apache/cassandra.git
+cd cassandra
+ant
+----
+
+Run unit tests::
++
+[source,bash]
+----
+ant test
+----
+
+Run unit tests with Docker::
++
+[source,bash]
+----
+.build/docker/run-tests.sh -a test
+----
+
+See xref:build-test/testing.adoc[Testing] for the full list of test types and options.

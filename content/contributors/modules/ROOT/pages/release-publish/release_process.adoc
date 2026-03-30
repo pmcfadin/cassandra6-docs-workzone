@@ -1,0 +1,29 @@
+= Release Process
+
+The Apache Cassandra release process follows https://www.apache.org/legal/release-policy.html[ASF release policy].
+Releases are managed by committers and PMC members.
+
+== Release Overview
+
+A Cassandra release involves:
+
+. A release branch is cut from the development branch (e.g., `cassandra-6.0` from `trunk`)
+. Release artifacts are built, signed, and staged
+. The release is voted on by the PMC via the dev mailing list
+. After a successful vote, artifacts are published to Apache mirrors
+
+== Release Branches
+
+Each major and minor version has a corresponding branch:
+
+* `trunk` -- active development for the next major release
+* `cassandra-5.0` -- maintenance branch for the 5.0.x release line
+* `cassandra-4.1` -- maintenance branch for the 4.1.x release line
+
+Bug fixes merge forward through branches in order (see xref:patch-review/how_to_commit.adoc[How to Commit]).
+
+[IMPORTANT]
+====
+This page provides an overview of the release process.
+The detailed release procedure, including signing keys, staging repository setup, and vote mechanics, requires committer-level access and is documented on the https://cwiki.apache.org/confluence/display/CASSANDRA/Release+Process[Apache Cassandra wiki].
+====

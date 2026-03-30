@@ -267,7 +267,7 @@ The audience-first navigation matches the spec. Four modules, correct section hi
 | 7 | Move missing images | **DONE** | 22 images copied from upstream (SAI, UCS, architecture, security, backups) |
 | 8 | Fix stale version refs | **DONE** | `{40_version}`, "Cassandra ???", typos all fixed |
 | 9 | Import data modeling + vector search | **DONE** | Bridge landing pages created for both sections; all 10 data-modeling + 5 vector-search upstream pages wired into developers nav; C6 callouts for Accord, constraints, ANN+scalar filter; zero new xref errors |
-| 10 | Build out contributors module | Not started | Only architecture pages present; missing build/test/patch/review/docs/release |
+| 10 | Build out contributors module | **DONE** | 15 new pages across 5 sections: build-test (4), patch-review (5), documentation (1), release-publish (4), generated-docs (1); nav updated; zero new xref errors |
 
 ## Remaining Work
 
@@ -275,6 +275,6 @@ The audience-first navigation matches the spec. Four modules, correct section hi
 All must-do items are now **DONE**. The site is ready for review.
 
 ### Should-do for completeness
-- Build out contributors module (#10) — build/test, patch/review, docs contribution, release workflows
-- Add data modeling and vector search to developers module (#9) — currently only in upstream Cassandra component
+- ~~Build out contributors module (#10)~~ — **DONE**
+- ~~Add data modeling and vector search to developers module (#9)~~ — **DONE**
 - Operator and developer quickstart pages — called for by IA spec but not yet created
