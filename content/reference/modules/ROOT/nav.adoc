@@ -4,6 +4,7 @@
 ** xref:configuration/cassandra_yaml_file.adoc[cassandra.yaml Reference]
 * Nodetool
 ** xref:nodetool/nodetool.adoc[Nodetool Command Reference]
+** xref:nodetool/cms.adoc[nodetool cms]
 * Tools
 ** xref:cqlsh.adoc[cqlsh]
 ** SSTable Tools

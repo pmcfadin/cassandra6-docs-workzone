@@ -453,5 +453,8 @@ Alert when this value is non-zero.
 * The CMS-related config properties (such as `cms_retry_delay`) are defined in `Config.java` but are intentionally absent from the default `cassandra.yaml`.
 The old properties (`cms_default_max_retries`, `cms_default_retry_backoff`, `cms_default_max_retry_backoff`) are deprecated in 6.0 and replaced by `cms_retry_delay` with a formula-based syntax.
 Operators who need to tune CMS retry behavior must add these properties manually.
-* The interaction between TCM and Accord (CEP-15) is not fully documented.
-  The `nodetool cms resumedropaccordtable` subcommand suggests coupling that needs clarification.
+* TCM coordinates Accord (CEP-15) table lifecycle operations.
+  When migrating a table to Accord, the drop of legacy Accord system tables is committed through the TCM metadata log as a multi-step sequence.
+  If a drop operation stalls mid-sequence, use `nodetool cms resumedropaccordtable <tableId>` to resume it.
+  See xref:upgrade/onboarding-to-accord.adoc[Migrating to Accord] for the full migration procedure
+  and xref:reference::nodetool/cms.adoc#nodetool-cms-resumedropaccordtable[nodetool cms resumedropaccordtable] for command details.

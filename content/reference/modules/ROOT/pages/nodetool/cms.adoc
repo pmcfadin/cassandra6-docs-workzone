@@ -1,7 +1,334 @@
-= cms
+= nodetool cms
+:description: Reference for the nodetool cms command family that manages the Cluster Metadata Service (CMS) in Cassandra 6.0.
 
-== Usage
-[source,plaintext]
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+The `nodetool cms` command family manages the Cluster Metadata Service (CMS) introduced in Cassandra 6.0 (CEP-21).
+CMS replaces gossip as the authority for cluster membership, token ownership, and schema,
+coordinating all metadata changes through a linearized, Paxos-backed distributed log.
+
+Running `nodetool cms` with no subcommand is equivalent to `nodetool cms describe`.
+
+Source: `src/java/org/apache/cassandra/tools/nodetool/CMSAdmin.java` (CASSANDRA-18330)
+
+== Common Options
+
+All `nodetool cms` subcommands accept the standard nodetool connection options:
+
+[cols="1,3"]
+|===
+| Option | Description
+
+| `-h <host>`, `--host <host>`
+| Node hostname or IP address.
+
+| `-p <port>`, `--port <port>`
+| Remote JMX agent port number.
+
+| `-pw <password>`, `--password <password>`
+| Remote JMX agent password.
+
+| `-pwf <path>`, `--password-file <path>`
+| Path to the JMX password file.
+
+| `-u <username>`, `--username <username>`
+| Remote JMX agent username.
+|===
+
+[#nodetool-cms-describe]
+== nodetool cms describe
+
+Displays the current state of the Cluster Metadata Service, including CMS members, the current epoch, service state, and replication factor.
+
+=== Synopsis
+
+[source,shell]
 ----
-include::example$TEXT/NODETOOL/cms.txt[]
+nodetool cms describe
 ----
+
+=== Example
+
+[source,shell]
+----
+$ nodetool cms describe
+----
+
+Output includes the list of CMS member nodes, the current metadata epoch, CMS state (e.g., `LOCAL`, `REMOTE`, `RESET`), and the configured replication factor.
+
+[#nodetool-cms-initialize]
+== nodetool cms initialize
+
+Upgrades the cluster from gossip-based metadata management to CMS.
+This command creates the initial single-member CMS on the node where it is executed.
+
+[WARNING]
+====
+Running `nodetool cms initialize` is *mandatory* after a rolling upgrade to Cassandra 6.0.
+Until CMS is initialized, metadata-changing operations (schema changes, topology changes) are blocked.
+====
+
+=== Synopsis
+
+[source,shell]
+----
+nodetool cms initialize [(-i <endpoint> | --ignore <endpoint>)...]
+----
+
+=== Options
+
+[cols="1,3"]
+|===
+| Option | Description
+
+| `-i <endpoint>`, `--ignore <endpoint>`
+| Hosts to ignore because they are down and unreachable.
+May be specified multiple times to ignore multiple nodes.
+|===
+
+=== Example
+
+Initialize CMS on a healthy cluster:
+
+[source,shell]
+----
+$ nodetool cms initialize
+----
+
+Initialize CMS while ignoring a down node:
+
+[source,shell]
+----
+$ nodetool cms initialize --ignore 10.0.1.5
+----
+
+After initialization, the node where the command was run becomes the sole CMS member.
+Follow up immediately with `nodetool cms reconfigure` to expand CMS membership for fault tolerance.
+
+Source: NEWS.txt lines 144-199 (upgrade instructions)
+
+[#nodetool-cms-reconfigure]
+== nodetool cms reconfigure
+
+Reconfigures the CMS replication factor, expanding or contracting the set of nodes that maintain the metadata log.
+The recommended CMS size is 3-7 nodes per datacenter.
+
+=== Synopsis
+
+[source,shell]
+----
+nodetool cms reconfigure [--status] [--resume] [--cancel] [--] [<replication factor> | <datacenter>:<replication_factor> ...]
+----
+
+=== Options
+
+[cols="1,3"]
+|===
+| Option | Description
+
+| `--status`
+| Poll the status of a running reconfigure operation.
+All other flags and arguments are ignored when this option is used.
+
+| `--resume`, `-r`
+| Resume a previously interrupted reconfigure sequence.
+
+| `--cancel`, `-c`
+| Cancel any in-progress CMS reconfiguration.
+|===
+
+=== Arguments
+
+[cols="1,3"]
+|===
+| Argument | Description
+
+| `<replication factor>`
+| Simple replication factor (e.g., `3`).
+
+| `<datacenter>:<replication_factor> ...`
+| Per-datacenter replication factors for NetworkTopologyStrategy (e.g., `dc1:3 dc2:3`).
+|===
+
+=== Examples
+
+Reconfigure to replication factor 3 (simple):
+
+[source,shell]
+----
+$ nodetool cms reconfigure 3
+----
+
+Reconfigure per datacenter:
+
+[source,shell]
+----
+$ nodetool cms reconfigure dc1:3 dc2:3
+----
+
+Check status of an ongoing reconfiguration:
+
+[source,shell]
+----
+$ nodetool cms reconfigure --status
+----
+
+Cancel a stuck reconfiguration:
+
+[source,shell]
+----
+$ nodetool cms reconfigure --cancel
+----
+
+[#nodetool-cms-snapshot]
+== nodetool cms snapshot
+
+Requests a checkpointing snapshot of cluster metadata.
+Snapshots capture the full `ClusterMetadata` state at the current epoch, which can be used for diagnostic purposes or backup.
+
+=== Synopsis
+
+[source,shell]
+----
+nodetool cms snapshot
+----
+
+[#nodetool-cms-unregister]
+== nodetool cms unregister
+
+Unregisters a node that is in `LEFT` state from the cluster metadata.
+Use this to clean up nodes that have been decommissioned or removed but still appear in the metadata directory.
+
+=== Synopsis
+
+[source,shell]
+----
+nodetool cms unregister [--] <nodeId>
+----
+
+=== Arguments
+
+[cols="1,3"]
+|===
+| Argument | Description
+
+| `<nodeId>`
+| The node ID of the node in LEFT state to unregister.
+|===
+
+[#nodetool-cms-abortinitialization]
+== nodetool cms abortinitialization
+
+Aborts an incomplete CMS initialization.
+Use this if `nodetool cms initialize` was started but did not complete successfully and needs to be retried.
+
+=== Synopsis
+
+[source,shell]
+----
+nodetool cms abortinitialization [--initiator <initiator>]
+----
+
+=== Options
+
+[cols="1,3"]
+|===
+| Option | Description
+
+| `--initiator <initiator>`
+| The address of the node where `cms initialize` was originally run.
+Required if aborting from a different node than the one that started initialization.
+|===
+
+[#nodetool-cms-dumpdirectory]
+== nodetool cms dumpdirectory
+
+Dumps the directory from the current `ClusterMetadata`.
+The directory contains the mapping of node IDs to their addresses, datacenter/rack locations, and states.
+
+=== Synopsis
+
+[source,shell]
+----
+nodetool cms dumpdirectory [--tokens]
+----
+
+=== Options
+
+[cols="1,3"]
+|===
+| Option | Description
+
+| `--tokens`
+| Include token assignments in the output.
+|===
+
+[#nodetool-cms-dumplog]
+== nodetool cms dumplog
+
+Dumps entries from the distributed metadata log.
+Useful for debugging metadata change history and auditing cluster operations.
+
+=== Synopsis
+
+[source,shell]
+----
+nodetool cms dumplog [--start <startEpoch>] [--end <endEpoch>]
+----
+
+=== Options
+
+[cols="1,3"]
+|===
+| Option | Description
+
+| `--start <startEpoch>`
+| Start epoch (inclusive). If omitted, dumps from the beginning of the log.
+
+| `--end <endEpoch>`
+| End epoch (inclusive). If omitted, dumps to the current epoch.
+|===
+
+=== Example
+
+Dump log entries from epoch 100 to 150:
+
+[source,shell]
+----
+$ nodetool cms dumplog --start 100 --end 150
+----
+
+[#nodetool-cms-resumedropaccordtable]
+== nodetool cms resumedropaccordtable
+
+Resumes a drop Accord table operation that has stalled.
+When migrating a table to Accord (CEP-15), the drop of legacy Accord system tables is coordinated through the TCM log.
+If this operation stalls mid-sequence, use this command to resume it.
+
+=== Synopsis
+
+[source,shell]
+----
+nodetool cms resumedropaccordtable [--] <tableId>
+----
+
+=== Arguments
+
+[cols="1,3"]
+|===
+| Argument | Description
+
+| `<tableId>`
+| The ID of the table whose drop operation should be resumed.
+|===
+
+== See Also
+
+* xref:operators::tcm-overview.adoc[TCM Overview] -- architecture and concepts
+* xref:operators::tcm-upgrade-procedure.adoc[TCM Upgrade Procedure] -- step-by-step upgrade to CMS
+* xref:operators::tcm-operations.adoc[TCM Operations] -- day-2 operations under TCM
+* xref:operators::tcm-troubleshooting.adoc[TCM Troubleshooting] -- common CMS failure scenarios
+* xref:operators::upgrade/onboarding-to-accord.adoc[Migrating to Accord] -- Accord table migration procedure

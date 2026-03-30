@@ -361,10 +361,3 @@ This is useful for temporarily bypassing a check during incident response withou
 * Custom check names must not match any built-in check name.
   See <<Default Startup Checks>> for the full list of 19 reserved built-in check names.
 
-== Remaining Review Items
-
-The following item requires additional investigation before this page is promoted from draft status:
-
-. *`ServiceConfigurationError` scope* — Does a classloading error on one JAR skip only that check or all custom checks?
-
-Technical review by Nick Doan (CASSANDRA-21093 implementer) or Stefan Miklosovic (reviewer) is recommended before promoting this page to published status.

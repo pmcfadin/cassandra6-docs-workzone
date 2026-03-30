@@ -1001,6 +1001,64 @@ The `cassandra-env.sh` SSL approach is considered legacy; YAML-based configurati
 Nodetool defaults to JMX port 7199 and accepts `-p` to override.
 It does not read `cassandra.yaml` or `cassandra-env.sh` for port resolution -- operators must pass the port explicitly if a non-default JMX port is used.
 
-// TODO: Restore crypto providers section. The `crypto_provider` configuration is active in Cassandra 6.0.
-// `DefaultCryptoProvider` installs Amazon Corretto Crypto Provider with fallback to JRE, configured by default in `cassandra.yaml`.
-// This section was present in the 5.0 docs and should be added back as a full subsection.
+=== Crypto Providers
+
+Cassandra uses a pluggable crypto provider framework to configure the Java Cryptography Architecture (JCA) provider used for TLS and other cryptographic operations.
+The `crypto_provider` setting in `cassandra.yaml` controls which provider is installed at startup.
+
+Source: `src/java/org/apache/cassandra/security/DefaultCryptoProvider.java`, `cassandra.yaml` trunk
+
+==== DefaultCryptoProvider (default)
+
+By default, Cassandra uses `DefaultCryptoProvider`, which installs the https://github.com/corretto/amazon-corretto-crypto-provider[Amazon Corretto Crypto Provider] (ACCP).
+ACCP provides hardware-accelerated cryptographic operations and is generally faster than the default JRE provider for TLS handshakes and bulk encryption.
+
+Platform support:
+
+* **x86_64** -- fully supported
+* **aarch64** -- fully supported
+* Other architectures -- ACCP is not available; Cassandra falls back to the JRE default provider automatically
+
+If ACCP fails to load (unsupported platform, missing native library, or other error), Cassandra falls back to the default crypto provider in the JRE and logs a warning.
+
+To force startup failure when ACCP cannot be installed, set `fail_on_missing_provider` to `true` in the `crypto_provider` configuration:
+
+[source,yaml]
+----
+crypto_provider:
+  class_name: org.apache.cassandra.security.DefaultCryptoProvider
+  parameters:
+    fail_on_missing_provider: true
+----
+
+==== Bypassing ACCP with JREProvider
+
+To skip ACCP installation entirely and use only the JRE's built-in crypto provider, configure `JREProvider`:
+
+[source,yaml]
+----
+crypto_provider:
+  class_name: org.apache.cassandra.security.JREProvider
+----
+
+This is useful when:
+
+* Running on a platform where ACCP is not supported and fallback logging is undesirable
+* Organizational policy requires a specific JCA provider configured at the JVM level
+* Debugging TLS issues where ACCP behavior needs to be ruled out
+
+==== Custom Crypto Providers
+
+To use a custom JCA provider, extend `AbstractCryptoProvider` and specify the fully qualified class name in `cassandra.yaml`:
+
+[source,yaml]
+----
+crypto_provider:
+  class_name: com.example.MyCryptoProvider
+  parameters:
+    # provider-specific parameters
+----
+
+The custom provider JAR must be on the Cassandra classpath (typically placed in the `lib/` directory).
+
+See also: xref:reference::configuration/cassandra_yaml_file.adoc#_crypto_provider[crypto_provider in cassandra.yaml Reference]

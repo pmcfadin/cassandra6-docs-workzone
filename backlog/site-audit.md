@@ -261,7 +261,7 @@ The audience-first navigation matches the spec. Four modules, correct section hi
 | 1 | Add upstream cassandra repo as content source | **DONE** | Build errors dropped 544 → 282 |
 | 2 | Rewrite What's New page | **DONE** | 200 lines, 40+ features, all JIRA-linked |
 | 3 | Resolve open questions/TODOs | **DONE** | 44 of 46 resolved via trunk source verification |
-| 4 | Create missing pages | **PARTIAL** | list-superusers.adoc created; cluster-metadata still needs work |
+| 4 | Create missing pages | **DONE** | list-superusers.adoc, cms.adoc created; crypto providers restored; open questions resolved |
 | 5 | Regenerate generated docs | Not started | cassandra.yaml, nodetool, native-protocol need regen from trunk |
 | 6 | Fix CQL syntax highlighting | **DONE** | 189 `[source,cql]` → `[source,sql]` across 21 files |
 | 7 | Move missing images | **DONE** | 22 images copied from upstream (SAI, UCS, architecture, security, backups) |
@@ -273,9 +273,6 @@ The audience-first navigation matches the spec. Four modules, correct section hi
 
 ### Must-do before C6 GA
 - **Regenerate generated docs** (#5) — cassandra.yaml needs 46 new settings, nodetool needs picocli regen, native-protocol needs v6
-- **Create cluster-metadata.adoc** (#4) — CMS nodetool commands reference page
-- **Restore crypto providers section** in security.adoc — DefaultCryptoProvider is active in trunk but undocumented
-- **Resolve 2 remaining open questions** — Accord/TCM interaction, ServiceConfigurationError scope
 
 ### Should-do for completeness
 - Build out contributors module (#10) — build/test, patch/review, docs contribution, release workflows
