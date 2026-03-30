@@ -45,6 +45,7 @@ SAI is also fully compatible with zero-copy streaming (ZCS).
 Thus, when you bootstrap or decommission nodes in a cluster, the indexes are fully streamed with the SSTables and not serialized or rebuilt on the receiving node's end.
 
 At its core, SAI is a filtering engine, and simplifies data modeling and client applications that would otherwise rely heavily on maintaining multiple query-specific tables.
+For building vector search applications with SAI's ANN capabilities, see xref:vector-search/index.adoc[Vector Search].
 
 == Performance
 

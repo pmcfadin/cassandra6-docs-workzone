@@ -1,0 +1,204 @@
+= Vector Search with Cassandra 6
+:navtitle: Vector Search
+:description: Use Cassandra's VECTOR data type and SAI approximate nearest neighbor (ANN) indexes to build semantic search, RAG, and recommendation applications.
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Cassandra supports native vector search through the `VECTOR` data type and Storage-Attached Indexing (SAI).
+You store vector embeddings as regular CQL columns, create an SAI index on those columns, and query using `ORDER BY ... ANN OF` to retrieve approximate nearest neighbors ranked by similarity.
+
+Vector search integrates naturally with the rest of Cassandra's query model — you can combine ANN similarity ranking with standard CQL scalar filters in a single query.
+
+== The Technology Stack
+
+=== VECTOR Data Type
+
+The `VECTOR` data type stores a fixed-length array of `float` values representing an embedding produced by a machine learning model.
+
+[source,sql]
+----
+CREATE TABLE documents (
+  doc_id      uuid PRIMARY KEY,
+  title       text,
+  body        text,
+  embedding   vector<float, 1536>   -- dimension must match your embedding model
+);
+----
+
+The dimension (`1536` in this example) must match the output dimension of your embedding model and cannot be changed after the table is created.
+See xref:cql/types.adoc[Data Types] for the full `VECTOR` type specification.
+
+=== SAI as the Index Engine
+
+SAI (Storage-Attached Indexing) powers vector search in Cassandra.
+An SAI index on a `VECTOR` column enables approximate nearest neighbor (ANN) queries using a similarity function.
+
+[source,sql]
+----
+CREATE INDEX ON documents(embedding) USING 'sai'
+  WITH OPTIONS = {'similarity_function': 'cosine'};
+----
+
+Supported similarity functions: `cosine` (default for most text embeddings), `dot_product` (for normalized vectors), `euclidean` (for geometric distances).
+
+SAI is the same indexing system used for scalar column indexes — it is not a vector-specific add-on.
+Understanding how SAI works will help you tune and troubleshoot both scalar and vector indexes:
+
+* xref:cql/indexing/sai/sai-concepts.adoc[SAI Concepts] — architecture, how SAI indexes memtables and SSTables, and the filtering engine model
+* xref:cql/indexing/sai/sai-faq.adoc[SAI FAQ] — common questions on performance, compatibility, and use cases
+* xref:cql/indexing/sai/sai-read-write-paths.adoc[SAI Read/Write Paths] — how reads and writes interact with SAI indexes
+
+=== ANN Queries
+
+An ANN query returns the `N` most similar rows to a query vector, ranked by the index similarity function:
+
+[source,sql]
+----
+SELECT doc_id, title, similarity_cosine(embedding, ?) AS score
+FROM documents
+ORDER BY embedding ANN OF ?
+LIMIT 10;
+----
+
+Note that ANN queries use `ORDER BY ... ANN OF` rather than a `WHERE` clause.
+The `LIMIT` clause is required.
+
+== Combining Vector Search with Scalar Filters
+
+You can combine ANN ranking with standard CQL predicates in a single query.
+SAI handles both the scalar filtering and the ANN ranking:
+
+[source,sql]
+----
+SELECT doc_id, title
+FROM documents
+WHERE category = 'technical'
+  AND published_year >= 2023
+ORDER BY embedding ANN OF ?
+LIMIT 10;
+----
+
+For the scalar columns (`category`, `published_year`) to filter efficiently, they should have their own SAI indexes.
+Without indexes, Cassandra will scan all rows that pass the partition filter before applying the ANN ranking.
+
+== Upstream Vector Search Documentation
+
+The following pages in the upstream Cassandra documentation cover the core vector search capabilities:
+
+* xref:Cassandra:cassandra:vector-search/overview.adoc[Overview] — what vector search is and when to use it
+* xref:Cassandra:cassandra:vector-search/concepts.adoc[Concepts] — embeddings, similarity functions, ANN algorithm fundamentals
+* xref:Cassandra:cassandra:vector-search/data-modeling.adoc[Data Modeling for Vector Search] — schema design patterns for vector workloads
+* xref:Cassandra:cassandra:vector-search/quickstarts.adoc[Quickstarts] — step-by-step setup with a working dataset
+* xref:Cassandra:cassandra:vector-search/vector-search-working-with.adoc[Working with Vector Search] — loading data, running queries, and managing indexes
+
+== Application Patterns
+
+=== Retrieval-Augmented Generation (RAG)
+
+RAG is the most common use case for vector search in Cassandra.
+The pattern:
+
+1. Split source documents into chunks of meaningful size (paragraphs, sections)
+2. Embed each chunk using a model (OpenAI, Cohere, local model via Ollama, etc.)
+3. Store the chunk text and its embedding vector in Cassandra
+4. At query time, embed the user's question and retrieve the top-K most similar chunks via ANN
+5. Pass the retrieved chunks as context to a language model to generate a grounded answer
+
+.Schema for a RAG application
+[source,sql]
+----
+CREATE TABLE rag_chunks (
+  source_id   text,
+  chunk_id    uuid,
+  chunk_text  text,
+  embedding   vector<float, 1536>,
+  PRIMARY KEY (source_id, chunk_id)
+);
+
+CREATE INDEX ON rag_chunks(embedding) USING 'sai'
+  WITH OPTIONS = {'similarity_function': 'cosine'};
+----
+
+.Retrieval query
+[source,sql]
+----
+SELECT chunk_text
+FROM rag_chunks
+ORDER BY embedding ANN OF ?   -- ? = embedded user question
+LIMIT 5;
+----
+
+=== Semantic Search
+
+Semantic search matches results by meaning rather than keyword overlap.
+The user's query is embedded at runtime, and the ANN query returns items whose embeddings are geometrically closest to the query embedding.
+
+This enables: "show me products similar to this description," "find articles related to this topic," "return reviews with a similar sentiment."
+
+.Schema for semantic product search
+[source,sql]
+----
+CREATE TABLE products (
+  product_id    uuid PRIMARY KEY,
+  name          text,
+  description   text,
+  category      text,
+  embedding     vector<float, 768>
+);
+
+CREATE INDEX ON products(embedding) USING 'sai'
+  WITH OPTIONS = {'similarity_function': 'cosine'};
+CREATE INDEX ON products(category) USING 'sai';
+----
+
+.Semantic search with category filter
+[source,sql]
+----
+SELECT product_id, name
+FROM products
+WHERE category = ?
+ORDER BY embedding ANN OF ?
+LIMIT 20;
+----
+
+=== Personalized Recommendations
+
+User behavior can be encoded as embeddings (through matrix factorization, collaborative filtering, or user interaction sequence models).
+ANN queries then surface items whose embeddings are close to a user's current embedding — effectively personalized recommendations without explicit rules.
+
+.Schema for item recommendations
+[source,sql]
+----
+CREATE TABLE items (
+  item_id     uuid PRIMARY KEY,
+  title       text,
+  item_type   text,
+  embedding   vector<float, 256>
+);
+
+CREATE INDEX ON items(embedding) USING 'sai'
+  WITH OPTIONS = {'similarity_function': 'dot_product'};
+CREATE INDEX ON items(item_type) USING 'sai';
+----
+
+.Recommendation query from a user embedding
+[source,sql]
+----
+SELECT item_id, title
+FROM items
+WHERE item_type = ?
+ORDER BY embedding ANN OF ?   -- ? = current user embedding
+LIMIT 10;
+----
+
+== Related Topics
+
+* xref:cql/types.adoc[Data Types] — VECTOR type specification
+* xref:cql/indexing/sai/sai-concepts.adoc[SAI Concepts] — index architecture
+* xref:cql/indexing/sai/collections.adoc[SAI Collections] — indexing list, set, and map columns alongside VECTOR
+* xref:cql/indexing/sai/operations/monitoring.adoc[SAI Monitoring] — virtual tables for index health and performance
+* xref:data-modeling/index.adoc[Data Modeling] — query-driven schema design principles
+* xref:Cassandra:cassandra:getting-started/vector-search-quickstart.adoc[Vector Search Quickstart]

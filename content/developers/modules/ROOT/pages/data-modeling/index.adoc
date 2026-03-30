@@ -1,0 +1,159 @@
+= Data Modeling for Cassandra 6
+:navtitle: Data Modeling
+:description: Learn Cassandra data modeling fundamentals and Cassandra 6 patterns for Accord transactions, schema constraints, and SAI-first query design.
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Cassandra data modeling differs fundamentally from relational modeling.
+In a relational database you design tables around entities and relationships, then derive queries from that structure.
+In Cassandra you design tables around your queries: each query pattern typically needs its own table optimized for that access path.
+
+This is called *query-driven design*, and it is the central discipline of Cassandra data modeling.
+
+[IMPORTANT]
+.What changed for Cassandra 6 upgraders
+====
+Cassandra 6 introduces two features that alter data modeling tradeoffs:
+
+* *Accord transactions* (`BEGIN TRANSACTION`) — multi-partition, multi-table ACID transactions are now available for tables with `WITH transactional_mode = 'full'`.
+  Some schemas that required denormalization purely for consistency can now use fewer tables with explicit transactional writes.
+  See xref:cql/txn-reference.adoc[BEGIN TRANSACTION Reference] for enablement and syntax.
+* *Schema-level constraints* (`CHECK`) — `NOT NULL`, scalar range checks, `REGEXP`, `JSON`, and `LENGTH` constraints can now be enforced at the column level at write time.
+  Validation logic that previously lived only in application code can move into the schema.
+  See xref:cql/constraints.adoc[Constraints] for full syntax.
+====
+
+[TIP]
+.New to Cassandra?
+====
+Start with the xref:Cassandra:cassandra:getting-started/cassandra-quickstart.adoc[Cassandra Quickstart] to get a running cluster before diving into data modeling.
+====
+
+== Learning Path
+
+Work through these upstream reference pages in order.
+The sequence moves from conceptual foundations to practical schema design.
+
+=== 1. Understand How Cassandra Differs
+
+If you are coming from a relational or document database background, start here:
+
+* xref:Cassandra:cassandra:developing/data-modeling/data-modeling_rdbms.adoc[RDBMS Compared to Cassandra] — maps relational concepts to their Cassandra equivalents
+* xref:Cassandra:cassandra:developing/data-modeling/intro.adoc[Introduction to Data Modeling] — overview of the Cassandra modeling approach
+* xref:Cassandra:cassandra:developing/data-modeling/data-modeling_conceptual.adoc[Conceptual Data Modeling] — entities, relationships, and the starting point for schema design
+
+=== 2. Design Your Schema
+
+* xref:Cassandra:cassandra:developing/data-modeling/data-modeling_logical.adoc[Logical Data Modeling] — translate conceptual models into Cassandra table structures
+* xref:Cassandra:cassandra:developing/data-modeling/data-modeling_queries.adoc[Query-Driven Design] — define your queries first, then derive your tables
+* xref:Cassandra:cassandra:developing/data-modeling/data-modeling_physical.adoc[Physical Data Modeling] — partition sizing, clustering, and storage layout
+
+=== 3. Refine and Validate
+
+* xref:Cassandra:cassandra:developing/data-modeling/data-modeling_refining.adoc[Refining Your Model] — iterating on a model to handle edge cases
+* xref:Cassandra:cassandra:developing/data-modeling/data-modeling_schema.adoc[Schema Design] — naming conventions, data type choices, and schema governance
+
+=== 4. Tools
+
+* xref:Cassandra:cassandra:developing/data-modeling/data-modeling_tools.adoc[Data Modeling Tools] — software tools for visualizing and validating Cassandra schemas
+
+== Cassandra 6 Modeling Patterns
+
+=== Fewer Tables with Accord Transactions
+
+Before Cassandra 6, maintaining consistency across multiple tables required one of:
+
+* Duplicating data across multiple denormalized tables and accepting eventual consistency
+* Using lightweight transactions (LWT via Paxos) with significant performance overhead
+* Implementing retry and reconciliation logic in the application
+
+With Accord transactions in Cassandra 6, you can perform atomic multi-partition writes directly in CQL.
+
+[NOTE]
+====
+Tables must be created with `WITH transactional_mode = 'full'` to participate in Accord transactions.
+The cluster must also have Accord enabled.
+See xref:operators::upgrade/onboarding-to-accord.adoc[Onboarding to Accord] for cluster enablement steps.
+====
+
+.Example: Transfer between accounts — 5.x approach (two LWT operations)
+[source,sql]
+----
+UPDATE accounts SET balance = balance - 100
+  WHERE account_id = 'A1'
+  IF balance >= 100;
+
+UPDATE accounts SET balance = balance + 100
+  WHERE account_id = 'A2'
+  IF EXISTS;
+----
+
+Two separate conditional writes.
+If the second fails, the application must compensate manually.
+
+.Example: Transfer between accounts — Cassandra 6 Accord approach
+[source,sql]
+----
+BEGIN TRANSACTION
+  LET src = (SELECT balance FROM accounts WHERE account_id = 'A1');
+  LET dst = (SELECT balance FROM accounts WHERE account_id = 'A2');
+  IF src.balance >= 100 DO
+    UPDATE accounts SET balance -= 100 WHERE account_id = 'A1';
+    UPDATE accounts SET balance += 100 WHERE account_id = 'A2';
+  END IF
+COMMIT TRANSACTION;
+----
+
+Both updates are atomic.
+If the condition fails, neither write is applied.
+
+For full transaction syntax and limitations, see xref:cql/txn-reference.adoc[BEGIN TRANSACTION Reference].
+
+=== Schema Constraints for Data Integrity
+
+[NOTE]
+====
+`CHECK` constraints are new in Cassandra 6.0 (see xref:cql/constraints.adoc[Constraints]).
+Constraints are enforced at write time on the coordinator node.
+====
+
+Before Cassandra 6, column values were unconstrained — only the application tier could reject invalid data.
+This meant that writes bypassing the application (bulk loaders, direct CQL clients, emergency patches) could produce rows that violated business rules.
+
+In Cassandra 6, `CHECK` constraints enforce rules at the schema level:
+
+[source,sql]
+----
+CREATE TABLE products (
+  product_id  uuid PRIMARY KEY,
+  name        text    NOT NULL CHECK (LENGTH(name) > 0),
+  price       decimal CHECK (price > 0),
+  category    text    CHECK (category IN ('electronics','clothing','food')),
+  sku         text    CHECK (REGEXP('^[A-Z]{3}-[0-9]{4}$'))
+) WITH transactional_mode = 'full';
+----
+
+Supported constraint types: `NOT NULL`, numeric comparison operators, `IN` lists, `LENGTH()`, `REGEXP()`, `JSON()`, and pluggable SPI validators.
+See xref:cql/constraints.adoc[Constraints] for the full syntax and pluggable provider interface.
+
+=== SAI for Query Flexibility Without Denormalization
+
+Storage-Attached Indexing (SAI) reduces the need for denormalized query tables by enabling secondary indexes on non-primary-key columns with high performance.
+SAI also powers the vector search capability in Cassandra, making it the foundation for AI-driven applications.
+
+For query flexibility with SAI, see the xref:cql/indexing/sai/sai-concepts.adoc[SAI Concepts] page in the CQL section.
+For building AI applications with vector embeddings, see xref:vector-search/index.adoc[Vector Search].
+
+== Related Topics
+
+* xref:cql/index.adoc[CQL Reference]
+* xref:cql/types.adoc[Data Types]
+* xref:cql/ddl.adoc[Data Definition (DDL)]
+* xref:cql/txn-reference.adoc[BEGIN TRANSACTION Reference]
+* xref:cql/constraints.adoc[Constraints]
+* xref:cql/indexing/sai/sai-concepts.adoc[SAI Concepts]
+* xref:vector-search/index.adoc[Vector Search]
+* xref:operators::upgrade/onboarding-to-accord.adoc[Onboarding to Accord]

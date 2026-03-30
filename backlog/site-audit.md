@@ -266,7 +266,7 @@ The audience-first navigation matches the spec. Four modules, correct section hi
 | 6 | Fix CQL syntax highlighting | **DONE** | 189 `[source,cql]` → `[source,sql]` across 21 files |
 | 7 | Move missing images | **DONE** | 22 images copied from upstream (SAI, UCS, architecture, security, backups) |
 | 8 | Fix stale version refs | **DONE** | `{40_version}`, "Cassandra ???", typos all fixed |
-| 9 | Import data modeling + vector search | Partially resolved | Upstream source provides pages in Cassandra component |
+| 9 | Import data modeling + vector search | **DONE** | Bridge landing pages created for both sections; all 10 data-modeling + 5 vector-search upstream pages wired into developers nav; C6 callouts for Accord, constraints, ANN+scalar filter; zero new xref errors |
 | 10 | Build out contributors module | Not started | Only architecture pages present; missing build/test/patch/review/docs/release |
 
 ## Remaining Work

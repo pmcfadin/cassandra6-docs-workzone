@@ -5,11 +5,24 @@
 *Preview | Unofficial | For review only*
 ====
 
-This section covers CQL, drivers, data modeling, and application patterns for Apache Cassandra 6 developers.
+This section covers data modeling, CQL, vector search, drivers, and application patterns for Apache Cassandra 6 developers.
+
+[TIP]
+.New to Cassandra 6?
+====
+Start with the xref:Cassandra:cassandra:getting-started/cassandra-quickstart.adoc[Cassandra Quickstart] to get a cluster running.
+Then return here for the Cassandra 6 developer capabilities: xref:data-modeling/index.adoc[Data Modeling with Accord and Constraints] and xref:vector-search/index.adoc[Vector Search].
+====
 
 == Drivers
 
 * xref:drivers.adoc[Client Drivers]
+
+== Data Modeling
+
+* xref:data-modeling/index.adoc[Data Modeling Overview — Cassandra 6 patterns for Accord transactions and schema constraints]
+* xref:Cassandra:cassandra:developing/data-modeling/data-modeling_rdbms.adoc[Coming from SQL / RDBMS]
+* xref:Cassandra:cassandra:developing/data-modeling/data-modeling_queries.adoc[Query-Driven Design]
 
 == CQL
 
@@ -36,6 +49,12 @@ This section covers CQL, drivers, data modeling, and application patterns for Ap
 * xref:cql/collections/list.adoc[Lists]
 * xref:cql/collections/map.adoc[Maps]
 * xref:cql/collections/set.adoc[Sets]
+
+== Vector Search
+
+* xref:vector-search/index.adoc[Vector Search Overview — VECTOR type, SAI ANN indexes, and application patterns (RAG, semantic search, recommendations)]
+* xref:Cassandra:cassandra:vector-search/quickstarts.adoc[Vector Search Quickstart]
+* xref:cql/indexing/sai/sai-concepts.adoc[SAI Concepts] — the index engine powering vector search
 
 == Integration
 
