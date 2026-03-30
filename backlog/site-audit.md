@@ -254,7 +254,7 @@ The audience-first navigation matches the spec. Four modules, correct section hi
 
 ## Progress Tracker
 
-**Last updated**: 2026-03-28
+**Last updated**: 2026-03-30
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
@@ -262,7 +262,7 @@ The audience-first navigation matches the spec. Four modules, correct section hi
 | 2 | Rewrite What's New page | **DONE** | 200 lines, 40+ features, all JIRA-linked |
 | 3 | Resolve open questions/TODOs | **DONE** | 44 of 46 resolved via trunk source verification |
 | 4 | Create missing pages | **DONE** | list-superusers.adoc, cms.adoc created; crypto providers restored; open questions resolved |
-| 5 | Regenerate generated docs | Not started | cassandra.yaml, nodetool, native-protocol need regen from trunk |
+| 5 | Regenerate generated docs | **DONE** | Verified: all three surfaces already current via upstream source (Item #1). Fresh regen 2026-03-30 confirmed zero content diff. |
 | 6 | Fix CQL syntax highlighting | **DONE** | 189 `[source,cql]` → `[source,sql]` across 21 files |
 | 7 | Move missing images | **DONE** | 22 images copied from upstream (SAI, UCS, architecture, security, backups) |
 | 8 | Fix stale version refs | **DONE** | `{40_version}`, "Cassandra ???", typos all fixed |
@@ -272,7 +272,7 @@ The audience-first navigation matches the spec. Four modules, correct section hi
 ## Remaining Work
 
 ### Must-do before C6 GA
-- **Regenerate generated docs** (#5) — cassandra.yaml needs 46 new settings, nodetool needs picocli regen, native-protocol needs v6
+All must-do items are now **DONE**. The site is ready for review.
 
 ### Should-do for completeness
 - Build out contributors module (#10) — build/test, patch/review, docs contribution, release workflows
