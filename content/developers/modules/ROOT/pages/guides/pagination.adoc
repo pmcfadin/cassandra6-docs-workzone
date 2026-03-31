@@ -1,0 +1,281 @@
+= Paginating Query Results
+:navtitle: Pagination
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Large Cassandra result sets can exhaust driver memory and stall application threads if fetched all at once.
+Pagination controls how many rows arrive per round trip and keeps memory usage predictable regardless of table size.
+This guide covers the two primary patterns: driver auto-paging for simple iteration and manual paging state for stateless APIs.
+
+== How Cassandra Pagination Works
+
+Cassandra returns query results in pages rather than a single response.
+The coordinator tracks position using the partition key and clustering columns of the last row returned.
+When the driver reaches the end of a page, it sends the paging state token back to the coordinator to resume from where the previous page ended.
+
+Key points:
+
+* The default page size is typically 5000 rows, configurable per statement or globally in the driver.
+* Pages are fetched lazily — the driver requests the next page only when iteration reaches the last row of the current one.
+* The paging state is opaque: it is meaningful only to the coordinator node that produced it and only for the exact query that produced it.
+* Cassandra has no `OFFSET` concept. You cannot skip to page 7 without retrieving pages 1 through 6 first.
+
+[IMPORTANT]
+====
+Paging state tokens are tied to the query that produced them.
+You cannot reuse a paging state from `SELECT * FROM users` against `SELECT id, name FROM users` or any other variant of the query.
+====
+
+== Driver Auto-Paging
+
+Auto-paging is the simplest approach and is the default behavior in all major Cassandra drivers.
+Iterate over the result set normally; the driver fetches the next page transparently when needed.
+
+=== Java
+
+[source,java]
+----
+import com.datastax.oss.driver.api.core.CqlSession;
+import com.datastax.oss.driver.api.core.cql.ResultSet;
+import com.datastax.oss.driver.api.core.cql.Row;
+
+// Auto-paging is the default — just iterate
+ResultSet rs = session.execute("SELECT * FROM users");
+for (Row row : rs) {
+    // The driver automatically fetches the next page when needed
+    System.out.println(row.getString("name"));
+}
+----
+
+=== Python
+
+[source,python]
+----
+# Python driver auto-pages by default
+rows = session.execute("SELECT * FROM users")
+for row in rows:
+    print(row.name)
+----
+
+TIP: Auto-paging is well-suited for background jobs, data exports, and batch processing where the full result set is consumed in a single pass.
+For user-facing APIs that need to resume from a cursor, use manual paging state instead.
+
+== Manual Paging with Paging State
+
+Stateless services (REST APIs, web endpoints) cannot hold an open iterator between HTTP requests.
+Instead, serialize the paging state after the first page, return it to the client as a cursor, and use it on the next request to fetch the next page.
+
+=== Java
+
+[source,java]
+----
+import com.datastax.oss.driver.api.core.cql.SimpleStatement;
+import java.nio.ByteBuffer;
+import java.util.Base64;
+
+// First page
+SimpleStatement stmt = SimpleStatement.newInstance("SELECT * FROM users")
+    .setPageSize(25);
+ResultSet rs = session.execute(stmt);
+
+// Process the first page of rows
+for (Row row : rs.currentPage()) {
+    System.out.println(row.getString("name"));
+}
+
+// Save paging state (e.g., return to client as cursor)
+ByteBuffer pagingState = rs.getExecutionInfo().getPagingState();
+String cursor = Base64.getEncoder().encodeToString(pagingState.array());
+
+// --- Later, in a subsequent request ---
+
+// Next page (decode cursor received from client)
+byte[] decoded = Base64.getDecoder().decode(cursor);
+SimpleStatement nextStmt = SimpleStatement.newInstance("SELECT * FROM users")
+    .setPageSize(25)
+    .setPagingState(ByteBuffer.wrap(decoded));
+ResultSet nextRs = session.execute(nextStmt);
+
+for (Row row : nextRs.currentPage()) {
+    System.out.println(row.getString("name"));
+}
+----
+
+=== Python
+
+[source,python]
+----
+from cassandra.query import SimpleStatement
+import base64
+
+# First page
+stmt = SimpleStatement("SELECT * FROM users", fetch_size=25)
+result = session.execute(stmt)
+
+# Process the first page
+for row in result.current_rows:
+    print(row.name)
+
+# Save paging state (encode for safe transport, e.g. JSON or URL param)
+cursor = base64.b64encode(result.paging_state).decode("utf-8")
+
+# --- Later, in a subsequent request ---
+
+# Decode cursor received from client
+paging_state = base64.b64decode(cursor)
+
+stmt = SimpleStatement("SELECT * FROM users", fetch_size=25)
+result = session.execute(stmt, paging_state=paging_state)
+
+for row in result.current_rows:
+    print(row.name)
+----
+
+[IMPORTANT]
+====
+Validate that a paging state cursor received from a client originated from your application before using it.
+An attacker-supplied paging state is opaque bytes sent directly to the coordinator — treat it as untrusted input.
+====
+
+== Setting Page Size
+
+Page size controls how many rows Cassandra returns per round trip.
+
+[cols="1,2,3", options="header"]
+|===
+|Use case
+|Recommended page size
+|Rationale
+
+|User-facing APIs
+|25 -- 100 rows
+|Low latency per page; each page is a single coordinator request
+
+|Reporting and dashboards
+|200 -- 500 rows
+|Balances round trips with response size for moderate result sets
+
+|Batch processing / exports
+|1000 -- 5000 rows
+|Fewer round trips; memory per page acceptable in server-side processing
+
+|===
+
+TIP: Start with a page size that keeps individual responses under 1 MB.
+Large rows reduce the effective row count before that limit is reached.
+
+=== Java — Set Page Size
+
+[source,java]
+----
+SimpleStatement stmt = SimpleStatement.newInstance("SELECT * FROM events")
+    .setPageSize(100);
+----
+
+=== Python — Set Page Size
+
+[source,python]
+----
+from cassandra.query import SimpleStatement
+
+stmt = SimpleStatement("SELECT * FROM events", fetch_size=100)
+----
+
+== Anti-Patterns
+
+=== ALLOW FILTERING with Large Result Sets
+
+`ALLOW FILTERING` forces Cassandra to scan every partition.
+Pagination does not improve its efficiency — each page still triggers a cluster-wide scan.
+Redesign the data model or add an index to avoid `ALLOW FILTERING` on large tables.
+
+=== Counting Total Results
+
+[source,sql]
+----
+-- Avoid on large tables
+SELECT COUNT(*) FROM users;
+----
+
+`SELECT COUNT(*)` scans the entire table and returns one row.
+It cannot be paginated usefully and puts heavy load on all nodes.
+Avoid "page X of Y" UI patterns with Cassandra — use "next page" cursors instead.
+
+=== OFFSET-Style Pagination
+
+Cassandra has no `OFFSET` clause.
+Simulating it by fetching and discarding rows is expensive and grows worse with each page:
+
+[source,sql]
+----
+-- Not supported in CQL
+SELECT * FROM users LIMIT 25 OFFSET 50;
+----
+
+Use paging state tokens for cursor-based pagination.
+
+=== Fetching All Pages Eagerly
+
+Loading every page into memory before processing the first row defeats the purpose of pagination.
+If you need the full result set in memory, make sure your heap or process memory can accommodate it and consider whether token-range pagination or Spark is a better fit.
+
+=== Sharing Paging State Across Different Queries
+
+A paging state is valid only for the exact query that produced it — same table, same WHERE clause, same selected columns, same consistency level.
+Applying a paging state to a different query will produce an error or corrupt results.
+
+== Token-Range Pagination
+
+Full-table scans (analytics, migrations, backfills) benefit from dividing the token ring into ranges and processing each range independently.
+This approach parallelizes naturally across workers.
+
+[source,sql]
+----
+-- Scan a single token range
+SELECT * FROM users WHERE token(id) > ? AND token(id) <= ?;
+----
+
+Divide the full token range `(-2^63, 2^63]` into N equal segments and assign one segment per worker.
+Each worker uses auto-paging within its segment.
+
+[source,java]
+----
+long min = Long.MIN_VALUE;   // -2^63
+long max = Long.MAX_VALUE;   // 2^63 - 1
+int workers = 16;
+long step = (max / workers) - (min / workers); // avoids overflow
+
+for (int i = 0; i < workers; i++) {
+    long rangeStart = min + (long) i * step;
+    long rangeEnd   = (i == workers - 1) ? max : rangeStart + step;
+
+    // Submit to thread pool or distributed task queue
+    submitWorker(rangeStart, rangeEnd);
+}
+----
+
+[source,java]
+----
+// Inside each worker
+SimpleStatement stmt = SimpleStatement.newInstance(
+    "SELECT * FROM users WHERE token(id) > ? AND token(id) <= ?",
+    rangeStart, rangeEnd
+).setPageSize(1000);
+
+ResultSet rs = session.execute(stmt);
+for (Row row : rs) {
+    process(row);
+}
+----
+
+TIP: Token-range pagination bypasses paging state entirely because each range is an independent query.
+Workers can be restarted from the beginning of their range without losing progress.
+
+== Related Pages
+
+* xref:cql/dml.adoc[Data Manipulation (DML)] -- `SELECT` syntax including `LIMIT`, `ORDER BY`, and `ALLOW FILTERING`
+* xref:drivers.adoc[Choose a Driver] -- driver feature matrix including auto-paging support
+* xref:integration-patterns.adoc[Application Patterns] -- retry, consistency level selection, and connection patterns

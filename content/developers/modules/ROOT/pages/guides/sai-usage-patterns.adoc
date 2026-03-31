@@ -1,0 +1,332 @@
+= SAI Usage Patterns
+:description: Practical guidance for when and how to use Storage-Attached Indexing (SAI) in Apache Cassandra, including column type examples, partition key combinations, vector search, and migration from SASI.
+
+Storage-Attached Indexing (SAI) is Cassandra's recommended secondary indexing engine.
+Unlike the older secondary index (2i) and SASI implementations, SAI is deeply integrated with the storage engine, supports a broad set of column types, and powers vector similarity search.
+
+This guide helps you decide when SAI is the right tool and how to use it effectively for each column type and query pattern.
+
+== When to Use SAI
+
+SAI is a good fit when any of the following applies to your workload:
+
+* You need to query by a non-partition-key column without maintaining a separate denormalized table.
+* You need combined filters on multiple columns using AND or OR logic.
+* You need text matching that is case-insensitive or unicode-normalized.
+* You need collection membership queries using `CONTAINS` or `CONTAINS KEY`.
+* You need vector similarity search (ANN queries for AI/ML workloads).
+* You want to reduce the number of tables in your schema without sacrificing query flexibility.
+
+=== When NOT to Use SAI
+
+SAI is not always the right choice.
+Avoid SAI when:
+
+* The column has very high cardinality _and_ you always know the partition key.
+In that case, model the column as a clustering column instead — clustering column queries are always faster than index lookups.
+* The query pattern is fixed and a single denormalized table with the right partition key would be simpler and more predictable.
+* You need full-text search features such as stemming, synonyms, or relevance ranking.
+SAI supports equality, range, and `CONTAINS` queries on text, but it is not a replacement for a dedicated search engine.
+
+[TIP]
+====
+SAI works best when it narrows a result set within or across a known set of partitions.
+The more selective the filter, the faster the query.
+====
+
+== SAI on Different Column Types
+
+=== Numeric Columns
+
+SAI supports range queries on all numeric types: `int`, `bigint`, `float`, `double`, `decimal`, `varint`, and `counter`.
+
+[source,sql]
+----
+CREATE CUSTOM INDEX ON orders (total_amount)
+  USING 'StorageAttachedIndex';
+
+-- Range filter on a numeric column
+SELECT * FROM orders
+  WHERE customer_id = 'cust123'
+    AND total_amount > 100.00;
+
+-- Equality filter
+SELECT * FROM orders
+  WHERE customer_id = 'cust123'
+    AND status_code = 2;
+----
+
+Numeric range queries (`>`, `>=`, `<`, `<=`, and `BETWEEN`) are among the most efficient SAI query patterns.
+
+=== Text Columns
+
+By default, SAI text indexes are case-sensitive.
+You can enable case-insensitive matching and unicode normalization using index options.
+
+[source,sql]
+----
+-- Case-sensitive (default)
+CREATE CUSTOM INDEX ON users (email)
+  USING 'StorageAttachedIndex';
+
+-- Case-insensitive with unicode normalization
+CREATE CUSTOM INDEX ON users (name)
+  USING 'StorageAttachedIndex'
+  WITH OPTIONS = {'case_sensitive': 'false', 'normalize': 'true'};
+
+-- Matches 'José', 'jose', 'JOSÉ', 'jose\u0301', etc.
+SELECT * FROM users WHERE name = 'José';
+----
+
+[TIP]
+====
+Use `normalize: true` alongside `case_sensitive: false` whenever your data may contain accented characters or composed/decomposed unicode forms.
+Normalization converts characters to a canonical form so that `é` (composed) and `e\u0301` (decomposed) match the same index entry.
+====
+
+=== Collection Columns
+
+SAI supports indexing sets, lists, and maps using the `CONTAINS` and `CONTAINS KEY` operators.
+
+[source,sql]
+----
+-- Index a set column
+CREATE CUSTOM INDEX ON users (tags)
+  USING 'StorageAttachedIndex';
+
+SELECT * FROM users WHERE tags CONTAINS 'premium';
+
+-- Index a map column for value lookup
+CREATE CUSTOM INDEX ON users (metadata)
+  USING 'StorageAttachedIndex';
+
+SELECT * FROM users WHERE metadata CONTAINS 'active';
+
+-- Index a map column for key lookup
+CREATE CUSTOM INDEX ON users (metadata)
+  USING 'StorageAttachedIndex'
+  WITH OPTIONS = {'target': 'KEYS'};
+
+SELECT * FROM users WHERE metadata CONTAINS KEY 'subscription_tier';
+----
+
+For a complete reference on collection index options, see xref:cql/indexing/sai/collections.adoc[SAI Collections].
+
+=== Frozen Collection Columns (Cassandra 6.0+)
+
+Cassandra 6.0 extends SAI to support indexing the individual values inside frozen collections.
+Use the `VALUES()` function in the index definition to target the contents of a frozen collection.
+
+[source,sql]
+----
+CREATE CUSTOM INDEX ON users (VALUES(frozen_tags))
+  USING 'StorageAttachedIndex';
+
+SELECT * FROM users WHERE frozen_tags CONTAINS 'premium';
+----
+
+[WARNING]
+====
+Frozen collection indexing with `VALUES()` is a Cassandra 6.0 feature.
+It is not available on Cassandra 4.x or 5.x clusters.
+====
+
+=== Vector Columns
+
+SAI powers Approximate Nearest Neighbor (ANN) search on `vector<float, N>` columns.
+
+[source,sql]
+----
+CREATE CUSTOM INDEX ON documents (embedding)
+  USING 'StorageAttachedIndex';
+
+-- Return the 10 most similar documents to a query vector
+SELECT title, body
+  FROM documents
+  ORDER BY embedding ANN OF [0.1, 0.2, 0.3, 0.4]
+  LIMIT 10;
+----
+
+ANN queries require a `LIMIT` clause.
+The index uses a graph-based algorithm (DiskANN) that balances recall quality against query latency.
+
+For a full treatment of vector search including data modeling and recall tuning, see xref:vector-search/index.adoc[Vector Search Overview].
+
+== Combining SAI with Partition Key Queries
+
+SAI works at its best when combined with a partition key constraint.
+When Cassandra knows which partition to read, SAI only evaluates index entries within that partition rather than scanning all nodes.
+
+[source,sql]
+----
+-- Efficient: partition key + SAI filter
+-- Cassandra reads one partition, then applies the SAI filter
+SELECT * FROM orders
+  WHERE customer_id = 'cust123'
+    AND status = 'pending';
+
+-- Works but less efficient: SAI-only query
+-- Cassandra evaluates SAI index entries across all partitions on all nodes
+SELECT * FROM orders
+  WHERE status = 'pending';
+----
+
+[TIP]
+====
+Pair SAI indexes with partition key queries whenever possible.
+SAI is powerful, but partition-scoped queries are always faster because they limit the number of SSTables that must be read.
+====
+
+SAI-only queries (without a partition key) do not require `ALLOW FILTERING`.
+Unlike unindexed queries, SAI uses its on-disk structures to locate matching rows efficiently.
+However, they still fan out to all nodes, so selectivity matters: a query that matches 0.1% of rows is very different from one that matches 80%.
+
+=== Multi-Column Filters
+
+SAI supports combining multiple indexed columns with `AND` logic.
+Cassandra evaluates all matching SAI indexes and intersects the result sets.
+
+[source,sql]
+----
+CREATE CUSTOM INDEX ON orders (status)
+  USING 'StorageAttachedIndex';
+CREATE CUSTOM INDEX ON orders (region)
+  USING 'StorageAttachedIndex';
+
+SELECT * FROM orders
+  WHERE status = 'pending'
+    AND region = 'us-east';
+----
+
+`OR` logic across indexed columns is supported in Cassandra 6.0 using parenthesized filter groups.
+
+== SAI and Vector Search: Hybrid Queries
+
+SAI scalar filters combine naturally with vector ANN queries.
+This is called hybrid search: the scalar filter narrows the candidate set before or after the ANN graph traversal, depending on the query planner.
+
+[source,sql]
+----
+CREATE CUSTOM INDEX ON products (category)
+  USING 'StorageAttachedIndex';
+CREATE CUSTOM INDEX ON products (description_embedding)
+  USING 'StorageAttachedIndex';
+
+-- Find the 10 most semantically similar electronics products
+SELECT name, price
+  FROM products
+  WHERE category = 'electronics'
+  ORDER BY description_embedding ANN OF [0.1, 0.2, 0.3, 0.4]
+  LIMIT 10;
+----
+
+When a scalar SAI filter accompanies an ANN query, Cassandra pre-filters the vector search space to matching rows before computing nearest neighbors.
+This improves result quality by ensuring the returned rows satisfy both the similarity criterion and the scalar constraint.
+
+[TIP]
+====
+Adding a selective scalar filter to a vector query typically improves both recall accuracy and latency.
+A highly selective filter (few matching rows) narrows the ANN graph traversal significantly.
+====
+
+== Performance Expectations
+
+Understanding SAI's performance characteristics helps you set the right expectations and avoid surprises in production.
+
+* *Write overhead*: Every write to an indexed column updates the SAI index in the memtable and eventually in the SSTable.
+More indexes on a table mean more write overhead.
+Avoid indexing columns that are written very frequently and rarely queried.
+
+* *Read selectivity*: SAI read performance is strongly tied to how selective the filter is.
+A query that selects 100 rows from a table of 10 million rows is fast.
+A query that selects 5 million rows is slow regardless of the index.
+
+* *Partition-scoped vs. full-scan*: As noted above, SAI queries with a partition key constraint are faster than SAI-only queries because they read from fewer SSTables and fewer nodes.
+
+* *Disk usage*: SAI uses significantly less disk space than 2i (secondary indexes) because it shares on-disk structures across indexes on the same table and uses compressed index formats.
+
+* *Streaming*: SAI is compatible with zero-copy streaming (ZCS).
+When you add or remove nodes, SAI index files stream along with their SSTables without being rebuilt on the receiving node.
+
+=== Monitoring SAI Indexes
+
+Use the `system_views.sai_column_indexes` virtual table to inspect the state of SAI indexes across the cluster.
+
+[source,sql]
+----
+SELECT index_name, table_name, column_name, is_queryable, is_building
+  FROM system_views.sai_column_indexes;
+----
+
+The `is_building` column indicates whether an index is still being constructed after a `CREATE CUSTOM INDEX` or a node rebuild.
+Queries against a building index may return incomplete results.
+
+For a full reference on SAI metrics and operational monitoring, see xref:cql/indexing/sai/operations/monitoring.adoc[SAI Monitoring].
+
+== Migrating from SASI to SAI
+
+SASI (SSTable Attached Secondary Index) is the legacy storage-attached index implementation.
+SAI is its recommended replacement and is the only storage-attached index that receives new development in Cassandra 6.
+
+Migration is straightforward: drop the SASI index and create a SAI index on the same column.
+
+[source,sql]
+----
+-- Drop the existing SASI index
+DROP INDEX users_name_idx;
+
+-- Create the SAI replacement
+CREATE CUSTOM INDEX users_name_idx ON users (name)
+  USING 'StorageAttachedIndex'
+  WITH OPTIONS = {'case_sensitive': 'false', 'normalize': 'true'};
+----
+
+[WARNING]
+====
+Dropping the SASI index removes it immediately.
+Queries that relied on that index will fail with an unindexed column error until the SAI index finishes building.
+In high-traffic environments, plan a maintenance window or build the SAI index under a temporary name before dropping SASI.
+====
+
+=== SASI Features and SAI Equivalents
+
+[cols="2,2,2", options="header"]
+|===
+| SASI feature | SAI equivalent | Notes
+
+| Equality and range queries
+| Supported
+| Core SAI functionality; same CQL syntax
+
+| `LIKE` prefix matching
+| Not directly supported
+| Use equality or `CONTAINS` depending on the use case
+
+| Sparse mode (skip empty values)
+| Not applicable
+| SAI does not index null values by default
+
+| Tokenizer-based full text (ANALYZED mode)
+| Not supported
+| SAI is not a full-text search engine
+
+| Collection indexing
+| Supported and extended
+| SAI adds frozen collection support (Cassandra 6.0)
+
+| Vector search
+| Supported (new in SAI)
+| SASI has no vector capability
+|===
+
+For most workloads, SAI is a drop-in replacement for SASI with better performance, lower disk overhead, and additional capabilities.
+
+== Related Pages
+
+* xref:cql/indexing/sai/sai-concepts.adoc[SAI Concepts] — architecture overview and advantages
+* xref:cql/indexing/sai/sai-faq.adoc[SAI FAQ] — common questions and configuration guidance
+* xref:cql/indexing/sai/collections.adoc[SAI Collections] — detailed reference for indexing set, list, and map columns
+* xref:cql/indexing/sai/sai-read-write-paths.adoc[SAI Read/Write Paths] — how SAI integrates with the Cassandra storage engine
+* xref:cql/indexing/sai/operations/monitoring.adoc[SAI Monitoring] — virtual tables and metrics for operational visibility
+* xref:vector-search/index.adoc[Vector Search Overview] — ANN query patterns, data modeling, and recall tuning
+* xref:data-modeling/index.adoc[Data Modeling Overview] — when to use indexes vs. denormalized tables

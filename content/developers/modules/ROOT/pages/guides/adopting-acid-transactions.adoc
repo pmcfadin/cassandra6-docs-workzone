@@ -1,0 +1,347 @@
+= Adopting ACID Transactions
+:description: A practical guide for application developers on when and how to use Cassandra 6 ACID transactions (Accord) — including table setup, common patterns, migration from LWT, and current limitations.
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Cassandra 6 introduces multi-partition ACID transactions powered by the Accord consensus protocol (CEP-15).
+These transactions let you atomically read and write across multiple partitions and tables within a single CQL statement block, with serializable isolation.
+
+This guide is for application developers evaluating or adopting ACID transactions.
+It covers when to use them, how to configure tables, common code patterns, driver behavior, known limitations, and a migration path from Lightweight Transactions (LWT).
+
+For the full CQL syntax reference, see xref:cql/txn-reference.adoc[BEGIN TRANSACTION Reference].
+For cluster-level enablement and table migration procedures, see xref:operators::upgrade/onboarding-to-accord.adoc[Onboarding to Accord].
+
+== When to Use ACID Transactions
+
+=== Use ACID transactions when you need
+
+* *Atomic writes across multiple partitions or tables* — for example, debiting one account and crediting another as a single indivisible operation.
+* *Conditional updates based on reads from multiple partitions* — reading a row from one table and using its value to guard a write to a different table or partition.
+* *Consistent read snapshots across partitions* — ensuring that a set of reads within a transaction all observe the same logical point in time.
+
+=== Do not use ACID transactions when
+
+* *A single-partition write is sufficient* — writes that touch only one partition are simpler and faster without a transaction.
+* *You are doing bulk data loading* — the per-transaction Accord overhead makes transactions a poor fit for high-throughput ETL or batch ingestion.
+* *Eventual consistency is acceptable* — if stale reads are harmless for your use case, the consistency guarantees of transactions are unnecessary overhead.
+* *You only need single-partition conditional writes* — LWT (`INSERT ... IF NOT EXISTS`, `UPDATE ... IF`) still works in Cassandra 6 and remains the right tool for single-partition check-and-set operations.
+
+[TIP]
+====
+When in doubt, start with the simplest approach that meets your correctness requirements.
+ACID transactions are powerful but carry a coordination cost.
+Reserve them for the workflows that genuinely require multi-partition atomicity.
+====
+
+== ACID Transactions vs. Lightweight Transactions (LWT)
+
+[cols="2,2,2", options="header"]
+|===
+| Feature | LWT (`IF EXISTS` / `IF NOT EXISTS`) | ACID Transactions (`BEGIN TRANSACTION`)
+
+| Partition scope
+| Single partition only
+| Multiple partitions and tables
+
+| Atomicity
+| Single CQL statement
+| Multiple statements within one block
+
+| Read-then-write
+| No — condition is on the same row being written
+| Yes — `LET` reads any partition, `IF` guards any write
+
+| Protocol
+| Paxos (4 round trips typical)
+| Accord (fewer round trips in most cases)
+
+| Counter columns
+| Supported via separate counter tables
+| Not supported inside a transaction
+
+| Syntax
+| `INSERT ... IF NOT EXISTS` / `UPDATE ... IF ...`
+| `BEGIN TRANSACTION ... COMMIT TRANSACTION`
+
+| Table requirement
+| None
+| `transactional_mode = 'full'` on all accessed tables
+|===
+
+[IMPORTANT]
+====
+LWT still works in Cassandra 6.
+Migration to ACID transactions is recommended for new multi-partition use cases but is not required for existing LWT code.
+If your current LWT patterns are single-partition and working correctly, there is no urgency to change them.
+====
+
+== Enabling ACID Transactions on Tables
+
+Tables must explicitly opt in to participate in Accord transactions.
+Set the `transactional_mode` property to `'full'` when creating the table or when altering an existing one.
+
+=== New table
+
+[source,sql]
+----
+CREATE TABLE accounts (
+    account_id  text PRIMARY KEY,
+    balance     decimal,
+    last_updated timestamp
+) WITH transactional_mode = 'full';
+----
+
+=== Existing table
+
+[source,sql]
+----
+ALTER TABLE accounts WITH transactional_mode = 'full';
+----
+
+[IMPORTANT]
+====
+Setting `transactional_mode = 'full'` changes the write path for that table — all writes are routed through Accord consensus.
+This is a significant operational change.
+Test thoroughly in staging before altering production tables.
+Consult xref:operators::upgrade/onboarding-to-accord.adoc[Onboarding to Accord] for the full migration procedure including rolling upgrade considerations.
+====
+
+NOTE: Every table accessed inside a `BEGIN TRANSACTION` block — for reads or writes — must have `transactional_mode = 'full'` (or `'mixed_reads'` for tables where non-transactional reads are also needed).
+A transaction that references a table with `transactional_mode = 'off'` will fail at execution time with `Accord transactions are disabled on table`.
+
+== Common Patterns
+
+=== Pattern 1: Conditional Insert (Replace IF NOT EXISTS)
+
+The single-partition LWT pattern `INSERT INTO users ... IF NOT EXISTS` becomes a multi-step transaction when you need to check existence and insert atomically:
+
+[source,sql]
+----
+BEGIN TRANSACTION
+  LET existing = (SELECT * FROM users WHERE user_id = 'alice');
+  IF existing IS NULL THEN
+    INSERT INTO users (user_id, name, email)
+      VALUES ('alice', 'Alice', 'alice@example.com');
+  END IF
+COMMIT TRANSACTION;
+----
+
+The `LET` clause reads the row at transaction time.
+If `existing IS NULL` (no row found), the insert proceeds.
+The entire operation is atomic — no other transaction can insert the same `user_id` between the read and the write.
+
+=== Pattern 2: Multi-Table Atomic Write (Transfer Between Accounts)
+
+This is the canonical case where LWT cannot help: the condition spans two partitions.
+
+[source,sql]
+----
+BEGIN TRANSACTION
+  LET source = (SELECT balance FROM accounts WHERE account_id = 'acct1');
+  LET dest   = (SELECT balance FROM accounts WHERE account_id = 'acct2');
+  IF source.balance >= 100.00 THEN
+    UPDATE accounts SET balance = source.balance - 100.00
+      WHERE account_id = 'acct1';
+    UPDATE accounts SET balance = dest.balance + 100.00
+      WHERE account_id = 'acct2';
+  END IF
+COMMIT TRANSACTION;
+----
+
+Both `UPDATE` statements commit atomically.
+If `source.balance` is below 100.00, neither update runs.
+No intermediate state where one account is debited but the other is not yet credited is ever visible to other clients.
+
+NOTE: Write values can reference `LET`-bound column values using `<name>.<column>` notation, as shown above with `source.balance` and `dest.balance`.
+This is the read-before-write pattern that enables conditional arithmetic on the current row values.
+
+=== Pattern 3: Read-Modify-Write with Optimistic Version Check
+
+Use a version column to implement optimistic concurrency control:
+
+[source,sql]
+----
+BEGIN TRANSACTION
+  LET current = (SELECT version, data FROM documents WHERE doc_id = 'doc1');
+  IF current.version = 42 THEN
+    UPDATE documents SET version = 43, data = 'new content'
+      WHERE doc_id = 'doc1';
+  END IF
+COMMIT TRANSACTION;
+----
+
+The transaction succeeds only if the document is still at version 42 when it commits.
+If another client updated the document concurrently, the `IF` condition fails and no write occurs — your application can then retry with fresh data.
+
+=== Pattern 4: Write-Only Atomic Multi-Partition Write
+
+When you need atomicity across partitions but do not need a conditional, omit `LET` and `IF`:
+
+[source,sql]
+----
+BEGIN TRANSACTION
+  INSERT INTO purchases (user_id, order_id, total)
+    VALUES ('user1', 'order-99', 49.99);
+  UPDATE inventory SET stock = stock - 1
+    WHERE product_id = 'sku-7';
+COMMIT TRANSACTION;
+----
+
+Both writes commit atomically with no condition check.
+
+[WARNING]
+====
+This pattern uses `stock = stock - 1` directly, which is a server-side arithmetic expression.
+Counter columns are not supported inside transactions (they raise `Counter columns cannot be accessed within a transaction`).
+Use regular `decimal` or `int` columns with read-before-write arithmetic (Pattern 2 above) if you need conditional decrement logic.
+====
+
+== Driver Interaction
+
+=== Sending a transaction
+
+The driver treats the entire `BEGIN TRANSACTION ... COMMIT TRANSACTION` block as a single CQL request.
+Submit the complete block as one string using your driver's `session.execute()` or equivalent:
+
+[source,java]
+----
+String txn = """
+    BEGIN TRANSACTION
+      LET existing = (SELECT * FROM users WHERE user_id = ?);
+      IF existing IS NULL THEN
+        INSERT INTO users (user_id, name, email) VALUES (?, ?, ?);
+      END IF
+    COMMIT TRANSACTION
+    """;
+session.execute(SimpleStatement.newInstance(txn, userId, userId, name, email));
+----
+
+Bind variables (`?`) work inside transaction bodies following the same rules as standalone CQL statements.
+
+=== Prepared statements
+
+`BEGIN TRANSACTION` statements are not cached in the server-side prepared statement cache (`eligibleAsPreparedStatement()` returns `false` in the server).
+Driver-level `session.prepare(...)` calls do function in practice for transactions, but the prepared statement is not reused from the server cache the way a regular `SELECT` or `INSERT` would be.
+
+[NOTE]
+====
+The exact prepared-statement interaction between the driver and server for transactions is an open question pending verification.
+Until this is clarified, prefer sending transactions as `SimpleStatement` rather than relying on `PreparedStatement` caching behavior.
+Source: `TransactionStatement.java` `eligibleAsPreparedStatement()`, `PreparedStatementsTest.java` lines 796-810.
+====
+
+=== Error handling
+
+Transactions can fail at several points.
+Handle each category:
+
+* *`InvalidRequestException` at prepare time* — syntax errors, missing partition key columns, unsupported clauses (`ORDER BY`, `GROUP BY`, `USING TTL`, counter columns).
+  These are programming errors; fix the CQL.
+
+* *`InvalidRequestException` at execution time* — Accord disabled globally, table not in `transactional_mode = 'full'`, or unsupported consistency level.
+  These are configuration errors; fix the cluster or table setup.
+
+* *Transaction rejection* — the `IF` condition evaluated to false (no writes occurred, but this is not an error — check the result set to determine whether writes ran).
+
+* *Timeout* — transactions have separate timeout settings from regular queries.
+  The default transaction timeout may differ from your regular `read_request_timeout_in_ms` and `write_request_timeout_in_ms`.
+  Consult your operator for the configured timeout values.
+
+=== Consistency levels
+
+Accord transactions support `ONE`, `QUORUM`, `SERIAL`, and `ALL` for reads and commits.
+
+[IMPORTANT]
+====
+The following consistency levels are *not* supported by Accord and will be rejected at execution time: `LOCAL_ONE`, `LOCAL_QUORUM`, `LOCAL_SERIAL`, `EACH_QUORUM`, `TWO`, `THREE`.
+If your application sets a default consistency level on the session that includes one of these, override it per-statement for transaction requests.
+Source: xref:cql/txn-reference.adoc#consistency-semantics[BEGIN TRANSACTION Reference — Consistency Semantics].
+====
+
+== Limitations and Current Constraints
+
+The following restrictions apply as of Cassandra 6 (Accord, CEP-15).
+All are enforced at execution time unless otherwise noted.
+
+[cols="2,3", options="header"]
+|===
+| Constraint | Detail
+
+| All tables must have `transactional_mode = 'full'`
+| Every table accessed inside a transaction (read or write) must have Accord enabled.
+  A table with `transactional_mode = 'off'` causes the transaction to fail.
+
+| No counter columns
+| Counter columns cannot be read or written inside a transaction.
+  Use a regular numeric column with read-before-write arithmetic instead.
+
+| No `USING TTL` or `USING TIMESTAMP`
+| TTLs and custom timestamps are not allowed on writes inside a transaction.
+  The Accord protocol assigns the timestamp.
+
+| No `IF` conditions on individual statements
+| Do not use `INSERT ... IF NOT EXISTS` or `UPDATE ... IF` inside a transaction body.
+  Use the transaction-level `IF ... THEN` block instead.
+
+| No `ORDER BY`, `GROUP BY`, or aggregation in reads
+| These are not supported inside `LET` or returning `SELECT` statements.
+
+| No partition range queries
+| `LET` and `SELECT` inside a transaction must specify all partition key columns with equality operators.
+  Range scans (`WHERE id > 5`) are not allowed.
+
+| No nested transactions
+| `BEGIN TRANSACTION` cannot be nested inside another `BEGIN TRANSACTION`.
+
+| No `LIMIT` with `IN` partition key
+| If a partition key uses an `IN` clause, `LIMIT` is not allowed on the same statement.
+
+| Accord must be enabled cluster-wide
+| The cluster must have `accord.enabled: true` in `cassandra.yaml`.
+  This is an operator concern.
+  See xref:operators::upgrade/onboarding-to-accord.adoc[Onboarding to Accord].
+
+| No support during Accord migration
+| Multi-partition transactions are rejected while a table is mid-migration away from Accord.
+  Error: `Transaction Statement is unsupported when migrating away from Accord`.
+|===
+
+NOTE: Transaction size limits (maximum reads and writes per transaction) are governed by Accord configuration.
+Consult your operator for the limits configured in your cluster.
+
+== Migration Path from LWT
+
+Follow this sequence to migrate existing LWT patterns to ACID transactions:
+
+. *Identify LWT usage* — search your application code for `IF EXISTS`, `IF NOT EXISTS`, and `IF <condition>` in CQL statements.
+  Classify each occurrence: is it single-partition (LWT is fine) or multi-partition (candidate for ACID transactions)?
+
+. *Enable `transactional_mode` on affected tables in staging* — run `ALTER TABLE ... WITH transactional_mode = 'full'` on the tables involved.
+  This changes the write path.
+  Validate performance and correctness in staging before touching production.
+
+. *Rewrite LWT statements as ACID transactions* — convert each multi-partition LWT pattern into a `BEGIN TRANSACTION ... COMMIT TRANSACTION` block using the patterns in this guide.
+
+. *Test thoroughly — semantics differ* — LWT (Paxos) and ACID transactions (Accord) have different failure modes, timeout behaviors, and consistency semantics.
+  A test suite that previously passed with LWT is a starting point, not a guarantee.
+
+. *Deploy to production incrementally* — migrate one table or one workflow at a time.
+  Monitor error rates and latency before proceeding.
+
+[TIP]
+====
+Start by migrating your most complex LWT patterns first — multi-partition or multi-step sequences that currently require application-level coordination logic.
+That is where ACID transactions provide the largest correctness benefit and where the migration effort is most justified.
+Single-partition `IF NOT EXISTS` inserts can remain as LWT indefinitely.
+====
+
+== Related Pages
+
+* xref:cql/txn-reference.adoc[BEGIN TRANSACTION Reference] — Full CQL syntax, grammar, restrictions, error conditions, and consistency semantics.
+* xref:guides/consistency-choices.adoc[Choosing Consistency Levels] — Guide to Cassandra consistency levels and when to use each.
+* xref:upgrading-to-cassandra6.adoc[Upgrading to Cassandra 6] — Developer-facing upgrade considerations for Cassandra 6.
+* xref:operators::upgrade/onboarding-to-accord.adoc[Onboarding to Accord] — Operator guide for enabling Accord, setting `transactional_mode`, and managing the migration.

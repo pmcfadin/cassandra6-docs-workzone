@@ -1,0 +1,281 @@
+= Build a Java Application with Cassandra
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Build a simple user management application that creates a keyspace, table, and performs full CRUD operations against a local Cassandra node.
+Estimated time: 10 minutes.
+
+== What You'll Build
+
+A standalone Java application that:
+
+* Connects to a local Cassandra instance using the Apache Cassandra Java Driver
+* Creates a keyspace and a `users` table
+* Inserts rows using prepared statements
+* Queries, updates, and deletes rows
+
+== Prerequisites
+
+* JDK 17 or later
+* Maven 3.8+ or Gradle 7+
+* Docker (to run a local Cassandra node)
+
+== Start Cassandra
+
+Start a single-node Cassandra instance with Docker, exposing the native transport port:
+
+[source,bash]
+----
+docker run --name cassandra -d -p 9042:9042 cassandra:latest
+----
+
+Cassandra takes roughly 30–60 seconds to initialize.
+Poll until it accepts connections:
+
+[source,bash]
+----
+docker exec cassandra cqlsh -e "DESCRIBE KEYSPACES"
+----
+
+Repeat the command until it returns a list of system keyspaces without an error.
+
+NOTE: The local datacenter name defaults to `datacenter1` in the official Cassandra Docker image.
+You will need this value when building the driver session.
+
+== Create Your Project
+
+=== Maven
+
+Add the Java driver dependency to your `pom.xml`:
+
+[source,xml]
+----
+<dependency>
+  <groupId>org.apache.cassandra</groupId>
+  <artifactId>java-driver-core</artifactId>
+  <version>4.18.1</version>
+</dependency>
+----
+
+=== Gradle
+
+[source,groovy]
+----
+implementation 'org.apache.cassandra:java-driver-core:4.18.1'
+----
+
+TIP: Check https://central.sonatype.com/artifact/org.apache.cassandra/java-driver-core[Maven Central] for the latest driver release.
+The `4.x` line targets Cassandra 4 and later, including Cassandra 6.
+
+== Connect to Cassandra
+
+Create a `CqlSession` pointing at `127.0.0.1:9042`:
+
+[source,java]
+----
+import com.datastax.oss.driver.api.core.CqlSession;
+import java.net.InetSocketAddress;
+
+try (CqlSession session = CqlSession.builder()
+        .addContactPoint(new InetSocketAddress("127.0.0.1", 9042))
+        .withLocalDatacenter("datacenter1")
+        .build()) {
+
+    System.out.println("Connected to Cassandra!");
+}
+----
+
+`CqlSession` is `AutoCloseable`, so wrapping it in a try-with-resources block ensures the connection pool is shut down cleanly when the application exits.
+
+TIP: In production, create a single `CqlSession` instance and reuse it across all requests.
+The session manages a connection pool internally; creating one per request is wasteful and will degrade performance.
+
+== Create a Keyspace and Table
+
+Once connected, create the keyspace and table:
+
+[source,java]
+----
+// Create keyspace
+session.execute(
+    "CREATE KEYSPACE IF NOT EXISTS quickstart " +
+    "WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}");
+
+// Create table
+session.execute(
+    "CREATE TABLE IF NOT EXISTS quickstart.users (" +
+    "  id    UUID PRIMARY KEY, " +
+    "  name  text, " +
+    "  email text)");
+----
+
+NOTE: `SimpleStrategy` with a replication factor of 1 is suitable for a single-node development cluster only.
+Production clusters use `NetworkTopologyStrategy` with a replication factor matched to your datacenter topology.
+
+== Insert Data
+
+Use prepared statements to insert rows:
+
+[source,java]
+----
+import com.datastax.oss.driver.api.core.cql.PreparedStatement;
+import java.util.UUID;
+
+PreparedStatement insertStmt = session.prepare(
+    "INSERT INTO quickstart.users (id, name, email) VALUES (?, ?, ?)");
+
+session.execute(insertStmt.bind(UUID.randomUUID(), "Alice", "alice@example.com"));
+session.execute(insertStmt.bind(UUID.randomUUID(), "Bob",   "bob@example.com"));
+----
+
+TIP: Always use prepared statements in production.
+The driver sends the query string to Cassandra once for parsing and caching; subsequent executions send only the bound values.
+This reduces network overhead and protects against CQL injection.
+
+== Query Data
+
+Read all rows from the `users` table:
+
+[source,java]
+----
+import com.datastax.oss.driver.api.core.cql.ResultSet;
+import com.datastax.oss.driver.api.core.cql.Row;
+
+ResultSet rs = session.execute("SELECT * FROM quickstart.users");
+
+for (Row row : rs) {
+    System.out.printf("User: %s (%s)%n",
+        row.getString("name"),
+        row.getString("email"));
+}
+----
+
+The `ResultSet` is lazy: the driver fetches pages of results from Cassandra as you iterate.
+For large tables, use `setPageSize()` on the statement to control how many rows arrive per round trip.
+
+== Update and Delete
+
+Update a row by its primary key:
+
+[source,java]
+----
+UUID userId = ...; // capture during insert or query
+
+// Update email address
+session.execute(
+    session.prepare("UPDATE quickstart.users SET email = ? WHERE id = ?")
+           .bind("alice@newdomain.com", userId));
+
+// Delete the row
+session.execute(
+    session.prepare("DELETE FROM quickstart.users WHERE id = ?")
+           .bind(userId));
+----
+
+== Complete Application
+
+The following `main()` method combines all steps into a single runnable class:
+
+[source,java]
+----
+import com.datastax.oss.driver.api.core.CqlSession;
+import com.datastax.oss.driver.api.core.cql.PreparedStatement;
+import com.datastax.oss.driver.api.core.cql.ResultSet;
+import com.datastax.oss.driver.api.core.cql.Row;
+import java.net.InetSocketAddress;
+import java.util.UUID;
+
+public class CassandraQuickstart {
+
+    public static void main(String[] args) {
+
+        try (CqlSession session = CqlSession.builder()
+                .addContactPoint(new InetSocketAddress("127.0.0.1", 9042))
+                .withLocalDatacenter("datacenter1")
+                .build()) {
+
+            System.out.println("Connected to Cassandra!");
+
+            // Schema
+            session.execute(
+                "CREATE KEYSPACE IF NOT EXISTS quickstart " +
+                "WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}");
+
+            session.execute(
+                "CREATE TABLE IF NOT EXISTS quickstart.users (" +
+                "  id    UUID PRIMARY KEY, " +
+                "  name  text, " +
+                "  email text)");
+
+            // Insert
+            PreparedStatement insertStmt = session.prepare(
+                "INSERT INTO quickstart.users (id, name, email) VALUES (?, ?, ?)");
+
+            UUID aliceId = UUID.randomUUID();
+            UUID bobId   = UUID.randomUUID();
+
+            session.execute(insertStmt.bind(aliceId, "Alice", "alice@example.com"));
+            session.execute(insertStmt.bind(bobId,   "Bob",   "bob@example.com"));
+
+            // Query
+            ResultSet rs = session.execute("SELECT * FROM quickstart.users");
+            System.out.println("Users after insert:");
+            for (Row row : rs) {
+                System.out.printf("  %s  %s  %s%n",
+                    row.getUuid("id"),
+                    row.getString("name"),
+                    row.getString("email"));
+            }
+
+            // Update
+            session.execute(
+                session.prepare("UPDATE quickstart.users SET email = ? WHERE id = ?")
+                       .bind("alice@newdomain.com", aliceId));
+
+            // Delete
+            session.execute(
+                session.prepare("DELETE FROM quickstart.users WHERE id = ?")
+                       .bind(bobId));
+
+            // Query again
+            rs = session.execute("SELECT * FROM quickstart.users");
+            System.out.println("Users after update and delete:");
+            for (Row row : rs) {
+                System.out.printf("  %s  %s  %s%n",
+                    row.getUuid("id"),
+                    row.getString("name"),
+                    row.getString("email"));
+            }
+        }
+    }
+}
+----
+
+Run the class with Maven:
+
+[source,bash]
+----
+mvn compile exec:java -Dexec.mainClass="CassandraQuickstart"
+----
+
+Expected output:
+
+[source]
+----
+Connected to Cassandra!
+Users after insert:
+  <uuid>  Alice  alice@example.com
+  <uuid>  Bob    bob@example.com
+Users after update and delete:
+  <uuid>  Alice  alice@newdomain.com
+----
+
+== What's Next
+
+* xref:data-modeling/index.adoc[Data Modeling] -- learn query-driven design and partition key selection
+* xref:cql/txn-reference.adoc[ACID Transactions] -- multi-partition atomic operations with Accord
+* xref:drivers.adoc[Choose a Driver] -- compare driver features and explore other language options
+* xref:vector-search/index.adoc[Vector Search] -- add AI-powered similarity search to your application

@@ -1,0 +1,202 @@
+= Cassandra MCP Server
+:description: How to set up and use a Model Context Protocol (MCP) server for Apache Cassandra to enable AI coding assistants with direct schema introspection, query execution, and performance analysis.
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+The Model Context Protocol (MCP) allows AI coding assistants to interact with external tools and data sources.
+A Cassandra MCP server gives AI tools direct access to your schema, query execution, and database introspection — enabling AI-assisted database development workflows without copy-pasting schema definitions or query results by hand.
+
+== What Is MCP?
+
+MCP is an open protocol for connecting AI assistants to external tools and services.
+An MCP server exposes a set of named "tools" that AI assistants can call on your behalf during a conversation.
+The AI describes what it wants to do, calls the appropriate tool, and incorporates the results into its response.
+
+For Cassandra, an MCP server typically exposes tools for:
+
+* Schema introspection — list keyspaces, describe tables, inspect indexes
+* Query execution — run CQL statements and return results
+* Performance analysis — trace queries, inspect table statistics, check index build status
+
+MCP is supported by Claude Code, Cursor, Windsurf, and other AI development tools that implement the https://modelcontextprotocol.io/[MCP specification].
+
+== Setting Up a Cassandra MCP Server
+
+Several Cassandra MCP server implementations exist as open-source projects.
+Search for "cassandra mcp server" to find current options, as this ecosystem is evolving rapidly.
+
+=== Basic Setup Steps
+
+. *Install the MCP server package.* +
+Follow the installation instructions for your chosen implementation.
+Most are distributed as npm packages, Python packages, or standalone binaries.
+
+. *Configure the connection to your Cassandra cluster.* +
+At minimum, provide the contact point host and native transport port.
+Most implementations also accept keyspace, credentials, and TLS settings.
+
+. *Register the server with your AI tool.* +
+AI tools that support MCP read a configuration file listing which servers to start and how to connect to them.
+
+=== Example Configuration
+
+The following shows a representative MCP server configuration block.
+Exact field names vary by implementation — consult your MCP server's documentation.
+
+[source,json]
+----
+{
+  "mcpServers": {
+    "cassandra": {
+      "command": "cassandra-mcp-server",
+      "args": ["--host", "127.0.0.1", "--port", "9042"],
+      "env": {
+        "CASSANDRA_KEYSPACE": "my_app"
+      }
+    }
+  }
+}
+----
+
+For Claude Code, this configuration block belongs in your `.claude/settings.json` or the global `~/.claude/settings.json`.
+For Cursor and Windsurf, consult their MCP setup documentation for the correct config file location.
+
+TIP: Start with a single keyspace scoped to your development environment rather than connecting to the full cluster.
+This limits what the AI can see and execute, and makes it easier to reason about what the AI is doing.
+
+== Available Tools
+
+A Cassandra MCP server typically exposes tools in three categories.
+
+=== Schema Introspection
+
+These tools let the AI understand your data model without you having to paste `DESCRIBE TABLE` output into the conversation.
+
+* List all keyspaces in the cluster
+* List tables within a keyspace
+* Describe a table — columns, types, primary key definition, clustering order
+* Show the `CREATE TABLE` statement for a table
+* List indexes on a table, including SAI indexes and their target columns
+
+=== Query Execution
+
+These tools let the AI run CQL statements and return results directly.
+
+* Execute `SELECT` statements and return rows as structured data
+* Execute DML statements — `INSERT`, `UPDATE`, `DELETE`
+* Execute DDL statements — `CREATE TABLE`, `ALTER TABLE`, `DROP TABLE`
+* Run parameterized queries with typed bind variables
+
+[WARNING]
+====
+DDL and DML execution tools give the AI the ability to modify your schema and data.
+Grant only the permissions your workflow actually requires.
+A read-only exploration session does not need `INSERT` or `CREATE TABLE` access.
+====
+
+=== Performance Analysis
+
+These tools surface Cassandra's built-in observability features to the AI.
+
+* Query tracing — execute a statement with tracing enabled and return the execution plan, replica coordination events, and per-stage latencies
+* Table statistics — partition count estimates, row estimates, space amplification
+* SAI index status — build progress and whether an index is queryable
+
+== Use Cases
+
+=== AI-Assisted Schema Design
+
+When designing a new table, the AI can inspect your existing schema to check for naming conventions, identify related tables, and validate that its proposed primary key avoids hotspots.
+Without MCP, you would need to paste `DESCRIBE KEYSPACE` output into every conversation.
+
+Example prompt: _"Design a table to store per-user activity events, following the conventions in my existing schema."_
+
+The AI calls the schema introspection tools, reviews your existing tables, and proposes a design consistent with what it finds.
+
+=== Natural Language to CQL
+
+Translate questions about your data into CQL queries, execute them, and return formatted results — without writing CQL manually.
+
+Example prompt: _"Show me the 10 most recent orders for customer ID abc-123."_
+
+The AI inspects the schema to find the relevant table and partition key structure, writes the appropriate `SELECT` statement, executes it, and presents the results.
+
+TIP: For exploratory data work on development datasets, natural-language-to-CQL can substantially reduce the time spent learning a new schema.
+Use it alongside the xref:../cql/index.adoc[CQL reference] to verify the generated queries are correct.
+
+=== Automated Query Optimization
+
+The AI can trace a slow query, examine the execution plan, and suggest index additions or schema changes to reduce coordinator overhead.
+
+Example workflow:
+
+. Provide the slow query to the AI
+. The AI executes it with tracing enabled via the MCP server
+. The AI reads the trace — replica count, coordinator fanout, per-stage latency
+. The AI inspects existing indexes and suggests whether an SAI index would help
+. You review and approve before running any `CREATE INDEX` statement
+
+=== Data Exploration
+
+Explore an unfamiliar keyspace through natural language rather than iterating through `DESCRIBE` statements manually.
+Useful when onboarding to an existing codebase or debugging a schema you did not write.
+
+== Security Considerations
+
+[WARNING]
+====
+An MCP server gives AI tools direct database access.
+Treat it like any other database client — apply the same access controls, auditing, and principle of least privilege you would apply to an application service account.
+====
+
+Follow these practices to limit exposure:
+
+Use a restricted role::
+Create a dedicated Cassandra role for MCP with only the permissions your workflow requires.
+Do not use a superuser or administrative role.
+
+[source,sql]
+----
+CREATE ROLE mcp_reader
+  WITH PASSWORD = 'secure_password'
+  AND LOGIN = true;
+
+GRANT SELECT ON KEYSPACE my_app TO mcp_reader;
+----
+
+For workflows that also require DDL or DML, grant only the specific permissions needed:
+
+[source,sql]
+----
+-- Read and write, but no schema changes
+GRANT SELECT ON KEYSPACE my_app TO mcp_writer;
+GRANT MODIFY ON KEYSPACE my_app TO mcp_writer;
+----
+
+Never connect to production without access controls::
+Use MCP servers against development or staging databases.
+If production access is required, apply the same change-control process you use for any production database operation — do not allow the AI to execute DDL or unrestricted DML against production data.
+
+Restrict DDL permissions to prevent accidental schema changes::
+A schema change executed by an AI tool is a schema change.
+If your workflow does not require `CREATE TABLE` or `ALTER TABLE`, do not grant `CREATE` or `ALTER` permissions to the MCP role.
+
+Use keyspace-level isolation::
+Configure the MCP server to connect to a specific keyspace rather than the full cluster.
+This limits schema visibility and query scope to the keyspace you are actively working on.
+
+Audit MCP query logs::
+Most MCP server implementations log the CQL statements they execute.
+Review those logs to understand what the AI is running, especially after exploratory sessions where you used natural-language queries.
+
+See xref:../cql/security.adoc[CQL Security] for Cassandra role and permission management reference.
+
+== Related Pages
+
+* xref:../drivers.adoc[Client Drivers] — connect to Cassandra from your application code
+* xref:../cql/security.adoc[CQL Security] — roles, permissions, and authentication
+* xref:../cql/indexing/sai/sai-concepts.adoc[SAI Concepts] — how Storage-Attached Indexes work, including the indexes an MCP server can inspect and suggest
+* xref:../integration-patterns.adoc[Application Patterns] — broader patterns for building on Cassandra

@@ -611,3 +611,11 @@ partly applied.
 
 Use the `COUNTER` option for batched counter updates. Unlike other
 updates in Cassandra, counter updates are not idempotent.
+
+== Related Guides
+
+* xref:guides/consistency-choices.adoc[Choosing Consistency Levels] -- decision guide for read/write consistency
+* xref:guides/pagination.adoc[Paginating Query Results] -- safe pagination patterns for large result sets
+* xref:guides/retries-and-idempotence.adoc[Retries and Idempotence] -- safe retry patterns for DML operations
+* xref:guides/adopting-acid-transactions.adoc[Adopting ACID Transactions] -- multi-partition atomic operations
+* xref:examples/index.adoc[Code Examples] -- complete CRUD examples in Java, Python, and CQL

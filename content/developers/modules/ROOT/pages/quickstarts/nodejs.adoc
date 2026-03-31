@@ -1,0 +1,284 @@
+= Build a Node.js Application with Cassandra
+
+Connect Apache Cassandra to a Node.js application in about 10 minutes.
+You will build a simple user management app that creates a keyspace and table, inserts records using prepared statements, queries them, and cleans up.
+
+== What You'll Build
+
+A command-line Node.js script that:
+
+* Connects to a local Cassandra instance using the DataStax Node.js driver
+* Creates a keyspace and a `users` table
+* Inserts, queries, updates, and deletes rows using CQL and prepared statements
+* Shuts down cleanly
+
+== Prerequisites
+
+* Node.js 18 or later
+* npm
+* Docker (for running Cassandra locally)
+
+== Start Cassandra
+
+Pull and start a single Cassandra node:
+
+[source,bash]
+----
+docker pull cassandra:latest
+docker run --name cassandra -d -p 9042:9042 cassandra:latest
+----
+
+Wait about 30 seconds for the node to initialize.
+Confirm it is ready:
+
+[source,bash]
+----
+docker exec -it cassandra cqlsh -e "SHOW VERSION"
+----
+
+When you see a `[cqlsh ...]` version line the node is ready.
+
+NOTE: The Node.js driver handles connection pooling and reconnection automatically, so you do not need to manage socket lifecycle in application code.
+
+== Initialize Your Project
+
+[source,bash]
+----
+mkdir cassandra-quickstart && cd cassandra-quickstart
+npm init -y
+npm install cassandra-driver
+----
+
+The `cassandra-driver` package is the https://github.com/datastax/nodejs-driver[DataStax Node.js Driver].
+It supports all major Cassandra features including prepared statements, token-aware routing, automatic paging, and speculative execution.
+
+== Connect to Cassandra
+
+Create a file named `app.js` and add the following connection setup:
+
+[source,javascript]
+----
+const cassandra = require('cassandra-driver');
+
+const client = new cassandra.Client({
+  contactPoints: ['127.0.0.1'],
+  localDataCenter: 'datacenter1'
+});
+
+async function main() {
+  await client.connect();
+  console.log('Connected to Cassandra!');
+}
+
+main().catch(console.error);
+----
+
+Run it to confirm the connection works:
+
+[source,bash]
+----
+node app.js
+----
+
+You should see `Connected to Cassandra!` printed to the console.
+
+`contactPoints` lists one or more seed addresses.
+`localDataCenter` must match the data center name reported by `nodetool status` or visible in `system.local`.
+For a single-node Docker instance the default is `datacenter1`.
+
+== Create a Keyspace and Table
+
+Replace the body of `main()` with the following.
+The connection call is still required first.
+
+[source,javascript]
+----
+async function main() {
+  await client.connect();
+  console.log('Connected to Cassandra!');
+
+  // Create keyspace
+  await client.execute(`
+    CREATE KEYSPACE IF NOT EXISTS quickstart
+    WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}
+  `);
+  console.log('Keyspace ready.');
+
+  // Create table
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS quickstart.users (
+      id    uuid PRIMARY KEY,
+      name  text,
+      email text
+    )
+  `);
+  console.log('Table ready.');
+}
+----
+
+`SimpleStrategy` with `replication_factor: 1` is appropriate for local development.
+Use `NetworkTopologyStrategy` in production clusters.
+
+== Insert Data
+
+Add an insert function below the table creation block.
+The driver auto-prepares statements when you pass `{ prepare: true }`.
+
+[source,javascript]
+----
+  // Insert rows
+  const insertQuery = 'INSERT INTO quickstart.users (id, name, email) VALUES (?, ?, ?)';
+
+  const alice = cassandra.types.Uuid.random();
+  await client.execute(insertQuery, [alice, 'Alice', 'alice@example.com'], { prepare: true });
+
+  const bob = cassandra.types.Uuid.random();
+  await client.execute(insertQuery, [bob, 'Bob', 'bob@example.com'], { prepare: true });
+
+  console.log('Inserted 2 rows.');
+----
+
+TIP: Pass `{ prepare: true }` to auto-prepare statements for better performance. The driver caches prepared statement IDs per host, so subsequent executions skip the prepare round-trip.
+
+`cassandra.types.Uuid.random()` generates a version 4 UUID.
+You can also use `cassandra.types.TimeUuid.now()` for time-ordered UUIDs.
+
+== Query Data
+
+[source,javascript]
+----
+  // Read all rows
+  const result = await client.execute('SELECT * FROM quickstart.users');
+  console.log('Users:');
+  for (const row of result.rows) {
+    console.log(`  ${row.name} <${row.email}> (${row.id})`);
+  }
+----
+
+For large tables use `eachRow` or pass `{ fetchSize: N }` to control page size.
+The driver handles automatic paging when you iterate `result.rows` across pages.
+
+== Update and Delete
+
+[source,javascript]
+----
+  // Update Alice's email
+  await client.execute(
+    'UPDATE quickstart.users SET email = ? WHERE id = ?',
+    ['alice@newdomain.com', alice],
+    { prepare: true }
+  );
+  console.log('Updated Alice.');
+
+  // Delete Bob
+  await client.execute(
+    'DELETE FROM quickstart.users WHERE id = ?',
+    [bob],
+    { prepare: true }
+  );
+  console.log('Deleted Bob.');
+----
+
+== Complete Application
+
+Here is the full `app.js` script with a proper shutdown in the `finally` block:
+
+[source,javascript]
+----
+const cassandra = require('cassandra-driver');
+
+const client = new cassandra.Client({
+  contactPoints: ['127.0.0.1'],
+  localDataCenter: 'datacenter1'
+});
+
+async function main() {
+  await client.connect();
+  console.log('Connected to Cassandra!');
+
+  // Keyspace
+  await client.execute(`
+    CREATE KEYSPACE IF NOT EXISTS quickstart
+    WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}
+  `);
+
+  // Table
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS quickstart.users (
+      id    uuid PRIMARY KEY,
+      name  text,
+      email text
+    )
+  `);
+
+  const insertQuery = 'INSERT INTO quickstart.users (id, name, email) VALUES (?, ?, ?)';
+  const alice = cassandra.types.Uuid.random();
+  const bob   = cassandra.types.Uuid.random();
+
+  await client.execute(insertQuery, [alice, 'Alice', 'alice@example.com'], { prepare: true });
+  await client.execute(insertQuery, [bob,   'Bob',   'bob@example.com'],   { prepare: true });
+  console.log('Inserted 2 rows.');
+
+  // Read
+  const result = await client.execute('SELECT * FROM quickstart.users');
+  console.log('Users:');
+  for (const row of result.rows) {
+    console.log(`  ${row.name} <${row.email}> (${row.id})`);
+  }
+
+  // Update
+  await client.execute(
+    'UPDATE quickstart.users SET email = ? WHERE id = ?',
+    ['alice@newdomain.com', alice],
+    { prepare: true }
+  );
+  console.log('Updated Alice.');
+
+  // Delete
+  await client.execute(
+    'DELETE FROM quickstart.users WHERE id = ?',
+    [bob],
+    { prepare: true }
+  );
+  console.log('Deleted Bob.');
+
+  // Confirm final state
+  const final = await client.execute('SELECT * FROM quickstart.users');
+  console.log('Final users:');
+  for (const row of final.rows) {
+    console.log(`  ${row.name} <${row.email}>`);
+  }
+}
+
+main()
+  .catch(console.error)
+  .finally(() => client.shutdown());
+----
+
+Run the complete script:
+
+[source,bash]
+----
+node app.js
+----
+
+Expected output:
+
+----
+Connected to Cassandra!
+Inserted 2 rows.
+Users:
+  Alice <alice@example.com> (...)
+  Bob <bob@example.com> (...)
+Updated Alice.
+Deleted Bob.
+Final users:
+  Alice <alice@newdomain.com>
+----
+
+== What's Next
+
+* xref:data-modeling/index.adoc[Data Modeling] -- design tables around your query patterns before writing production schemas
+* xref:cql/txn-reference.adoc[ACID Transactions] -- use `BEGIN TRANSACTION` for lightweight multi-statement atomicity in Cassandra 6
+* xref:drivers.adoc[Choose a Driver] -- compare all supported language drivers and their feature matrices
+* xref:vector-search/index.adoc[Vector Search] -- store and query vector embeddings alongside your application data

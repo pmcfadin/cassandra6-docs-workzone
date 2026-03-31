@@ -1,0 +1,234 @@
+= Build a Python Application with Cassandra
+
+Build a simple user management application using the DataStax Python driver.
+This quickstart takes about 10 minutes to complete.
+
+== What You'll Build
+
+A Python script that connects to Cassandra, creates a keyspace and table, inserts records using prepared statements, queries them back, and performs an update and delete.
+You will have a working end-to-end example you can adapt for your own application.
+
+== Prerequisites
+
+* Python 3.8 or later
+* pip
+* Docker (for running a local Cassandra node)
+
+== Start Cassandra
+
+Start a single-node Cassandra cluster using Docker:
+
+[source,bash]
+----
+docker pull cassandra:latest
+docker run --name cassandra -d -p 9042:9042 cassandra:latest
+----
+
+Wait about 30 seconds for the node to initialize before connecting.
+
+NOTE: The Python driver handles connection pooling automatically.
+You do not need to manage individual connections or threads.
+
+== Install the Driver
+
+Install the DataStax Python driver from PyPI:
+
+[source,bash]
+----
+pip install cassandra-driver
+----
+
+== Connect to Cassandra
+
+Create a file named `app.py` and add the following connection code:
+
+[source,python]
+----
+from cassandra.cluster import Cluster
+
+cluster = Cluster(['127.0.0.1'])
+session = cluster.connect()
+print("Connected to Cassandra!")
+----
+
+Run it to verify connectivity:
+
+[source,bash]
+----
+python app.py
+----
+
+You should see `Connected to Cassandra!` printed to the console.
+
+== Create a Keyspace and Table
+
+Add the keyspace and table setup to `app.py`:
+
+[source,python]
+----
+session.execute("""
+    CREATE KEYSPACE IF NOT EXISTS quickstart
+    WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}
+""")
+session.set_keyspace('quickstart')
+
+session.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        id UUID PRIMARY KEY,
+        name text,
+        email text
+    )
+""")
+print("Keyspace and table ready.")
+----
+
+`SimpleStrategy` with a replication factor of 1 is appropriate for local development.
+Use `NetworkTopologyStrategy` in production clusters.
+
+== Insert Data
+
+Use prepared statements when executing the same query multiple times.
+They are compiled once by the cluster and cached for subsequent calls.
+
+[source,python]
+----
+import uuid
+
+insert_stmt = session.prepare(
+    "INSERT INTO users (id, name, email) VALUES (?, ?, ?)"
+)
+
+session.execute(insert_stmt, [uuid.uuid4(), "Alice", "alice@example.com"])
+session.execute(insert_stmt, [uuid.uuid4(), "Bob", "bob@example.com"])
+print("Inserted 2 users.")
+----
+
+TIP: Use prepared statements for repeated queries — they're faster and safer.
+The driver handles parameter binding and protects against injection.
+
+== Query Data
+
+Fetch all rows and iterate over the result set:
+
+[source,python]
+----
+rows = session.execute("SELECT * FROM users")
+for row in rows:
+    print(f"User: {row.name} ({row.email})")
+----
+
+The result set is iterable.
+For large tables, the driver automatically pages through results in batches to avoid loading everything into memory at once.
+
+== Update and Delete
+
+To update or delete a specific row you need the row's UUID.
+Store it when inserting:
+
+[source,python]
+----
+alice_id = uuid.uuid4()
+session.execute(insert_stmt, [alice_id, "Alice", "alice@example.com"])
+
+# Update Alice's email address
+session.execute(
+    "UPDATE users SET email = %s WHERE id = %s",
+    ["alice@newdomain.com", alice_id]
+)
+print("Updated Alice's email.")
+
+# Delete Alice's record
+session.execute(
+    "DELETE FROM users WHERE id = %s",
+    [alice_id]
+)
+print("Deleted Alice's record.")
+----
+
+== Complete Script
+
+Here is the full `app.py` combining all of the above steps, with proper cleanup at the end:
+
+[source,python]
+----
+import uuid
+from cassandra.cluster import Cluster
+
+# Connect
+cluster = Cluster(['127.0.0.1'])
+session = cluster.connect()
+print("Connected to Cassandra!")
+
+# Keyspace and table
+session.execute("""
+    CREATE KEYSPACE IF NOT EXISTS quickstart
+    WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}
+""")
+session.set_keyspace('quickstart')
+session.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        id UUID PRIMARY KEY,
+        name text,
+        email text
+    )
+""")
+print("Keyspace and table ready.")
+
+# Insert using a prepared statement
+insert_stmt = session.prepare(
+    "INSERT INTO users (id, name, email) VALUES (?, ?, ?)"
+)
+alice_id = uuid.uuid4()
+bob_id = uuid.uuid4()
+session.execute(insert_stmt, [alice_id, "Alice", "alice@example.com"])
+session.execute(insert_stmt, [bob_id, "Bob", "bob@example.com"])
+print("Inserted 2 users.")
+
+# Query
+rows = session.execute("SELECT * FROM users")
+for row in rows:
+    print(f"User: {row.name} ({row.email})")
+
+# Update
+session.execute(
+    "UPDATE users SET email = %s WHERE id = %s",
+    ["alice@newdomain.com", alice_id]
+)
+print("Updated Alice's email.")
+
+# Delete
+session.execute("DELETE FROM users WHERE id = %s", [alice_id])
+print("Deleted Alice's record.")
+
+# Clean up
+cluster.shutdown()
+print("Done.")
+----
+
+Run the complete script:
+
+[source,bash]
+----
+python app.py
+----
+
+Expected output:
+
+[source]
+----
+Connected to Cassandra!
+Keyspace and table ready.
+Inserted 2 users.
+User: Alice (alice@example.com)
+User: Bob (bob@example.com)
+Updated Alice's email.
+Deleted Alice's record.
+Done.
+----
+
+== What's Next
+
+* xref:data-modeling/index.adoc[Data Modeling] -- design tables for your access patterns before writing application code
+* xref:cql/txn-reference.adoc[ACID Transactions] -- use lightweight transactions and multi-partition transactions in Cassandra 6
+* xref:drivers.adoc[Choose a Driver] -- compare Python, Java, Go, and other driver options
+* xref:vector-search/index.adoc[Vector Search] -- build AI-powered search with vector embeddings

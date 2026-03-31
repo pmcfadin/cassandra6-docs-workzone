@@ -1,0 +1,294 @@
+= Retries and Idempotence
+:description: How to safely retry Cassandra operations and design idempotent writes to avoid duplicate or inconsistent data in a distributed system.
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+In a distributed system, timeouts and partial failures are normal, not exceptional.
+How your application retries those failures determines whether it recovers gracefully or silently corrupts data.
+This guide explains what makes an operation safe to retry, how driver retry policies work, and patterns for building resilient applications on Cassandra.
+
+== Why Retries Are Dangerous Without Idempotence
+
+A timeout does not mean the operation failed.
+In Cassandra's replication model, a write may have succeeded on some replicas before the coordinator timed out.
+If you retry that write without understanding whether it is safe to do so, you risk:
+
+* **Duplicate data** -- retrying a non-idempotent insert can create extra rows or list entries
+* **Incorrect counters** -- retrying a counter increment applies the increment twice
+* **LWT condition bypass** -- retrying an `INSERT ... IF NOT EXISTS` may silently skip the insert if the first attempt actually succeeded
+
+The driver does not know whether your operation reached the replicas.
+You need to tell the driver -- and your application code -- which operations are safe to retry.
+
+== Idempotent vs. Non-Idempotent Operations
+
+An operation is *idempotent* if applying it twice produces the same result as applying it once.
+
+=== Idempotent (safe to retry)
+
+* `SELECT` -- reads never modify state
+* `INSERT` with all columns specified -- overwrites the same cells with the same values
+* `DELETE` by primary key -- deleting something that is already deleted is a no-op
+* `UPDATE SET column = literal_value WHERE pk = ?` -- setting a column to an absolute value is safe to repeat
+
+[source,sql]
+----
+-- Safe to retry: sets name to an absolute value
+UPDATE users SET name = 'Alice' WHERE user_id = ?;
+
+-- Safe to retry: deletes a specific row
+DELETE FROM users WHERE user_id = ?;
+----
+
+=== Non-Idempotent (dangerous to retry blindly)
+
+* Counter increments -- `UPDATE SET counter_col = counter_col + 1` applies twice if retried
+* List appends -- `UPDATE SET list_col = list_col + ['item']` adds a duplicate entry if retried
+* `INSERT ... IF NOT EXISTS` -- a lightweight transaction (LWT) that may skip the insert if the first attempt succeeded
+* Any write where the new value depends on the current value in the database
+
+[source,sql]
+----
+-- DANGEROUS to retry: counter increments are never idempotent
+UPDATE page_views SET views = views + 1 WHERE page_id = ?;
+
+-- DANGEROUS to retry: appends a duplicate if first attempt succeeded
+UPDATE user_tags SET tags = tags + ['cassandra'] WHERE user_id = ?;
+
+-- DANGEROUS to retry: LWT -- retry may silently skip the insert
+INSERT INTO users (user_id, email) VALUES (?, ?) IF NOT EXISTS;
+----
+
+[WARNING]
+====
+When in doubt, assume an operation is non-idempotent.
+Design your schema so that writes are idempotent whenever possible.
+Use absolute assignments (`SET col = value`) instead of relative updates (`SET col = col + delta`) wherever the data model allows it.
+====
+
+== Driver Retry Policies
+
+Cassandra drivers include built-in retry policies that decide whether to retry after a timeout or unavailable error, and which node to retry on.
+Understanding these policies helps you configure the right behavior for your workload.
+
+=== Default Policy
+
+The default retry policy retries once on the next coordinator node for:
+
+* Read timeouts -- if enough replicas responded but data was not returned
+* Write timeouts -- only if the operation is marked idempotent
+* Unavailable errors -- switches to the next host
+
+This policy is conservative: it will not retry a write unless you explicitly tell the driver the operation is idempotent.
+
+=== Fallthrough Policy
+
+The fallthrough (or no-retry) policy never retries automatically.
+All errors are surfaced immediately to your application code.
+Use this policy when you want complete control over retry logic in your application layer.
+
+=== Marking Operations as Idempotent
+
+You must mark statements as idempotent at the application level to enable safe write retries.
+Drivers do not infer idempotence from the CQL text.
+
+[source,java]
+----
+// Java -- mark a statement as idempotent to enable write retries
+SimpleStatement stmt = SimpleStatement
+    .newInstance("INSERT INTO users (id, name) VALUES (?, ?)", id, name)
+    .setIdempotent(true);
+
+session.execute(stmt);
+----
+
+[source,python]
+----
+# Python -- mark a query as idempotent for write retry safety
+from cassandra.query import SimpleStatement
+
+stmt = SimpleStatement("INSERT INTO users (id, name) VALUES (%s, %s)")
+stmt.is_idempotent = True
+
+session.execute(stmt, (user_id, name))
+----
+
+[TIP]
+====
+Set idempotence at the prepared statement level for operations that are always safe to retry.
+This avoids the need to mark each execution individually and ensures the retry policy applies consistently.
+====
+
+== Speculative Execution
+
+Speculative execution reduces tail latency by sending the same query to a second node if the first node does not respond within a configurable threshold.
+This is not a retry after failure -- it is a proactive second attempt while the first is still in flight.
+
+Key properties:
+
+* Only safe for idempotent queries -- speculative execution will run the operation on multiple nodes simultaneously
+* Reduces p99 latency by bypassing slow nodes without waiting for a full timeout
+* The first response received wins; the other in-flight requests are cancelled
+
+Configure a delay threshold and a maximum number of speculative attempts:
+
+[source,java]
+----
+// Java -- configure constant speculative execution with a 500ms threshold
+CqlSession session = CqlSession.builder()
+    .withConfigLoader(DriverConfigLoader.programmaticBuilder()
+        .withString(
+            DefaultDriverOption.SPECULATIVE_EXECUTION_POLICY_CLASS,
+            "ConstantSpeculativeExecutionPolicy")
+        .withDuration(
+            DefaultDriverOption.SPECULATIVE_EXECUTION_DELAY,
+            Duration.ofMillis(500))
+        .withInt(
+            DefaultDriverOption.SPECULATIVE_EXECUTION_MAX,
+            2)
+        .build())
+    .build();
+----
+
+[WARNING]
+====
+Never enable speculative execution for non-idempotent operations.
+If two speculative attempts both reach the cluster, both will execute.
+For counter updates or list appends, this produces incorrect results.
+====
+
+== ACID Transaction Retry Semantics
+
+ACID transactions (`BEGIN TRANSACTION ... COMMIT TRANSACTION`) introduced in Cassandra 6 have different retry semantics from individual CQL statements.
+
+* A transaction either fully commits or fully rolls back -- partial writes do not occur
+* Retrying a transaction that received a definitive failure response is safe
+* A timeout is ambiguous: the transaction may have committed before the coordinator lost contact with the client
+
+[source,sql]
+----
+BEGIN TRANSACTION
+  LET current = (SELECT balance FROM accounts WHERE account_id = 'A');
+  IF current.balance >= 100 THEN
+    UPDATE accounts SET balance = balance - 100 WHERE account_id = 'A';
+    UPDATE accounts SET balance = balance + 100 WHERE account_id = 'B';
+  END IF
+COMMIT TRANSACTION;
+----
+
+If the above transaction times out, do not assume it failed.
+Read the current state of the affected rows before retrying to determine whether the transaction committed.
+
+[TIP]
+====
+Use conditional read-write transactions (`LET ... IF ... THEN`) for natural idempotence.
+A conditional transaction that checks preconditions before writing will behave correctly even if retried after an ambiguous timeout, because the condition will no longer be true if the first attempt succeeded.
+====
+
+See xref:cql/txn-reference.adoc[BEGIN TRANSACTION Reference] for complete transaction syntax and semantics.
+
+== Application-Level Retry Patterns
+
+Driver retry policies handle transient errors at the query level.
+For sustained or complex failure scenarios, build retry logic at the application level.
+
+=== Exponential Backoff
+
+Retry with increasing delays to avoid overwhelming a recovering cluster:
+
+[source,java]
+----
+// Java -- exponential backoff with jitter
+int attempt = 0;
+int maxAttempts = 5;
+long baseDelayMs = 100;
+
+while (attempt < maxAttempts) {
+    try {
+        session.execute(stmt);
+        break;
+    } catch (DriverException e) {
+        attempt++;
+        if (attempt == maxAttempts) throw e;
+        long delayMs = baseDelayMs * (1L << attempt) + ThreadLocalRandom.current().nextLong(100);
+        Thread.sleep(delayMs);
+    }
+}
+----
+
+=== Circuit Breaker
+
+Stop retrying when failure rates exceed a threshold.
+A circuit breaker prevents a slow or failed cluster from exhausting application thread pools.
+Libraries such as https://github.com/resilience4j/resilience4j[Resilience4j] (Java) and https://github.com/jab/bidict[tenacity] (Python) provide ready-made implementations.
+
+=== Idempotency Tokens
+
+For operations that are inherently non-idempotent (such as appending a unique event), include a client-generated UUID as a deduplication key:
+
+[source,sql]
+----
+-- Include a client-generated idempotency key so the application
+-- can detect whether a previous attempt succeeded
+INSERT INTO events (event_id, user_id, action, created_at)
+VALUES (?, ?, ?, ?)
+USING TIMESTAMP ?;
+----
+
+Before retrying, query by `event_id` to determine whether the previous attempt committed.
+This converts a non-idempotent insert into a safe conditional operation.
+
+=== Deduplication at the Schema Level
+
+Where possible, use schema design to make writes naturally idempotent:
+
+* Use UUIDs as primary keys so a retry inserts the same row
+* Prefer `USING TIMESTAMP` to control write ordering explicitly
+* Use static columns for data that should be written once and remain stable
+
+[TIP]
+====
+The best retry strategy is a schema that makes retries safe.
+Invest in idempotent schema design before adding retry complexity to your application code.
+====
+
+== Summary
+
+[cols="1,2", options="header"]
+|===
+| Operation type | Retry safety
+
+| `SELECT`
+| Always safe
+
+| `INSERT` (all columns, no IF NOT EXISTS)
+| Safe -- mark as idempotent in driver
+
+| `UPDATE SET col = literal`
+| Safe -- mark as idempotent in driver
+
+| `DELETE` by primary key
+| Safe -- mark as idempotent in driver
+
+| Counter increment / decrement
+| Never safe to retry automatically
+
+| List / set / map append
+| Never safe to retry automatically
+
+| `INSERT ... IF NOT EXISTS`
+| Not safe -- check result before retrying
+
+| `BEGIN TRANSACTION ... COMMIT`
+| Safe at transaction level -- check state after timeout
+|===
+
+== Related Pages
+
+* xref:cql/txn-reference.adoc[BEGIN TRANSACTION Reference] -- full ACID transaction syntax
+* xref:cql/dml.adoc[Data Manipulation (DML)] -- consistency levels and write semantics
+* xref:drivers.adoc[Choose a Driver] -- driver-specific configuration including retry policies
+* xref:troubleshooting.adoc[Developer Troubleshooting] -- diagnosing timeout and unavailable errors

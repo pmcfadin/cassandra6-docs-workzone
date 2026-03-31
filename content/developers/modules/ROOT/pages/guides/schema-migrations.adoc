@@ -1,0 +1,271 @@
+= Managing Schema Changes
+:navtitle: Schema Migrations
+:description: Safe patterns for evolving your Cassandra schema online: schema agreement, rolling deploys, column additions and drops, constraints, and versioning strategies.
+
+Schema changes in Cassandra require coordination across the cluster.
+Unlike relational databases, there is no transactional DDL: a schema change propagates asynchronously to all nodes, and there is no rollback if something goes wrong mid-flight.
+This guide covers safe patterns for adding, modifying, and removing schema elements while your application is running.
+
+== Schema Agreement
+
+Every node in the cluster maintains its own copy of the schema.
+When you execute a DDL statement, the coordinator node pushes the change to all peers.
+Until all nodes have applied the change, the cluster is in a state of _schema disagreement_.
+
+[IMPORTANT]
+====
+Never run multiple DDL statements in rapid succession.
+Wait for schema agreement between each one.
+Running DDL while the previous change is still propagating can leave the cluster in an inconsistent state that requires manual repair.
+====
+
+You can detect disagreement with this query:
+
+[source,sql]
+----
+SELECT peer, schema_version
+FROM system.peers
+WHERE schema_version != (SELECT schema_version FROM system.local);
+----
+
+An empty result means all peers share the same schema version and it is safe to proceed.
+
+Most Cassandra drivers expose a schema agreement check directly:
+
+[source,java]
+----
+// Java (DataStax Java Driver)
+boolean agreed = session.checkSchemaAgreement();
+----
+
+[source,python]
+----
+# Python (DataStax Python Driver)
+agreed = session.cluster.refresh_schema_metadata()
+----
+
+[TIP]
+====
+In automated migration scripts, poll for schema agreement after each DDL statement before issuing the next one.
+A short sleep-and-retry loop (check every 500 ms, time out after 30 s) is a practical approach.
+====
+
+== Safe Online Schema Changes
+
+The following operations are safe to run while your application is actively serving traffic.
+
+=== Adding a Column
+
+[source,sql]
+----
+ALTER TABLE users ADD phone_number text;
+----
+
+Existing rows will return `null` for the new column — no data is written to disk for existing partitions.
+Application code reading those rows should handle `null` gracefully before the column is populated.
+
+=== Creating a Table
+
+[source,sql]
+----
+CREATE TABLE IF NOT EXISTS user_preferences (
+    user_id   uuid,
+    pref_key  text,
+    pref_val  text,
+    PRIMARY KEY (user_id, pref_key)
+);
+----
+
+Creating a new table has no impact on existing tables or their traffic.
+Use `IF NOT EXISTS` in migration scripts to make the statement idempotent.
+
+=== Adding a Storage-Attached Index (SAI)
+
+[source,sql]
+----
+CREATE CUSTOM INDEX ON users (email)
+    USING 'StorageAttachedIndex';
+----
+
+SAI index builds happen in the background.
+The index is queryable immediately, but results may be incomplete until the build finishes — rows written before the index was created will not appear in index-backed queries until the initial build reaches their SSTables.
+
+[TIP]
+====
+Monitor index build progress with:
+
+[source,sql]
+----
+SELECT index_name, is_queryable, is_building
+FROM system_views.sai_column_indexes;
+----
+
+Wait for `is_building = false` before directing traffic to queries that depend on the index.
+====
+
+=== Adding a Constraint (Cassandra 6)
+
+[source,sql]
+----
+ALTER TABLE users ADD CONSTRAINT check_email CHECK email IS NOT NULL;
+----
+
+Constraints are enforced at write time for new data only.
+Existing rows that violate the constraint are not validated or rejected retroactively.
+Plan accordingly: if the column contains `null` values in existing data, adding a `NOT NULL` constraint will not fix them, but will prevent future nulls from being written.
+
+== Risky Schema Changes
+
+The following operations require more care.
+Read each section before executing.
+
+=== Dropping a Column
+
+[source,sql]
+----
+ALTER TABLE users DROP phone_number;
+----
+
+[WARNING]
+====
+Ensure no application code references the dropped column before executing this statement.
+Clients that write to or read from the dropped column name will receive an error immediately after the change propagates.
+====
+
+Dropped column data is not immediately removed from disk.
+Cassandra writes tombstone markers; the actual data is reclaimed during subsequent compaction.
+This means:
+
+* Disk usage does not decrease immediately.
+* If you re-add a column with the same name and type after dropping it, you may see ghost data from the original column until the next full compaction.
+
+=== Changing a Column Type
+
+Changing a column's data type in place is not supported.
+The safe migration path is:
+
+. Add a new column with the desired type.
+. Update application code to write to both the old and new columns.
+. Backfill existing rows by reading from the old column and writing to the new one.
+. Update application code to read from the new column only.
+. Drop the old column once backfill is complete and no code references it.
+
+=== Dropping a Table
+
+[source,sql]
+----
+DROP TABLE IF EXISTS legacy_events;
+----
+
+Dropping a table is fast and technically safe, but it is irreversible.
+Snapshot the table's data with `nodetool snapshot` before dropping it if there is any chance the data will be needed.
+
+=== Dropping an Index
+
+[source,sql]
+----
+DROP INDEX IF EXISTS users_email_idx;
+----
+
+Dropping an index is fast.
+However, any queries that relied on the index to be satisfiable will either fail with an error or degrade to a full table scan (depending on the query and allow filtering settings).
+Audit query patterns before dropping an index.
+
+== Rolling Schema Changes Across Application Deploys
+
+The safest way to change schema without downtime is to separate the schema change from the application deploy using a three-phase approach:
+
+. *Deploy a backward-compatible application version* that can handle both the old schema and the new schema (for example: writes to the new column if present, falls back gracefully if it is absent).
+. *Run the DDL statement* and wait for schema agreement.
+. *Deploy the application version that requires the new schema* once you have confirmed agreement on all nodes.
+
+This ensures that no running application instance ever encounters a schema state it was not designed for.
+
+[TIP]
+====
+Treat schema changes as a separate deployment step, not part of your application startup.
+Running DDL automatically at startup in a multi-node deployment creates a race condition: if two application instances start simultaneously, both will attempt the same DDL, and the second may execute before the first's change has propagated.
+====
+
+The reverse sequence applies when removing schema elements: first remove all application references to the column or table, deploy that application version fully, then issue the `DROP` statement.
+
+== Schema Versioning Strategies
+
+Tracking schema changes the same way you track application code changes reduces risk and makes rollbacks easier to reason about.
+
+*Use a schema version table.*
+Store the current schema version in Cassandra itself:
+
+[source,sql]
+----
+CREATE TABLE schema_migrations (
+    version     int,
+    applied_at  timestamp,
+    description text,
+    PRIMARY KEY (version)
+);
+----
+
+Insert a row when each migration script completes.
+
+*Number migration scripts sequentially.*
+A flat directory of numbered scripts is easy to audit and replay:
+
+----
+migrations/
+  001_create_users.cql
+  002_add_orders.cql
+  003_add_users_email_index.cql
+  004_add_email_constraint.cql
+----
+
+*Never run migrations automatically on startup in production.*
+Automatic startup migrations work in a single-instance development environment, but they are dangerous at scale.
+On a rolling restart with ten application nodes, you could trigger the same migration ten times in rapid succession.
+Run migrations via a controlled pipeline — a CI/CD job, a DBA-reviewed deployment gate, or a dedicated migration tool — where a single execution is enforced.
+
+*Make every migration script idempotent.*
+Use `IF NOT EXISTS` and `IF EXISTS` guards so that re-running a script after a partial failure does not break a healthy cluster:
+
+[source,sql]
+----
+CREATE TABLE IF NOT EXISTS user_preferences ( ... );
+ALTER TABLE users ADD CONSTRAINT check_email CHECK email IS NOT NULL;
+CREATE CUSTOM INDEX IF NOT EXISTS ON users (email) USING 'StorageAttachedIndex';
+----
+
+== Constraints as Schema-Level Validation (Cassandra 6)
+
+Cassandra 6 introduces CHECK constraints that are enforced server-side at write time.
+Encoding validation rules in the schema is safer than relying on application code alone: the constraint is always enforced regardless of which client or application version wrote the data.
+
+[source,sql]
+----
+ALTER TABLE users ADD CONSTRAINT check_age
+    CHECK age >= 0 AND age <= 150;
+
+ALTER TABLE users ADD CONSTRAINT check_name
+    CHECK name IS NOT NULL;
+
+ALTER TABLE users ADD CONSTRAINT check_email_format
+    CHECK email REGEXP '^[^@]+@[^@]+\.[^@]+$';
+----
+
+[IMPORTANT]
+====
+Constraints are not applied retroactively to existing rows.
+Data that was written before the constraint was added is not validated or rejected.
+If existing data may violate the new constraint, audit and clean it before adding the constraint, or accept that the constraint only governs future writes.
+====
+
+Add constraints incrementally, one per `ALTER TABLE` statement, waiting for schema agreement between each.
+Constraints can be dropped with `ALTER TABLE ... ALTER column DROP CHECK` if they need to be revised.
+
+See xref:cql/constraints.adoc[Constraints] for the full syntax reference.
+
+== Related Pages
+
+* xref:cql/ddl.adoc[Data Definition (DDL)] — complete reference for `CREATE`, `ALTER`, and `DROP` statements
+* xref:cql/constraints.adoc[Constraints] — CHECK constraint syntax, pluggable validators, and Cassandra 6 specifics
+* xref:cql/txn-reference.adoc[BEGIN TRANSACTION Reference] — Accord transactions for multi-partition ACID operations (Cassandra 6)
+* xref:guides/consistency-choices.adoc[Choosing Consistency Levels] — how consistency settings interact with schema propagation during rolling changes

@@ -1,0 +1,430 @@
+= Driver Tuning
+:description: How to tune connection pools, timeouts, load balancing, speculative execution, and prepared statements in the Java and Python Cassandra drivers for production workloads.
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+The default driver configuration is designed to work out of the box for development.
+Production workloads have different requirements: higher concurrency, tighter latency budgets, multi-datacenter topologies, and behavior that must remain stable under partial failures.
+This guide covers the most impactful tuning settings for the Apache Cassandra Java Driver and the DataStax Python Driver.
+
+See xref:drivers.adoc[Choose a Driver] for an overview of available drivers and how to select one for your language.
+
+== Connection Pool Sizing
+
+Each driver maintains a pool of connections to each node in the cluster.
+Requests are multiplexed over those connections using Cassandra's native protocol: a single connection can carry up to 32,768 concurrent in-flight requests.
+
+The implication is that one connection per node handles the vast majority of production workloads.
+You only need to increase the pool size when you are saturating the maximum concurrent requests per connection, which requires extremely high concurrency or very large result sets.
+
+=== Java
+
+Connection pool size is controlled per datacenter locality (local vs. remote):
+
+[source,java]
+----
+// application.conf (Typesafe Config / reference.conf)
+datastax-java-driver {
+  advanced.connection.pool.local.size = 1   // default: 1
+  advanced.connection.pool.remote.size = 1  // default: 1
+}
+----
+
+To configure programmatically:
+
+[source,java]
+----
+CqlSession session = CqlSession.builder()
+    .withConfigLoader(DriverConfigLoader.programmaticBuilder()
+        .withInt(DefaultDriverOption.CONNECTION_POOL_LOCAL_SIZE, 2)
+        .withInt(DefaultDriverOption.CONNECTION_POOL_REMOTE_SIZE, 1)
+        .build())
+    .build();
+----
+
+=== Python
+
+The Python driver exposes connection settings through the `Cluster` constructor:
+
+[source,python]
+----
+from cassandra.cluster import Cluster
+
+cluster = Cluster(
+    contact_points=['127.0.0.1'],
+    protocol_version=5,
+    executor_threads=4,      # thread pool for callbacks
+    connection_class=None,   # defaults to LibevConnection or AsyncoreConnection
+)
+----
+
+[TIP]
+====
+One connection per node handles most workloads.
+Only increase `advanced.connection.pool.local.size` (Java) or add connections (Python) if you observe `REQUEST_QUEUE_IS_FULL` errors or driver warnings about request queue saturation.
+====
+
+== Request Timeouts
+
+Cassandra drivers enforce timeouts at three layers: connecting to a node, sending a request, and waiting for a response.
+Tuning these independently lets you balance responsiveness against the risk of spurious failures under load.
+
+=== Java
+
+[source,hocon]
+----
+datastax-java-driver {
+  basic.request.timeout = 2 seconds           // per-request response timeout
+  advanced.connection.connect-timeout = 5 seconds  // TCP connect + handshake
+  advanced.connection.init-query-timeout = 500 milliseconds  // driver setup queries
+}
+----
+
+For individual statements that require a different timeout:
+
+[source,java]
+----
+SimpleStatement stmt = SimpleStatement
+    .newInstance("SELECT * FROM large_table WHERE partition_key = ?", key)
+    .setTimeout(Duration.ofSeconds(10));
+
+session.execute(stmt);
+----
+
+=== Python
+
+[source,python]
+----
+from cassandra.cluster import Cluster
+
+cluster = Cluster(
+    contact_points=['127.0.0.1'],
+    connect_timeout=5,      # TCP connection timeout in seconds
+)
+session = cluster.connect()
+session.default_timeout = 2.0   # per-request response timeout in seconds
+----
+
+For a specific query:
+
+[source,python]
+----
+result = session.execute(stmt, timeout=10.0)
+----
+
+[WARNING]
+====
+Setting timeouts too low causes spurious failures under load, especially during GC pauses or network hiccups.
+Setting them too high delays failure detection and can stall application threads.
+Start with `2s` for request timeout and `5s` for connection timeout, then adjust based on observed p99 latencies.
+====
+
+== Load Balancing Policies
+
+The load balancing policy decides which node receives each request.
+Two capabilities matter most in production: datacenter awareness and token awareness.
+
+* **DC-aware routing** -- sends requests to nodes in the local datacenter first, only crossing to a remote datacenter when local nodes are unavailable. This controls cross-DC bandwidth costs and latency.
+* **Token-aware routing** -- identifies which node owns the partition for a given request and routes directly to that node, eliminating one coordinator hop.
+
+=== Java
+
+The Java driver's `DefaultLoadBalancingPolicy` combines both DC-aware and token-aware routing automatically.
+Configure the local datacenter name:
+
+[source,hocon]
+----
+datastax-java-driver {
+  basic.load-balancing-policy {
+    class = DefaultLoadBalancingPolicy
+    local-datacenter = datacenter1
+  }
+}
+----
+
+Or programmatically:
+
+[source,java]
+----
+CqlSession session = CqlSession.builder()
+    .withLocalDatacenter("datacenter1")
+    .build();
+----
+
+=== Python
+
+The Python driver uses policy composition. Wrap `DCAwareRoundRobinPolicy` inside `TokenAwarePolicy` to get both behaviors:
+
+[source,python]
+----
+from cassandra.policies import DCAwareRoundRobinPolicy, TokenAwarePolicy
+
+cluster = Cluster(
+    contact_points=['127.0.0.1'],
+    load_balancing_policy=TokenAwarePolicy(
+        DCAwareRoundRobinPolicy(local_dc='datacenter1')
+    ),
+)
+----
+
+[TIP]
+====
+Always specify `local-datacenter` (Java) or `local_dc` (Python) explicitly.
+Relying on automatic DC detection can route queries to the wrong datacenter if contact points span multiple DCs.
+====
+
+== Speculative Execution
+
+Speculative execution reduces tail latency by sending the same query to a second node if the first node has not responded within a threshold delay.
+Both in-flight requests continue; whichever responds first wins and the other is cancelled.
+
+This is distinct from retry: the first request is still in flight when the speculative attempt starts.
+Because both requests may reach the cluster, speculative execution is only safe for idempotent operations.
+
+=== Java
+
+[source,hocon]
+----
+datastax-java-driver {
+  advanced.speculative-execution-policy {
+    class = ConstantSpeculativeExecutionPolicy
+    max-executions = 2         // 1 original + 2 speculative = 3 total max
+    delay = 500 milliseconds   // trigger speculative attempt after 500ms
+  }
+}
+----
+
+Mark statements as idempotent to enable speculative execution:
+
+[source,java]
+----
+PreparedStatement pstmt = session.prepare("SELECT * FROM products WHERE id = ?");
+
+BoundStatement bound = pstmt.bind(productId)
+    .setIdempotent(true);  // required for speculative execution to apply
+
+session.execute(bound);
+----
+
+=== Python
+
+[source,python]
+----
+from cassandra.policies import ConstantSpeculativeExecutionPolicy
+
+cluster = Cluster(
+    contact_points=['127.0.0.1'],
+    speculative_execution_policy=ConstantSpeculativeExecutionPolicy(
+        delay=0.5,        # seconds before sending speculative attempt
+        max_attempts=2    # maximum number of speculative attempts
+    ),
+)
+----
+
+[WARNING]
+====
+Never enable speculative execution for non-idempotent operations such as counter increments, list appends, or `INSERT ... IF NOT EXISTS`.
+If two speculative attempts both reach the cluster, both will execute, producing duplicate or incorrect data.
+See xref:guides/retries-and-idempotence.adoc[Retries and Idempotence] for guidance on marking operations as idempotent.
+====
+
+== Prepared Statement Best Practices
+
+Prepared statements are the single most impactful driver-side optimization available.
+The cluster parses and validates the CQL once at prepare time, then executes the cached plan on each bind.
+Drivers cache prepared statements automatically; re-preparation happens transparently when a node restarts or a schema change invalidates the cache.
+
+The key rule is: **prepare once at application startup, execute many times during the request lifecycle.**
+
+=== Java
+
+[source,java]
+----
+// Correct: prepare once at startup or in a repository class
+public class UserRepository {
+    private final CqlSession session;
+    private final PreparedStatement findById;
+    private final PreparedStatement upsert;
+
+    public UserRepository(CqlSession session) {
+        this.session = session;
+        // prepared statements initialized once at construction time
+        this.findById = session.prepare(
+            "SELECT * FROM users WHERE user_id = ?");
+        this.upsert = session.prepare(
+            "INSERT INTO users (user_id, name, email) VALUES (?, ?, ?)");
+    }
+
+    public Row findUser(UUID userId) {
+        return session.execute(findById.bind(userId)).one();
+    }
+
+    public void saveUser(UUID userId, String name, String email) {
+        session.execute(upsert.bind(userId, name, email));
+    }
+}
+----
+
+[source,java]
+----
+// Anti-pattern: preparing inside a request handler or loop
+for (UUID id : userIds) {
+    // WRONG: prepare() is called on every iteration
+    PreparedStatement ps = session.prepare("SELECT * FROM users WHERE user_id = ?");
+    session.execute(ps.bind(id));
+}
+----
+
+=== Python
+
+[source,python]
+----
+# Correct: prepare at module or class initialization
+class UserRepository:
+    def __init__(self, session):
+        self.session = session
+        # prepare once
+        self.find_by_id = session.prepare(
+            "SELECT * FROM users WHERE user_id = %s")
+        self.upsert = session.prepare(
+            "INSERT INTO users (user_id, name, email) VALUES (%s, %s, %s)")
+
+    def find_user(self, user_id):
+        return self.session.execute(self.find_by_id, (user_id,)).one()
+
+    def save_user(self, user_id, name, email):
+        self.session.execute(self.upsert, (user_id, name, email))
+----
+
+[source,python]
+----
+# Anti-pattern: preparing inside a loop
+for user_id in user_ids:
+    # WRONG: prepare() is called on every iteration
+    stmt = session.prepare("SELECT * FROM users WHERE user_id = %s")
+    session.execute(stmt, (user_id,))
+----
+
+[TIP]
+====
+Prepared statements survive schema changes automatically.
+The driver detects an `UNPREPARED` error from the cluster and transparently re-prepares the statement before retrying the execution.
+You do not need to handle this in application code.
+====
+
+== Heartbeat and Reconnection
+
+=== Connection Heartbeat
+
+Drivers send periodic heartbeat queries on idle connections to detect dead connections before a real request hits them.
+The default interval is 30 seconds for both Java and Python drivers; this is appropriate for most deployments.
+
+[source,hocon]
+----
+// Java: adjust heartbeat interval
+datastax-java-driver {
+  advanced.heartbeat.interval = 30 seconds
+  advanced.heartbeat.timeout = 500 milliseconds
+}
+----
+
+[source,python]
+----
+# Python: adjust heartbeat interval
+cluster = Cluster(
+    contact_points=['127.0.0.1'],
+    idle_heartbeat_interval=30,   # seconds between heartbeats on idle connections
+    idle_heartbeat_timeout=5,     # seconds to wait for heartbeat response
+)
+----
+
+=== Reconnection Policy
+
+When a node becomes unavailable, the reconnection policy controls how quickly the driver attempts to re-establish connections.
+
+[source,hocon]
+----
+// Java: exponential reconnection (default)
+datastax-java-driver {
+  advanced.reconnection-policy {
+    class = ExponentialReconnectionPolicy
+    base-delay = 1 second
+    max-delay = 60 seconds
+  }
+}
+----
+
+[source,python]
+----
+from cassandra.policies import ExponentialReconnectionPolicy
+
+cluster = Cluster(
+    contact_points=['127.0.0.1'],
+    reconnection_policy=ExponentialReconnectionPolicy(
+        base_delay=1.0,   # seconds
+        max_delay=60.0    # seconds
+    ),
+)
+----
+
+[TIP]
+====
+The default exponential reconnection policy works well for most deployments.
+It backs off quickly enough to avoid overwhelming a recovering node but reconnects soon enough that planned maintenance does not leave dead connections lingering.
+Only switch to `ConstantReconnectionPolicy` if your operational procedures require predictable reconnection timing.
+====
+
+== Summary: Recommended Production Settings
+
+The table below summarizes recommended starting values.
+Adjust based on your observed latency distribution, concurrency levels, and cluster topology.
+
+[cols="2,2,2,3", options="header"]
+|===
+| Setting | Java | Python | Notes
+
+| Connection pool (local)
+| `pool.local.size = 1`
+| N/A (1 connection default)
+| Increase only if hitting max concurrent requests per connection
+
+| Request timeout
+| `basic.request.timeout = 2 seconds`
+| `session.default_timeout = 2.0`
+| Tune based on observed p99; raise for analytical queries
+
+| Connect timeout
+| `connect-timeout = 5 seconds`
+| `connect_timeout=5`
+| Should be longer than request timeout
+
+| Load balancing
+| `DefaultLoadBalancingPolicy` + `local-datacenter`
+| `TokenAwarePolicy(DCAwareRoundRobinPolicy(local_dc=...))`
+| Always set local DC explicitly
+
+| Speculative execution
+| `ConstantSpeculativeExecutionPolicy`, delay 500ms, max 2
+| `ConstantSpeculativeExecutionPolicy(delay=0.5, max_attempts=2)`
+| Idempotent queries only
+
+| Heartbeat interval
+| `heartbeat.interval = 30 seconds`
+| `idle_heartbeat_interval=30`
+| Default is appropriate for most workloads
+
+| Reconnection policy
+| `ExponentialReconnectionPolicy`, base 1s, max 60s
+| `ExponentialReconnectionPolicy(1.0, 60.0)`
+| Default; only change for specific operational needs
+|===
+
+== Related Pages
+
+* xref:drivers.adoc[Choose a Driver] -- driver selection by language and feature matrix
+* xref:guides/retries-and-idempotence.adoc[Retries and Idempotence] -- marking operations idempotent, retry policies, and safe retry patterns
+* xref:guides/consistency-choices.adoc[Choosing Consistency Levels] -- read/write consistency tradeoffs and when to use each level
+* xref:troubleshooting.adoc[Developer Troubleshooting] -- diagnosing timeout, connection, and unavailable errors at the application layer

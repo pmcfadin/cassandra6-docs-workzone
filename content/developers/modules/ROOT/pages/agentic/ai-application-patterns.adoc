@@ -1,0 +1,418 @@
+= AI Application Patterns with Cassandra
+:navtitle: AI Application Patterns
+:description: Build RAG pipelines, agent memory stores, and hybrid search applications using Cassandra 6's native vector support alongside structured application data.
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Cassandra 6's native `VECTOR` data type and SAI-powered ANN search make it a strong operational backend for AI applications.
+This guide goes beyond basic vector search to cover real-world AI application architectures: RAG pipelines, agent memory, hybrid search, and framework integration.
+
+For the foundational vector search reference — the `VECTOR` type, SAI index creation syntax, and ANN query mechanics — see xref:vector-search/index.adoc[Vector Search Overview].
+
+== Cassandra as a Vector Store
+
+=== Why Cassandra for Vectors
+
+Purpose-built vector databases are optimized for one thing: similarity search over large embedding collections.
+Cassandra does not out-perform them on billion-scale pure similarity workloads.
+What it offers instead is a different set of tradeoffs that matter for production applications:
+
+* *Single database for vectors and application data.* Most AI applications need more than embeddings — they need the source documents, user records, session state, and audit logs that live alongside the vectors. Keeping everything in Cassandra eliminates the operational cost of synchronizing two stores.
+* *Operational maturity.* Multi-DC replication, tunable consistency, zero-downtime schema changes, and streaming-compatible index files work the same for vector columns as for any other column.
+* *Query model integration.* ANN queries compose with CQL scalar filters in a single statement. There is no application-layer join between a vector store and a relational database.
+
+=== Best Fit
+
+Cassandra is the right vector store when:
+
+* Vectors augment records that already live in Cassandra (documents, products, user profiles, events).
+* You need scalar filtering alongside similarity ranking in a single query.
+* Operational requirements — replication, availability, schema evolution — are as important as recall performance.
+
+It is a weaker fit for pure similarity search workloads with hundreds of millions of vectors and no scalar data, where a specialized approximate nearest neighbor engine may give better recall at scale.
+
+[NOTE]
+====
+The `VECTOR` dimension is fixed at table creation time and cannot be altered.
+Plan your embedding model selection before creating the schema.
+====
+
+== RAG Architecture with Cassandra
+
+Retrieval-Augmented Generation (RAG) is the most common AI use case for Cassandra's vector capabilities.
+The architecture stores document chunks alongside their embeddings, then retrieves relevant context at query time to ground an LLM's answer.
+
+=== Data Flow
+
+----
+  Ingest path:
+  Documents → Chunker → Embeddings API → Cassandra (chunks + vectors + metadata)
+
+  Query path:
+  User Query → Embeddings API → ANN Search → Retrieved Chunks → LLM → Answer
+----
+
+=== Schema for a RAG System
+
+[source,sql]
+----
+CREATE TABLE documents (
+    doc_id      uuid,
+    chunk_id    int,
+    content     text,
+    embedding   vector<float, 1536>,
+    metadata    map<text, text>,
+    created_at  timestamp,
+    PRIMARY KEY (doc_id, chunk_id)
+);
+
+-- ANN index for semantic retrieval
+CREATE CUSTOM INDEX ON documents (embedding)
+    USING 'StorageAttachedIndex'
+    WITH OPTIONS = {'similarity_function': 'cosine'};
+
+-- SAI index on metadata for hybrid filtering
+CREATE CUSTOM INDEX ON documents (metadata)
+    USING 'StorageAttachedIndex';
+----
+
+The `metadata` map stores arbitrary key/value pairs (source system, category, language, access tier) without requiring schema changes when new attributes are introduced.
+
+=== Retrieval with Metadata Filtering
+
+[source,sql]
+----
+-- Retrieve the 5 most relevant chunks within a specific category
+SELECT content, metadata
+FROM documents
+WHERE metadata CONTAINS KEY 'category'
+ORDER BY embedding ANN OF ?
+LIMIT 5;
+
+-- Filter by a specific metadata value
+SELECT content, doc_id, chunk_id
+FROM documents
+WHERE metadata['category'] = 'legal'
+ORDER BY embedding ANN OF ?
+LIMIT 10;
+----
+
+[TIP]
+====
+Pass the embedded form of the user's question as the bind parameter to `ANN OF`.
+The embedding model used at retrieval time must be the same model used during ingestion — dimension and distance space must match.
+====
+
+=== Chunking Strategies
+
+How you split source documents affects retrieval quality more than most other configuration choices:
+
+* *Fixed-size* — split every N tokens with a small overlap. Simple to implement; may cut sentences mid-thought. Good baseline.
+* *Sentence-boundary* — split on sentence endings using an NLP tokenizer. Preserves semantic units. Slightly more complex.
+* *Semantic* — embed candidate splits and merge or split based on embedding similarity. Produces the most coherent chunks but requires an extra embedding pass during ingestion.
+
+The `chunk_id` clustering column in the schema above preserves the original document order, which can be used to expand retrieved chunks with neighboring context before sending to the LLM.
+
+=== Embedding Model Selection
+
+[cols="1,1,1,2", options="header"]
+|===
+| Model | Dimensions | Provider | Notes
+
+| `text-embedding-3-small`
+| 1536
+| OpenAI
+| Good quality, widely used, low cost
+
+| `embed-english-v3.0`
+| 1024
+| Cohere
+| Strong multilingual variants available
+
+| `all-MiniLM-L6-v2`
+| 384
+| Local (HuggingFace)
+| No external API call; good for on-premises deployments
+
+| `text-embedding-3-large`
+| 3072
+| OpenAI
+| Highest OpenAI quality; 2× storage and query cost vs. small
+|===
+
+[NOTE]
+====
+Smaller dimensions mean faster ANN queries and less storage.
+Benchmark your specific corpus before committing to a high-dimension model — smaller models often reach comparable recall for domain-specific content.
+====
+
+== Embedding Storage and Retrieval Patterns
+
+=== Embeddings Alongside Structured Data
+
+Resist the temptation to create a separate embeddings table.
+Storing the embedding in the same row as the source data avoids cross-table joins and simplifies consistency management.
+
+[source,sql]
+----
+-- Single table: structured data and embedding co-located
+CREATE TABLE products (
+    product_id      uuid PRIMARY KEY,
+    name            text,
+    description     text,
+    category        text,
+    price           decimal,
+    description_emb vector<float, 1536>
+);
+----
+
+If the description changes, update both `description` and `description_emb` in a single `UPDATE` statement.
+With Cassandra 6 Accord transactions, you can update multiple denormalized copies atomically.
+
+=== Multi-Vector Patterns
+
+A single entity may need embeddings for different semantic aspects.
+Store them as separate columns:
+
+[source,sql]
+----
+CREATE TABLE articles (
+    article_id    uuid PRIMARY KEY,
+    title         text,
+    body          text,
+    summary       text,
+    title_emb     vector<float, 1536>,    -- for title-based retrieval
+    body_emb      vector<float, 1536>,    -- for full-text semantic search
+    summary_emb   vector<float, 768>      -- smaller model for summary
+);
+
+CREATE CUSTOM INDEX ON articles (title_emb)   USING 'StorageAttachedIndex';
+CREATE CUSTOM INDEX ON articles (body_emb)    USING 'StorageAttachedIndex';
+CREATE CUSTOM INDEX ON articles (summary_emb) USING 'StorageAttachedIndex';
+----
+
+At query time, choose which embedding column to search against based on the user's intent.
+Reciprocal rank fusion across multiple ANN results can combine signals from different embedding columns.
+
+=== Updating Embeddings
+
+When source text changes, the embedding must be regenerated and stored.
+There is no trigger mechanism in Cassandra; the application is responsible for detecting changes and re-embedding.
+
+Pattern: use a `last_embedded_at` timestamp column.
+A background job queries `WHERE last_embedded_at < last_modified_at` (with appropriate SAI indexes) to find stale embeddings and re-embed them.
+
+== Hybrid Search: Vector + Scalar Filtering
+
+Hybrid search combines ANN similarity ranking with scalar WHERE clause filters.
+SAI applies scalar filters before the ANN graph traversal, which narrows the candidate set and improves both result quality and latency.
+
+=== Product Search with Filters
+
+[source,sql]
+----
+-- Prerequisite indexes
+CREATE CUSTOM INDEX ON products (category)  USING 'StorageAttachedIndex';
+CREATE CUSTOM INDEX ON products (price)     USING 'StorageAttachedIndex';
+CREATE CUSTOM INDEX ON products (description_emb) USING 'StorageAttachedIndex';
+
+-- Semantic search scoped to a category and price range
+SELECT name, description, price
+FROM products
+WHERE category = 'electronics'
+  AND price < 500
+ORDER BY description_emb ANN OF ?
+LIMIT 10;
+----
+
+=== Performance Implications
+
+* Scalar filters that are highly selective (few matching rows) dramatically speed up the ANN traversal.
+  The query planner evaluates the scalar filter first and only runs ANN over the surviving rows.
+* Scalar filters that match most of the table add little overhead but also provide little benefit.
+* Always create SAI indexes on the columns used in WHERE clauses alongside vector columns — without them, Cassandra scans all rows that pass the partition filter before applying the scalar predicate.
+
+[TIP]
+====
+Test the selectivity of your scalar filters in isolation before combining them with ANN queries.
+A filter on `category = 'electronics'` that returns 1,000 rows out of 1,000,000 will make the combined hybrid query significantly faster than a filter that returns 800,000 rows.
+====
+
+=== Cassandra 6 OR Filtering
+
+Cassandra 6 supports `OR` logic in SAI filter expressions, which allows multi-category or multi-tag hybrid queries:
+
+[source,sql]
+----
+SELECT name, price
+FROM products
+WHERE (category = 'electronics' OR category = 'computers')
+  AND price < 1000
+ORDER BY description_emb ANN OF ?
+LIMIT 20;
+----
+
+See xref:guides/sai-usage-patterns.adoc[SAI Usage Patterns] for the full filter expression reference.
+
+== Agent Memory and Conversation History
+
+AI agents require persistent memory to maintain context across turns and sessions.
+Cassandra's time-ordered clustering columns and TTL support make it a natural fit.
+
+=== Conversation History Schema
+
+[source,sql]
+----
+CREATE TABLE conversations (
+    session_id  uuid,
+    message_id  timeuuid,
+    role        text,           -- 'user', 'assistant', or 'system'
+    content     text,
+    embedding   vector<float, 1536>,
+    PRIMARY KEY (session_id, message_id)
+) WITH CLUSTERING ORDER BY (message_id DESC);
+
+CREATE CUSTOM INDEX ON conversations (embedding)
+    USING 'StorageAttachedIndex'
+    WITH OPTIONS = {'similarity_function': 'cosine'};
+----
+
+`timeuuid` as the clustering column provides natural time ordering and global uniqueness without a separate timestamp column.
+`CLUSTERING ORDER BY (message_id DESC)` returns the most recent messages first when paginating by session.
+
+=== Retrieving Recent Context (Sliding Window)
+
+[source,sql]
+----
+-- Fetch the last 20 messages for a session
+SELECT role, content
+FROM conversations
+WHERE session_id = ?
+LIMIT 20;
+----
+
+=== Semantic Memory Retrieval
+
+For long sessions, a sliding window includes recent messages but loses older relevant context.
+Semantic memory retrieval finds past messages similar to the current query regardless of when they occurred:
+
+[source,sql]
+----
+-- Find the 5 most semantically relevant past messages in this session
+-- (not necessarily the most recent)
+SELECT role, content, message_id
+FROM conversations
+WHERE session_id = ?
+ORDER BY embedding ANN OF ?
+LIMIT 5;
+----
+
+Combine the sliding window (recent context) with semantic retrieval (relevant older context) to build an effective long-term memory layer.
+
+=== TTL for Automatic Expiration
+
+[source,sql]
+----
+-- Insert a message with a 30-day TTL
+INSERT INTO conversations (session_id, message_id, role, content, embedding)
+VALUES (?, ?, ?, ?, ?)
+USING TTL 2592000;   -- 30 days in seconds
+----
+
+Cassandra automatically removes expired rows at compaction time, keeping storage bounded without application-layer cleanup jobs.
+
+[NOTE]
+====
+TTL is set per-row at insert time.
+If you update a row, the new write's TTL applies to the columns updated.
+Use a consistent TTL policy in your application layer to avoid partial row expiration.
+====
+
+== Framework Integration
+
+=== LangChain
+
+LangChain provides a `CassandraVectorStore` class that wraps Cassandra's ANN capabilities behind the standard LangChain `VectorStore` interface.
+
+[source,python]
+----
+from langchain_community.vectorstores import Cassandra
+from langchain_openai import OpenAIEmbeddings
+import cassio
+
+# Initialize cassio with your cluster connection
+cassio.init(contact_points=["127.0.0.1"], keyspace="my_keyspace")
+
+embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+
+# Create or connect to a Cassandra vector store
+vectorstore = Cassandra(
+    embedding=embeddings,
+    table_name="documents",
+    session=None,      # uses cassio session
+    keyspace=None,     # uses cassio keyspace
+)
+
+# Add documents
+vectorstore.add_texts(["chunk one", "chunk two"], metadatas=[{}, {}])
+
+# Similarity search
+results = vectorstore.similarity_search("my query", k=5)
+----
+
+[NOTE]
+====
+The example above uses `cassio`, Cassandra's Python integration library for AI frameworks, as the connection layer.
+Refer to the https://docs.langchain.com/docs/integrations/vectorstores/cassandra[LangChain Cassandra documentation] for the current API and configuration options.
+====
+
+=== LlamaIndex
+
+LlamaIndex provides a `CassandraVectorStore` index that integrates with its retrieval and query engine pipeline.
+
+[source,python]
+----
+from llama_index.vector_stores.cassandra import CassandraVectorStore
+from llama_index.core import VectorStoreIndex, StorageContext
+import cassio
+
+cassio.init(contact_points=["127.0.0.1"], keyspace="my_keyspace")
+
+vector_store = CassandraVectorStore(
+    table="llamaindex_docs",
+    embedding_dimension=1536,
+)
+
+storage_context = StorageContext.from_defaults(vector_store=vector_store)
+
+# Build an index from documents
+index = VectorStoreIndex.from_documents(
+    documents,
+    storage_context=storage_context,
+)
+
+# Query
+query_engine = index.as_query_engine(similarity_top_k=5)
+response = query_engine.query("What is Cassandra's consistency model?")
+----
+
+[NOTE]
+====
+Refer to the https://docs.llamaindex.ai/en/stable/examples/vector_stores/CassandraIndexDemo/[LlamaIndex Cassandra documentation] for the current API.
+Embedding dimension must match the model you configure in LlamaIndex.
+====
+
+=== Cassandra MCP Server
+
+For AI agents that need to interact with Cassandra directly through tool calls, the Cassandra MCP (Model Context Protocol) server exposes CQL execution and schema inspection as callable tools.
+See xref:agentic/mcp-server.adoc[Cassandra MCP Server] for setup and usage.
+
+== Related Pages
+
+* xref:vector-search/index.adoc[Vector Search Overview] — `VECTOR` type, SAI index creation, ANN query syntax
+* xref:data-modeling/index.adoc[Data Modeling Overview] — query-driven schema design principles
+* xref:guides/sai-usage-patterns.adoc[SAI Usage Patterns] — scalar filtering, hybrid queries, performance guidance
+* xref:agentic/mcp-server.adoc[Cassandra MCP Server] — agent tool integration via the Model Context Protocol

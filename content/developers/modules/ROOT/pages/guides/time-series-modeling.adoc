@@ -1,0 +1,350 @@
+= Modeling Time-Series Data
+:navtitle: Time-Series Modeling
+:description: Design Cassandra schemas for high write throughput and efficient range queries on time-series workloads using partition-by-time-bucket, TWCS, and SAI.
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Cassandra is well suited to time-series workloads.
+Its append-friendly storage engine, partition-level locality, and tunable TTL make it a natural fit for sensor readings, application event logs, metrics streams, and audit trails.
+
+This guide covers the canonical schema pattern, how to size your time buckets, TTL-based expiration with TimeWindowCompactionStrategy (TWCS), efficient query patterns, common anti-patterns, and when to add SAI indexes for additional filtering.
+
+== The Core Pattern: Partition by Entity and Time Bucket
+
+The fundamental time-series schema in Cassandra uses a *compound partition key* that combines an entity identifier with a coarse time bucket, and a *clustering column* for the precise timestamp:
+
+[source,sql]
+----
+CREATE TABLE sensor_readings (
+    sensor_id    text,
+    day          text,
+    reading_time timestamp,
+    value        double,
+    PRIMARY KEY ((sensor_id, day), reading_time)
+) WITH CLUSTERING ORDER BY (reading_time DESC);
+----
+
+The compound partition key `(sensor_id, day)` keeps all readings for one sensor on one calendar day co-located on the same set of replicas, while bounding partition size.
+The clustering column `reading_time DESC` orders rows so that the most recent reading is returned first without a sort step.
+
+[TIP]
+====
+`CLUSTERING ORDER BY (reading_time DESC)` is the right default for "latest N readings" queries.
+If your primary access pattern is chronological replay (e.g., replay from oldest to newest), use `ASC` instead.
+====
+
+== Choosing Your Time Bucket
+
+The time bucket determines how many rows land in each partition.
+Choose a granularity that keeps partitions comfortably under 100 MB or 100,000 rows — whichever you hit first in practice.
+
+[cols="1,2,2", options="header"]
+|===
+|Bucket granularity |When to use |Example key fragment
+
+|Hourly (`YYYY-MM-DD-HH`)
+|High-frequency data — more than ~1,000 writes per second per entity
+|`'2024-03-15-14'`
+
+|Daily (`YYYY-MM-DD`)
+|Moderate frequency — the most common choice
+|`'2024-03-15'`
+
+|Monthly (`YYYY-MM`)
+|Low-frequency data — a few writes per day per entity
+|`'2024-03'`
+|===
+
+[WARNING]
+====
+Buckets that are too fine-grained (per-minute or per-second) produce millions of tiny partitions, increasing compaction overhead and coordinator fan-out for range queries.
+Buckets that are too coarse (yearly) create unbounded partitions that eventually cause read and compaction performance issues.
+====
+
+=== Generating the Bucket Key in Application Code
+
+The bucket value is a plain string computed by the application before issuing the write.
+
+.Java (java.time)
+[source,java]
+----
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+
+private static final DateTimeFormatter DAILY_FMT =
+    DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneOffset.UTC);
+
+private static final DateTimeFormatter HOURLY_FMT =
+    DateTimeFormatter.ofPattern("yyyy-MM-dd-HH").withZone(ZoneOffset.UTC);
+
+public String dailyBucket(Instant ts) {
+    return DAILY_FMT.format(ts);
+}
+
+public String hourlyBucket(Instant ts) {
+    return HOURLY_FMT.format(ts);
+}
+----
+
+.Python (datetime)
+[source,python]
+----
+from datetime import datetime, timezone
+
+def daily_bucket(ts: datetime) -> str:
+    """Return the daily bucket key for a UTC datetime."""
+    return ts.astimezone(timezone.utc).strftime("%Y-%m-%d")
+
+def hourly_bucket(ts: datetime) -> str:
+    """Return the hourly bucket key for a UTC datetime."""
+    return ts.astimezone(timezone.utc).strftime("%Y-%m-%d-%H")
+----
+
+[TIP]
+====
+Always compute bucket keys in UTC.
+Using local time zones produces incorrect range queries when querying across daylight-saving transitions and makes cross-region behavior unpredictable.
+====
+
+== Schema Examples
+
+=== IoT Sensor Data
+
+Daily buckets with a 90-day TTL are appropriate for sensor telemetry that feeds dashboards and anomaly detection pipelines.
+
+[source,sql]
+----
+CREATE TABLE sensor_data (
+    device_id     text,
+    bucket        text,           -- daily: '2024-03-15'
+    event_time    timestamp,
+    temperature   float,
+    humidity      float,
+    battery_level float,
+    PRIMARY KEY ((device_id, bucket), event_time)
+) WITH CLUSTERING ORDER BY (event_time DESC)
+  AND default_time_to_live = 7776000;  -- 90 days in seconds
+----
+
+=== Application Event Logging
+
+Hourly buckets suit services that emit high volumes of structured events.
+`timeuuid` as the clustering column guarantees uniqueness within a bucket even at sub-millisecond rates.
+
+[source,sql]
+----
+CREATE TABLE app_events (
+    service_name text,
+    hour         text,        -- hourly: '2024-03-15-14'
+    event_id     timeuuid,
+    event_type   text,
+    payload      text,
+    PRIMARY KEY ((service_name, hour), event_id)
+) WITH CLUSTERING ORDER BY (event_id DESC);
+----
+
+[NOTE]
+====
+`timeuuid` encodes a UUID version 1, which includes a 100-nanosecond timestamp component.
+This makes it both a unique identifier and a sortable time value, and it integrates naturally with the `now()` and `minTimeuuid()` / `maxTimeuuid()` CQL functions for bounded range queries.
+====
+
+== Using TTL for Automatic Expiration
+
+=== Table-Level TTL
+
+`default_time_to_live` sets a TTL (in seconds) applied to every row written to the table unless the write explicitly overrides it.
+When a row's TTL expires, Cassandra writes a tombstone and the row becomes invisible to reads.
+The tombstone is physically removed during compaction.
+
+Common TTL values:
+
+* 7 days: `604800`
+* 30 days: `2592000`
+* 90 days: `7776000`
+* 1 year: `31536000`
+
+=== Per-Row TTL Override
+
+To apply a different retention window to specific rows, pass `USING TTL` on the write:
+
+[source,sql]
+----
+INSERT INTO sensor_data (device_id, bucket, event_time, temperature)
+VALUES ('dev-001', '2024-03-15', toTimestamp(now()), 72.4)
+USING TTL 604800;   -- 7-day retention for this row only
+----
+
+=== Pairing TTL with TimeWindowCompactionStrategy
+
+[WARNING]
+====
+Using `SizeTieredCompactionStrategy` (STCS) or `LeveledCompactionStrategy` (LCS) on a TTL-heavy table causes tombstone accumulation that degrades read performance over time.
+Always use `TimeWindowCompactionStrategy` (TWCS) for time-series tables with TTL.
+====
+
+TWCS groups SSTables into time windows and compacts within each window independently.
+When an entire window's worth of data has expired, the SSTable can be dropped wholesale — no tombstone scanning required.
+
+[source,sql]
+----
+ALTER TABLE sensor_data WITH compaction = {
+    'class': 'TimeWindowCompactionStrategy',
+    'compaction_window_unit': 'DAYS',
+    'compaction_window_size': 1
+};
+----
+
+Set `compaction_window_size` to match your time bucket granularity.
+For daily-bucketed data, a one-day window means each SSTable covers exactly one bucket, and expired buckets are dropped cleanly.
+
+For additional TWCS configuration options, see xref:Cassandra:cassandra:managing/operating/compaction/twcs.adoc[Time Window Compaction].
+
+== Query Patterns
+
+=== Latest N Readings for One Entity
+
+The simplest and most common query.
+Because the partition key includes the bucket, you must specify the bucket explicitly:
+
+[source,sql]
+----
+SELECT * FROM sensor_data
+WHERE device_id = 'dev-001'
+  AND bucket = '2024-03-15'
+LIMIT 10;
+----
+
+With `CLUSTERING ORDER BY (event_time DESC)`, this returns the 10 most recent readings without a sort step.
+
+=== Bounded Range Query Within a Bucket
+
+[source,sql]
+----
+SELECT * FROM sensor_data
+WHERE device_id = 'dev-001'
+  AND bucket = '2024-03-15'
+  AND event_time >= '2024-03-15 08:00:00'
+  AND event_time <= '2024-03-15 12:00:00';
+----
+
+Cassandra executes this as a single partition scan — efficient regardless of partition size.
+
+=== Cross-Bucket Queries (Application Fan-Out)
+
+There is no single CQL query that spans multiple buckets efficiently.
+For queries that span multiple days or hours, the application must issue one query per bucket and merge the results:
+
+[source,python]
+----
+from datetime import date, timedelta
+from cassandra.cluster import Cluster
+
+def query_range(session, device_id: str, start: date, end: date):
+    """Fetch all readings for device_id from start through end (inclusive)."""
+    results = []
+    current = start
+    query = session.prepare(
+        "SELECT * FROM sensor_data WHERE device_id = ? AND bucket = ?"
+    )
+    while current <= end:
+        bucket = current.strftime("%Y-%m-%d")
+        rows = session.execute(query, [device_id, bucket])
+        results.extend(rows)
+        current += timedelta(days=1)
+    # Sort merged results if chronological order is required
+    results.sort(key=lambda r: r.event_time)
+    return results
+----
+
+[TIP]
+====
+For short ranges (a few days), parallel async execution of each bucket query significantly reduces wall-clock latency.
+Cassandra drivers support asynchronous execution; see your driver's documentation for the pattern.
+====
+
+== Anti-Patterns to Avoid
+
+[cols="1,2", options="header"]
+|===
+|Anti-pattern |Why it hurts
+
+|No time bucket in the partition key
+|Partitions grow without bound as data accumulates, causing read amplification and compaction stalls.
+
+|Bucket granularity too fine (per-second or per-minute)
+|Produces millions of tiny partitions; increases coordinator fan-out and metadata overhead.
+
+|Using `ALLOW FILTERING` for time-range queries
+|Triggers a full-table scan; performance degrades linearly with data volume.
+
+|Wide rows with many columns per reading
+|Increases serialization cost and partition size; keep each row lean — one reading, one row.
+
+|STCS or LCS on TTL-heavy tables
+|Tombstones accumulate between compaction windows, slowing reads and increasing GC pressure.
+Use TWCS instead.
+
+|Mixing hot and cold data in the same table
+|TWCS assumes relatively uniform write rates across time windows; mixing current and historical backfill disrupts window boundaries.
+|===
+
+== When to Add SAI Indexes
+
+SAI (Storage-Attached Indexing) enables filtering on non-primary-key columns within a partition.
+Use it when you need to filter by a value column (e.g., temperature threshold, event type) in addition to the partition and clustering key constraints you already have.
+
+=== Example: Filter by Temperature Threshold
+
+[source,sql]
+----
+CREATE CUSTOM INDEX ON sensor_data (temperature)
+    USING 'StorageAttachedIndex';
+----
+
+With this index you can combine the partition key predicate with a value-column predicate in a single query:
+
+[source,sql]
+----
+SELECT device_id, event_time, temperature
+FROM sensor_data
+WHERE device_id = 'dev-001'
+  AND bucket = '2024-03-15'
+  AND temperature > 100.0;
+----
+
+[WARNING]
+====
+SAI indexes complement partition and clustering key constraints — they do not replace them.
+Always include the full partition key (`device_id` and `bucket`) in any SAI-filtered query to confine the scan to a single partition.
+A query that omits the partition key with an SAI predicate becomes a scatter query across all replicas.
+====
+
+=== Example: Filter by Event Type in Event Logs
+
+[source,sql]
+----
+CREATE CUSTOM INDEX ON app_events (event_type)
+    USING 'StorageAttachedIndex';
+
+SELECT event_id, payload
+FROM app_events
+WHERE service_name = 'checkout'
+  AND hour = '2024-03-15-14'
+  AND event_type = 'payment_failed';
+----
+
+For conceptual background on SAI, see xref:cql/indexing/sai/sai-concepts.adoc[SAI Concepts].
+
+== Related Pages
+
+* xref:data-modeling/index.adoc[Data Modeling Overview] — query-driven design fundamentals and Cassandra 6 modeling patterns
+* xref:cql/ddl.adoc[Data Definition (DDL)] — full `CREATE TABLE`, `ALTER TABLE`, and `WITH` option syntax
+* xref:cql/indexing/sai/sai-concepts.adoc[SAI Concepts] — how Storage-Attached Indexing works
+* xref:cql/indexing/sai/sai-faq.adoc[SAI FAQ] — common questions about SAI behavior and limitations
+* xref:Cassandra:cassandra:managing/operating/compaction/twcs.adoc[Time Window Compaction (TWCS)] — compaction strategy reference
+* xref:integration-patterns.adoc[Application Patterns] — broader application-side patterns including consistency level selection

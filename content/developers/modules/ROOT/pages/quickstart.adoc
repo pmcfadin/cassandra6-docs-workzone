@@ -1,30 +1,51 @@
 = Developer Quickstart
 
-Connect to Cassandra and run your first queries.
+Get up and running with Apache Cassandra in minutes.
+Choose your path: explore CQL interactively or build your first application in your preferred language.
 
-== Prerequisites
+== Start Cassandra
 
-You need a running Cassandra instance.
-The fastest way to start one for development:
+The fastest way to get a development instance running:
 
 [source,bash]
 ----
 docker pull cassandra:latest
-docker run --name cassandra -d cassandra:latest
+docker run --name cassandra -d -p 9042:9042 cassandra:latest
 ----
 
-Wait about 30 seconds for the node to initialize, then connect with cqlsh:
+Wait about 30 seconds for the node to initialize.
+Verify it's ready:
+
+[source,bash]
+----
+docker exec cassandra cqlsh -e "DESCRIBE KEYSPACES"
+----
+
+For detailed setup options, see the xref:Cassandra:cassandra:getting-started/cassandra-quickstart.adoc[Cassandra Quickstart].
+
+== Choose Your Path
+
+=== Build Your First Application
+
+Jump straight into a working application in your language:
+
+* xref:quickstarts/java.adoc[*Java*] -- Maven/Gradle project with the Apache Cassandra Java Driver
+* xref:quickstarts/python.adoc[*Python*] -- Script using the DataStax Python Driver
+* xref:quickstarts/go.adoc[*Go*] -- Module using gocql
+* xref:quickstarts/nodejs.adoc[*Node.js*] -- Project using the DataStax Node.js Driver
+
+Each quickstart takes about 10 minutes and produces a complete, runnable application with CRUD operations.
+
+=== Explore CQL First
+
+If you prefer to learn the query language before writing application code, connect with cqlsh:
 
 [source,bash]
 ----
 docker exec -it cassandra cqlsh
 ----
 
-For detailed setup options, see the xref:Cassandra:cassandra:getting-started/cassandra-quickstart.adoc[Cassandra Quickstart].
-
-== Your First Queries
-
-=== Create a Keyspace
+==== Create a Keyspace
 
 [source,sql]
 ----
@@ -34,7 +55,7 @@ CREATE KEYSPACE my_app
 USE my_app;
 ----
 
-=== Create a Table
+==== Create a Table
 
 [source,sql]
 ----
@@ -46,7 +67,7 @@ CREATE TABLE users (
 );
 ----
 
-=== Insert Data
+==== Insert Data
 
 [source,sql]
 ----
@@ -57,24 +78,16 @@ INSERT INTO users (user_id, name, email, created_at)
   VALUES (uuid(), 'Bob', 'bob@example.com', toTimestamp(now()));
 ----
 
-=== Query Data
+==== Query Data
 
 [source,sql]
 ----
 SELECT * FROM users;
 ----
 
-== Connect from Your Application
-
-Cassandra provides official drivers for multiple languages.
-See xref:drivers.adoc[Drivers] for the complete list including:
-
-* https://github.com/apache/cassandra-java-driver[Java Driver]
-* https://github.com/datastax/python-driver[Python Driver]
-* https://github.com/apache/cassandra-gocql-driver[Go Driver]
-
 == Next Steps
 
+* xref:drivers.adoc[Choose a Driver] -- find the right driver for your language and use case
 * xref:data-modeling/index.adoc[Data Modeling] -- design tables for your access patterns
 * xref:cql/cql_singlefile.adoc[CQL Reference] -- complete query language documentation
 * xref:vector-search/index.adoc[Vector Search] -- build AI-powered search with vector embeddings

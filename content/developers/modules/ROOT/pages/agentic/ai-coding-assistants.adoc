@@ -1,0 +1,377 @@
+= Using Cassandra with AI Coding Assistants
+:description: How to get accurate Cassandra results from AI coding assistants such as Claude, Copilot, Cursor, and Windsurf — including common mistakes these tools make and how to avoid them.
+
+AI coding assistants are now standard tools in most development workflows.
+They are useful for writing boilerplate, generating queries, and prototyping schemas quickly.
+However, they frequently produce incorrect Cassandra code because they apply relational database assumptions to a non-relational system.
+
+This guide explains where AI tools go wrong with Cassandra, how to write prompts that produce correct results, and how to configure context files so that AI assistants stay accurate across your entire project.
+
+== What AI Tools Get Wrong About Cassandra
+
+AI models are trained on large bodies of relational database material.
+When you ask for database code without explicit context, the model often defaults to SQL semantics that do not apply to Cassandra.
+
+=== Relational Assumptions
+
+AI tools frequently suggest constructs that do not exist in CQL:
+
+* `JOIN` — Cassandra has no join operation.
+  Related data must be co-located in the same partition or denormalized into multiple tables.
+* Subqueries — CQL does not support subqueries.
+* Foreign keys — Cassandra has no referential integrity mechanism at the database level.
+  Referential integrity is an application responsibility, or can be partially enforced with xref:cql/constraints.adoc[schema constraints] (Cassandra 6.0+).
+* Normalized schemas — a design with many small entity tables and joins will not work in Cassandra.
+  Each query pattern needs its own table.
+
+=== Consistency Level Misunderstandings
+
+AI tools often default to suggesting `QUORUM` consistency without explaining the tradeoff.
+`QUORUM` provides strong consistency but increases latency and reduces availability in multi-datacenter deployments.
+`LOCAL_QUORUM` is a better default for most production workloads because it avoids cross-datacenter round trips.
+See xref:guides/consistency-choices.adoc[Consistency Choices] for a decision guide.
+
+=== ALLOW FILTERING
+
+`ALLOW FILTERING` tells Cassandra to perform a full table scan.
+AI tools frequently suggest it as a quick fix for queries that do not include the partition key.
+In production this is almost always wrong: `ALLOW FILTERING` on a large table causes full-cluster reads that degrade latency and throughput for all concurrent workloads.
+
+The correct resolution is either to include the partition key in the query or to add a Storage-Attached Index (SAI) on the filtered column.
+
+=== Auto-Increment IDs
+
+Cassandra has no `AUTO_INCREMENT` or `SERIAL` mechanism.
+AI tools trained on MySQL or PostgreSQL will suggest integer sequences as primary keys.
+Use `UUID` or `TIMEUUID` instead.
+`UUID` is appropriate for most entity identifiers.
+`TIMEUUID` encodes a timestamp and is useful when you need time-ordered uniqueness within a partition.
+
+=== Schema Design: One Table Per Query, Not One Table Per Entity
+
+Relational modeling produces one table per entity.
+Cassandra modeling produces one table per query pattern.
+If the same entity needs to be retrieved by two different access paths (for example, user by email and user by username), you create two tables.
+This is called *query-driven design*.
+
+AI tools often produce normalized entity schemas and then suggest `ALLOW FILTERING` or joins to handle the queries — both of which are wrong.
+Always provide your access patterns to the AI and ask it to derive the tables from those patterns, not from your entity model.
+
+=== Missing Partition Key in WHERE Clauses
+
+CQL requires the partition key in every `SELECT`, `UPDATE`, and `DELETE` statement unless you have a SAI index that covers the filtered column.
+AI tools generate queries that filter on clustering columns or non-key columns without including the partition key, which either requires `ALLOW FILTERING` or fails outright.
+
+When reviewing AI-generated queries, always verify that every `WHERE` clause either includes the full partition key or uses an SAI-indexed column.
+
+== Prompt Engineering Tips for Cassandra Work
+
+Small additions to your prompt context can dramatically improve the accuracy of AI-generated Cassandra code.
+
+=== Always Declare the Database Up Front
+
+Begin any prompt where database code might appear with an explicit statement:
+
+[source]
+----
+I am using Apache Cassandra 6, not a relational database.
+CQL is not SQL. There are no joins, subqueries, or foreign keys.
+----
+
+Without this, many models default to standard SQL behavior.
+
+=== Include Your Table Schema
+
+Always paste the `CREATE TABLE` statement into your prompt before asking for queries or modifications.
+Models cannot infer partition keys, clustering columns, or column types from a table name.
+
+=== Ask for Query-Driven Design Explicitly
+
+When asking for schema help:
+
+[source]
+----
+Design the Cassandra tables for these specific query patterns.
+Use query-driven data modeling: one table per query pattern.
+Do not normalize across multiple tables that require joins.
+----
+
+=== Constrain Query Generation
+
+When asking for a `SELECT` statement:
+
+[source]
+----
+Write a CQL query that includes the full partition key in the WHERE clause.
+Do not use ALLOW FILTERING.
+----
+
+=== Example: Good Prompt vs. Bad Prompt
+
+.Prompt that produces poor results
+[source]
+----
+Design a database schema for a messaging application.
+----
+
+This produces a normalized relational schema with tables for `users`, `conversations`, and `messages` linked by foreign keys.
+
+.Prompt that produces correct Cassandra results
+[source]
+----
+I am building a messaging application using Apache Cassandra 6.
+Design Cassandra tables using query-driven data modeling for these exact access patterns:
+
+1. Fetch the most recent 50 messages in a conversation, ordered by time descending.
+2. List all conversations for a user, ordered by most recently active.
+3. Look up a user's profile by user_id.
+
+Each table should have a defined partition key and clustering columns.
+Do not use joins, foreign keys, or ALLOW FILTERING.
+Use UUID or TIMEUUID for identifiers.
+----
+
+== Setting Up Context Files for AI Assistants
+
+Context files let you encode Cassandra rules once and have them apply automatically across your entire project session.
+
+=== CLAUDE.md (Claude Code)
+
+Claude Code reads `CLAUDE.md` from the project root at the start of every session.
+Add a database section to your project's `CLAUDE.md`:
+
+[source,markdown]
+----
+# Database: Apache Cassandra 6
+
+This project uses Apache Cassandra 6 (not a relational database).
+
+## Modeling Rules
+- Use query-driven data modeling: one table per access pattern
+- Never use ALLOW FILTERING in production queries
+- Always include the full partition key in WHERE clauses
+- Use UUID or TIMEUUID for primary keys, not integer sequences
+- Use prepared statements for all application queries
+
+## Default Settings
+- Consistency level: LOCAL_QUORUM
+- Use SAI (StorageAttachedIndex) for secondary access patterns instead of ALLOW FILTERING
+
+## Schema Conventions
+- Partition keys must be bounded (use time buckets for time-series data)
+- Clustering columns define sort order within a partition
+- SAI indexes replace the need for ALLOW FILTERING on non-key columns
+----
+
+=== .cursorrules (Cursor)
+
+Cursor reads `.cursorrules` from the project root:
+
+[source,markdown]
+----
+# Cassandra Rules
+
+- Database: Apache Cassandra 6 (not relational — no joins, no foreign keys)
+- All schemas follow query-driven design: tables are defined by query patterns
+- Never suggest ALLOW FILTERING
+- Always include partition key in WHERE clauses
+- Default IDs: UUID or TIMEUUID (not AUTO_INCREMENT)
+- Default consistency: LOCAL_QUORUM
+- Use CREATE CUSTOM INDEX ... USING 'StorageAttachedIndex' for secondary filters
+- Prepared statements required for all parameterized queries
+----
+
+=== GitHub Copilot
+
+GitHub Copilot uses workspace-level context through `.github/copilot-instructions.md`:
+
+[source,markdown]
+----
+## Database Context
+
+This project uses Apache Cassandra 6.
+CQL is not SQL. Do not generate JOINs, subqueries, or foreign key references.
+
+Data modeling uses query-driven design.
+Tables are designed for specific access patterns, not normalized entity relationships.
+
+Query rules:
+- Always include the full partition key in WHERE clauses
+- Never use ALLOW FILTERING
+- Use LOCAL_QUORUM as the default consistency level
+- Identifiers use UUID or TIMEUUID
+- Secondary access patterns use SAI (StorageAttachedIndex)
+----
+
+Copilot also uses open files as implicit context.
+Keep your schema DDL file open in a tab while writing queries to help the model understand your table structure.
+
+=== Windsurf
+
+Windsurf reads `.windsurfrules` from the project root.
+Use the same content as the `.cursorrules` example above.
+
+== AI-Assisted Data Model Design Workflow
+
+Follow this workflow to use AI assistance for schema design without inheriting relational mistakes.
+
+=== Step 1: Define Access Patterns First
+
+Before prompting the AI, write down every query the application needs to execute.
+Be specific: include the filter conditions, sort order, and approximate result set size.
+
+[source]
+----
+Access patterns:
+1. Fetch messages for a conversation (filter: conversation_id, sort: sent_at DESC, limit: 50)
+2. List conversations for a user (filter: user_id, sort: last_message_at DESC, limit: 20)
+3. Get user profile (filter: user_id)
+----
+
+=== Step 2: Provide Access Patterns to the AI
+
+Paste your access patterns into the prompt along with the explicit Cassandra modeling instructions from the earlier section.
+
+=== Step 3: Ask for Tables Derived from Those Queries
+
+[source]
+----
+Design Cassandra 6 tables for the access patterns above.
+For each table: provide the partition key, clustering columns, column types, and the DDL.
+Explain which access pattern each table serves.
+----
+
+=== Step 4: Review for Anti-Patterns
+
+Before accepting the schema, check each generated table for:
+
+* Unbounded partitions — a partition key that allows unlimited rows without a bounding element (such as a time bucket) will grow forever
+* Missing clustering columns — queries that require ordering need clustering columns defined with the correct sort direction
+* `ALLOW FILTERING` — reject any schema that requires it
+* Absent partition key — any `WHERE` clause that omits the partition key and has no SAI index is a problem
+
+=== Step 5: Ask for the CQL DDL
+
+[source]
+----
+Write the complete CQL DDL for these tables.
+Use CREATE TABLE with explicit column types.
+Include CREATE CUSTOM INDEX statements for any SAI indexes you recommended.
+----
+
+=== Step 6: Validate with Sample Queries
+
+Paste the generated DDL into cqlsh, then ask the AI to generate representative queries for each access pattern.
+Run `EXPLAIN` to verify that each query uses the expected execution path.
+
+=== Worked Example: Messaging App Schema
+
+.Access patterns
+[source]
+----
+1. Fetch the 50 most recent messages in a conversation, newest first
+2. List a user's conversations, ordered by most recently active
+3. Look up a user profile by user_id
+----
+
+.AI-generated schema (after applying the workflow above)
+[source,sql]
+----
+-- Table 1: messages by conversation (access pattern 1)
+CREATE TABLE messages_by_conversation (
+  conversation_id uuid,
+  sent_at         timeuuid,
+  sender_id       uuid,
+  body            text,
+  PRIMARY KEY (conversation_id, sent_at)
+) WITH CLUSTERING ORDER BY (sent_at DESC);
+
+-- Table 2: conversations by user (access pattern 2)
+CREATE TABLE conversations_by_user (
+  user_id          uuid,
+  last_message_at  timeuuid,
+  conversation_id  uuid,
+  preview          text,
+  PRIMARY KEY (user_id, last_message_at)
+) WITH CLUSTERING ORDER BY (last_message_at DESC);
+
+-- Table 3: users by id (access pattern 3)
+CREATE TABLE users (
+  user_id   uuid PRIMARY KEY,
+  username  text,
+  email     text
+);
+----
+
+Three tables, each optimized for one access pattern.
+No joins.
+No `ALLOW FILTERING`.
+Partition keys are bounded by entity identity (`conversation_id`, `user_id`).
+
+== AI-Assisted Query Optimization
+
+Use these prompts to check whether AI-generated queries are appropriate for Cassandra:
+
+*Check query efficiency:*
+[source]
+----
+Given this Cassandra table schema:
+[paste CREATE TABLE]
+Is this query efficient?
+[paste SELECT statement]
+Does it require ALLOW FILTERING or a full table scan?
+----
+
+*Ask about indexes:*
+[source]
+----
+I need to filter this table by the column 'status' without always knowing the partition key.
+What type of index should I use in Cassandra 6?
+Show the CREATE CUSTOM INDEX statement.
+----
+
+A well-configured model will suggest SAI (`StorageAttachedIndex`).
+If it suggests the older `CREATE INDEX` syntax without `USING 'StorageAttachedIndex'`, correct it: the default secondary index implementation is inferior to SAI for most workloads.
+
+*Verify partition key presence:*
+[source]
+----
+Does this query include the full partition key in the WHERE clause?
+If not, what index or schema change would make it efficient without ALLOW FILTERING?
+----
+
+== Common AI-Generated Anti-Patterns
+
+[cols="2,3", options="header"]
+|===
+| AI suggestion | Cassandra best practice
+
+| `JOIN users ON user_id = ...`
+| Denormalize: co-locate the needed columns in the querying table, or use an Accord transaction for multi-table atomic writes (Cassandra 6.0+)
+
+| `SELECT * FROM orders WHERE status = 'pending'` (no partition key)
+| Add a SAI index on `status`, or redesign the partition key to include status as a bucket; never use `ALLOW FILTERING`
+
+| `ALTER TABLE ADD FOREIGN KEY`
+| CQL has no foreign keys; enforce referential integrity in the application or use xref:cql/constraints.adoc[CHECK constraints] (Cassandra 6.0+) for column-level validation
+
+| `ALLOW FILTERING`
+| Redesign the query to include the partition key, or add a SAI index on the filtered column
+
+| `id SERIAL` or `id INT AUTO_INCREMENT`
+| Use `id UUID DEFAULT uuid()` or `id TIMEUUID`
+
+| `CREATE INDEX ON table (column)`
+| Use `CREATE CUSTOM INDEX ON table (column) USING 'StorageAttachedIndex'` — SAI is the recommended index implementation in Cassandra 5.0+ and is the only one receiving active development in Cassandra 6
+
+| `SELECT * FROM table` (no WHERE clause, no LIMIT)
+| Always include a partition key filter or an SAI filter; unbounded full-table reads are not a valid production access pattern in Cassandra
+|===
+
+== Related Pages
+
+* xref:data-modeling/index.adoc[Data Modeling Overview] — query-driven design fundamentals and Cassandra 6 patterns
+* xref:guides/sai-usage-patterns.adoc[SAI Usage Patterns] — when and how to use Storage-Attached Indexing
+* xref:drivers.adoc[Choose a Driver] — driver selection and configuration for your language
+* xref:cql/constraints.adoc[Constraints] — column-level schema constraints new in Cassandra 6.0
+* xref:guides/consistency-choices.adoc[Consistency Choices] — LOCAL_QUORUM, QUORUM, and when to use each

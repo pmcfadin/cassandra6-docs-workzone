@@ -1,0 +1,288 @@
+= Choosing Consistency Levels
+:description: A practical guide for choosing the right Cassandra consistency level for your application, with read/write combination recommendations by use case.
+
+Cassandra lets you choose a consistency level (CL) per query.
+This is one of its most powerful features: the same cluster can serve latency-sensitive writes at `ONE` and critical reads at `LOCAL_QUORUM`, with no reconfiguration.
+The tradeoff is that you have to reason carefully about what each choice means for your application's correctness, availability, and performance.
+
+This guide explains how consistency works, describes each level, and helps you pick the right combination for common use cases.
+
+== How Consistency Works
+
+Two settings control how reliable an operation is:
+
+* **Replication factor (RF)** — how many copies of each row exist in the cluster, set at keyspace creation time.
+* **Consistency level (CL)** — how many replicas must acknowledge a read or write before Cassandra returns a response.
+
+These interact as follows:
+
+* A *write* at `LOCAL_QUORUM` with RF=3 requires 2 of 3 local replicas to confirm the write before success is returned.
+* A *read* at `LOCAL_QUORUM` with RF=3 fetches from 2 of 3 local replicas and returns the newest value.
+
+=== Strong Consistency Formula
+
+[TIP]
+====
+If `read_CL + write_CL > RF`, your reads will always see the most recent write.
+This is the key to achieving strong consistency in Cassandra.
+
+For RF=3: `LOCAL_QUORUM` writes (2) + `LOCAL_QUORUM` reads (2) = 4 > 3. Strong consistency guaranteed.
+====
+
+If your read and write CLs do not overlap on any replica, you can read a stale row.
+For example, `ONE` write + `ONE` read with RF=3 gives you eventual consistency: your read may hit a replica that has not yet received the write.
+
+== Consistency Levels Reference
+
+[cols="1,2,1,1", options="header"]
+|===
+| Level | What It Means | Latency | Availability
+
+| `ONE`
+| One replica responds (any datacenter)
+| Lowest
+| Highest
+
+| `LOCAL_ONE`
+| One replica in the local datacenter responds
+| Low
+| High
+
+| `LOCAL_QUORUM`
+| Majority of replicas in the local datacenter respond
+| Medium
+| High
+
+| `QUORUM`
+| Majority of replicas across all datacenters respond
+| Higher
+| Medium
+
+| `EACH_QUORUM`
+| Quorum in each datacenter independently
+| High
+| Medium
+
+| `ALL`
+| Every replica must respond
+| Highest
+| Lowest
+|===
+
+[IMPORTANT]
+====
+`ALL` should not be used in production.
+If any replica is unavailable (maintenance, failure, restart), every write and read at `ALL` will fail.
+Use `LOCAL_QUORUM` instead, which tolerates one replica down in an RF=3 deployment.
+====
+
+== Common Read/Write Combinations
+
+=== LOCAL_QUORUM / LOCAL_QUORUM (recommended default)
+
+Writes and reads both require a majority of replicas in the local datacenter.
+This satisfies the strong consistency formula (2+2 > 3 for RF=3) while keeping traffic local.
+
+[TIP]
+====
+Start here.
+`LOCAL_QUORUM` / `LOCAL_QUORUM` is the right default for most production workloads.
+It is resilient to one node failure in an RF=3 cluster and does not pay the latency cost of cross-datacenter coordination.
+====
+
+**Best for:**
+
+* User-facing application data (profiles, preferences, session state)
+* Financial and transactional records
+* Any table where stale reads would be user-visible or dangerous
+
+**What you give up:** Slightly higher write and read latency compared to `ONE`.
+
+=== ONE / ONE (eventual consistency)
+
+Both writes and reads succeed as soon as a single replica responds.
+Reads may return a value that is one or more replica-sync cycles out of date.
+
+**Best for:**
+
+* High-volume time-series metrics or logs where volume matters more than precision
+* Analytics workloads that tolerate approximate results
+* Non-critical reads where stale data causes no harm
+
+[IMPORTANT]
+====
+`ONE` write + `ONE` read does *not* guarantee you will read your own writes.
+If you write at `ONE` and then immediately read at `ONE`, you may get the previous value if the read hits a different replica.
+Do not use this combination for any workflow where read-after-write consistency is required.
+====
+
+=== QUORUM / QUORUM (cross-datacenter strong consistency)
+
+Writes and reads require a majority of replicas across *all* datacenters.
+This guarantees strong consistency globally, at the cost of cross-datacenter round trips on every operation.
+
+**Best for:**
+
+* Global data that must be consistent across all regions simultaneously
+* Financial ledger entries that are read by services in multiple datacenters
+* Any situation where cross-DC divergence is unacceptable
+
+**What you give up:** Cross-datacenter latency on every read and write.
+For most applications, `LOCAL_QUORUM` in each datacenter is a better fit because strong consistency is maintained within the DC where the request is handled.
+
+=== LOCAL_QUORUM / LOCAL_ONE (write-fast, read-safe)
+
+Writes are confirmed by a single local replica.
+Reads are confirmed by a quorum of local replicas.
+
+This combination does *not* satisfy the strong consistency formula (1+2 = 3, which is not > 3 for RF=3).
+However, it is useful for append-only workloads where you only read your own writes locally and occasional stale reads are acceptable.
+
+**Best for:**
+
+* Append-only event streams where the writer rarely reads back immediately
+* Workloads where write throughput is critical and read-after-write staleness is tolerable
+
+[IMPORTANT]
+====
+This combination does not guarantee strong consistency.
+A read at `LOCAL_QUORUM` after a `LOCAL_ONE` write may return a stale row if the single write replica was not included in the quorum read set.
+Use `LOCAL_QUORUM` / `LOCAL_QUORUM` if read-after-write consistency matters.
+====
+
+== Setting Consistency in Code
+
+Consistency is set at the statement level in all major Cassandra drivers.
+Do not set consistency globally unless every query in your application has the same requirements.
+
+=== Java (DataStax Java Driver)
+
+[source,java]
+----
+SimpleStatement stmt = SimpleStatement.newInstance(
+        "SELECT * FROM users WHERE id = ?", userId)
+    .setConsistencyLevel(DefaultConsistencyLevel.LOCAL_QUORUM);
+session.execute(stmt);
+----
+
+For writes:
+
+[source,java]
+----
+SimpleStatement insert = SimpleStatement.newInstance(
+        "INSERT INTO users (id, email) VALUES (?, ?)", userId, email)
+    .setConsistencyLevel(DefaultConsistencyLevel.LOCAL_QUORUM);
+session.execute(insert);
+----
+
+=== Python (DataStax Python Driver)
+
+[source,python]
+----
+from cassandra import ConsistencyLevel
+from cassandra.query import SimpleStatement
+
+stmt = SimpleStatement(
+    "SELECT * FROM users WHERE id = %s",
+    consistency_level=ConsistencyLevel.LOCAL_QUORUM
+)
+session.execute(stmt, [user_id])
+----
+
+For writes:
+
+[source,python]
+----
+from cassandra import ConsistencyLevel
+from cassandra.query import SimpleStatement
+
+insert = SimpleStatement(
+    "INSERT INTO users (id, email) VALUES (%s, %s)",
+    consistency_level=ConsistencyLevel.LOCAL_QUORUM
+)
+session.execute(insert, [user_id, email])
+----
+
+[TIP]
+====
+Most drivers also support setting a default consistency level on the session or execution profile.
+Use this as a baseline, then override per-statement for queries with different requirements.
+====
+
+== Decision Guide by Use Case
+
+[cols="2,1,1,3", options="header"]
+|===
+| Use Case | Write CL | Read CL | Why
+
+| User profiles
+| `LOCAL_QUORUM`
+| `LOCAL_QUORUM`
+| Writes must not be lost; reads must reflect the latest state
+
+| Time-series metrics
+| `ONE`
+| `ONE`
+| Write volume is high; slight staleness or loss is acceptable
+
+| Shopping cart
+| `LOCAL_QUORUM`
+| `LOCAL_QUORUM`
+| Lost writes mean lost cart items; stale reads cause checkout errors
+
+| Activity feed
+| `LOCAL_ONE`
+| `LOCAL_ONE`
+| High write volume; showing a post one replication cycle late is acceptable
+
+| Financial ledger
+| `QUORUM`
+| `QUORUM`
+| Cross-datacenter consistency required for regulatory and correctness reasons
+
+| Session tokens
+| `LOCAL_QUORUM`
+| `LOCAL_QUORUM`
+| Stale session reads could allow use of a revoked token
+|===
+
+== Common Mistakes
+
+=== Using ALL in production
+
+`ALL` requires every replica to respond.
+In an RF=3 cluster, one node going down for a rolling restart makes every `ALL` operation fail immediately.
+If you need strong consistency, `LOCAL_QUORUM` achieves it with far better availability.
+
+=== Mixing ONE writes with QUORUM reads expecting consistency
+
+`ONE` write + `QUORUM` read does not give you strong consistency unless `1 + QUORUM > RF`.
+For RF=3, `ONE` (1) + `QUORUM` (2) = 3, which is *not* strictly greater than RF.
+You need `1 + 3 > 3` to guarantee overlap, which is impossible at RF=3.
+Use `LOCAL_QUORUM` on both sides.
+
+[IMPORTANT]
+====
+The formula is `read_CL + write_CL > RF` (strictly greater than, not equal to).
+Equal means there is exactly one replica that must have both the write and the read — and nothing guarantees the read hits that replica.
+====
+
+=== Not accounting for RF when choosing CL
+
+A `QUORUM` consistency level means different things at different replication factors.
+At RF=3, `QUORUM` requires 2 replicas.
+At RF=5, `QUORUM` requires 3 replicas.
+If you scale your cluster and change RF without reviewing your CL choices, your consistency guarantees may change.
+
+=== Treating CL as a table-level setting
+
+Consistency is per-query, not per-table.
+You can and should use different CLs for different operations on the same table.
+A background analytics job reading the same `orders` table might use `ONE`, while your checkout service reads at `LOCAL_QUORUM`.
+
+== Related Pages
+
+* xref:cql/dml.adoc[Data Manipulation (DML)] — full reference for SELECT, INSERT, UPDATE, and DELETE including `USING CONSISTENCY` syntax
+* xref:cql/txn-reference.adoc[BEGIN TRANSACTION Reference] — Accord transactions for multi-partition ACID operations (Cassandra 6)
+* xref:troubleshooting.adoc[Developer Troubleshooting] — diagnosing `Unavailable` and timeout errors
+* xref:integration-patterns.adoc[Application Patterns] — consistency patterns in the context of broader application design

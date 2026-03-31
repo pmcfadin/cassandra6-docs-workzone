@@ -1,0 +1,195 @@
+= Upgrading Your Application to Cassandra 6
+:description: A practical guide for application teams adopting Cassandra 6 features including ACID transactions, schema constraints, vector search, and new CQL operators.
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Cassandra 6 introduces capabilities that change how you design and build applications.
+Most existing applications continue to work without modification — Cassandra 6 is backward compatible.
+This guide helps application teams understand what is new, what to adopt, and what to verify before upgrading.
+
+== What's New for Application Developers
+
+=== ACID Transactions (Accord)
+
+Cassandra 6 introduces multi-partition ACID transactions via the Accord protocol (CEP-15).
+Transactions replace the most common uses of lightweight transactions (LWT) and eliminate the need to design around single-partition atomicity.
+
+Tables must opt in by setting `transactional_mode = 'full'` at creation time.
+Transactions are written using `BEGIN TRANSACTION ... COMMIT TRANSACTION` blocks in CQL.
+
+.Before (LWT — single-partition compare-and-set)
+[source,sql]
+----
+UPDATE accounts
+SET balance = 900
+WHERE account_id = 'acct-1'
+IF balance = 1000;
+----
+
+.After (ACID transaction — multi-partition, atomic)
+[source,sql]
+----
+BEGIN TRANSACTION
+  LET src = (SELECT balance FROM accounts WHERE account_id = 'acct-1');
+  LET dst = (SELECT balance FROM accounts WHERE account_id = 'acct-2');
+  IF src.balance >= 100 THEN
+    UPDATE accounts SET balance = src.balance - 100 WHERE account_id = 'acct-1';
+    UPDATE accounts SET balance = dst.balance + 100 WHERE account_id = 'acct-2';
+  END IF
+COMMIT TRANSACTION;
+----
+
+NOTE: LWT (`IF` conditions on single-partition writes) continues to work in Cassandra 6.
+Migration to ACID transactions is optional and recommended for new cross-partition workflows.
+
+See xref:cql/txn-reference.adoc[BEGIN TRANSACTION Reference] for full syntax and semantics.
+For enabling Accord on your cluster, see xref:operators::upgrade/onboarding-to-accord.adoc[Onboarding to Accord].
+
+=== Schema Constraints
+
+Cassandra 6 adds server-side column constraints using a `CHECK` clause in `CREATE TABLE` and `ALTER TABLE`.
+Constraints are enforced at write time, reducing the validation logic your application must maintain.
+
+Supported constraint types include: `NOT NULL`, numeric range checks, `REGEXP` pattern matching, `LENGTH` bounds, and JSON schema validation.
+
+.Example: enforcing valid data at the schema level
+[source,sql]
+----
+CREATE TABLE users (
+  user_id  uuid PRIMARY KEY,
+  email    text CHECK (email IS NOT NULL AND email REGEXP '^[^@]+@[^@]+\.[^@]+$'),
+  age      int  CHECK (age >= 0 AND age <= 150),
+  username text CHECK (LENGTH(username) >= 3 AND LENGTH(username) <= 64)
+);
+----
+
+See xref:cql/constraints.adoc[Constraints Reference] for the full constraint syntax.
+
+=== Vector Search
+
+Cassandra 6 supports a native `VECTOR` data type and approximate nearest neighbor (ANN) queries powered by SAI.
+This enables semantic search, retrieval-augmented generation (RAG), and recommendation patterns without a separate vector database.
+
+[source,sql]
+----
+CREATE TABLE documents (
+  doc_id    uuid PRIMARY KEY,
+  content   text,
+  embedding vector<float, 1536>
+);
+
+CREATE INDEX ON documents(embedding) USING 'sai'
+  WITH OPTIONS = {'similarity_function': 'cosine'};
+
+SELECT doc_id, content FROM documents
+ORDER BY embedding ANN OF [0.12, 0.85, ...]
+LIMIT 10;
+----
+
+See xref:vector-search/index.adoc[Vector Search Overview] for data type details, index configuration, and application patterns.
+
+=== SAI on Frozen Collections
+
+SAI (Storage-Attached Indexing) now supports element-level indexing on frozen collection columns.
+Previously, indexing a frozen collection required a `FULL` index match.
+In Cassandra 6, individual elements within frozen maps, sets, and lists can be indexed and queried directly.
+
+This reduces the need to unfreeze collections solely to gain indexing flexibility.
+
+=== New CQL Operators
+
+Cassandra 6 adds `BETWEEN`, `NOT`, and `LIKE` expressions to CQL.
+These simplify queries that previously required multiple `AND` conditions or post-read filtering in application code.
+
+[source,sql]
+----
+-- Range filter with BETWEEN
+SELECT * FROM events WHERE ts BETWEEN '2025-01-01' AND '2025-03-31';
+
+-- Pattern match with LIKE (requires SAI index on the column)
+SELECT * FROM products WHERE name LIKE 'Cassandra%';
+----
+
+=== Slow-Query Virtual Table
+
+The `system_views.slow_queries` virtual table surfaces queries that exceeded the slow-query threshold directly from CQL.
+Application teams can query this table to identify problematic statements without needing direct node access or log parsing.
+
+[source,sql]
+----
+SELECT * FROM system_views.slow_queries;
+----
+
+TIP: Poll `system_views.slow_queries` during load testing to identify hotspots before promoting a release to production.
+
+== What Old Habits to Reconsider
+
+[cols="1,1", options="header"]
+|===
+| Old approach | Cassandra 6 alternative
+
+| LWT for cross-partition consistency
+| ACID transactions (BEGIN TRANSACTION)
+
+| Heavy denormalization to support multiple query patterns
+| SAI indexes on existing tables
+
+| Application-side validation logic
+| Schema constraints (CHECK clauses)
+
+| SASI indexes
+| Migrate to SAI — SAI is the supported path forward
+|===
+
+These are not forced migrations.
+Existing LWT, denormalized schemas, and application-side validation continue to work.
+Treat this as a backlog of simplifications to schedule alongside feature work.
+
+== Before You Upgrade: Checklist
+
+Work through this checklist before pointing your application at a Cassandra 6 cluster.
+
+* [ ] Verify your driver version supports Cassandra 6 — see xref:drivers.adoc[Choose a Driver]
+* [ ] Deploy a Cassandra 6 cluster in dev or staging and run your full test suite against it
+* [ ] Review prepared statement usage — verify statement IDs are being re-prepared on reconnect
+* [ ] Check for deprecated API usage in your current driver version's release notes
+* [ ] Verify consistency level behavior for your most critical read and write paths
+* [ ] Exercise all LWT-dependent code paths — LWT still works, but validate behavior under Cassandra 6
+* [ ] Identify columns that would benefit from schema constraints and schedule that work
+* [ ] Plan driver upgrades as a separate deployment step from the server upgrade where possible
+
+IMPORTANT: Driver compatibility is the most common source of upgrade friction.
+Confirm your driver version before upgrading the server.
+
+== Recommended Adoption Order
+
+This sequence minimizes risk and delivers incremental value.
+
+. *Upgrade your driver and verify existing functionality* +
+  Confirm all current queries, LWT patterns, and consistency behaviors work as expected against a Cassandra 6 cluster.
+
+. *Add schema constraints to existing tables* +
+  Low-risk, additive change.
+  Start with `NOT NULL` constraints on required columns, then add range or pattern checks where violations are currently caught in application code.
+
+. *Adopt SAI indexes where they reduce complexity* +
+  Replace secondary indexes on frequently queried non-partition-key columns.
+  Consider SAI before adding new denormalized tables.
+
+. *Introduce ACID transactions for new features requiring multi-partition atomicity* +
+  Do not rewrite existing LWT code wholesale.
+  Introduce transactions for new workflows — transfers, reservations, inventory updates — where multi-partition atomicity provides clear value.
+
+. *Explore vector search for AI/ML use cases* +
+  Add `VECTOR` columns and ANN indexes to existing tables to support semantic search or RAG without provisioning a separate vector store.
+
+== Related Pages
+
+* xref:cql/txn-reference.adoc[BEGIN TRANSACTION Reference]
+* xref:cql/constraints.adoc[Constraints Reference]
+* xref:vector-search/index.adoc[Vector Search Overview]
+* xref:drivers.adoc[Choose a Driver]
+* xref:operators::upgrade/onboarding-to-accord.adoc[Onboarding to Accord] (operators guide)

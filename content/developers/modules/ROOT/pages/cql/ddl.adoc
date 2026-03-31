@@ -1105,3 +1105,10 @@ SECURITY LABEL ON FIELD cycling.personal_info.ssn IS 'PII-SSN';
 
 NOTE: Security labels can be removed by setting them to `NULL`. Security labels are displayed when using `DESCRIBE` statements
 and can be used in conjunction with custom authorization plugins or audit systems to enforce data access policies.
+
+== Related Guides
+
+* xref:guides/schema-migrations.adoc[Schema Migrations] -- safe patterns for evolving your schema in production
+* xref:guides/time-series-modeling.adoc[Time-Series Modeling] -- partition key and table design for time-series data
+* xref:guides/sai-usage-patterns.adoc[SAI Usage Patterns] -- when and how to use Storage-Attached Indexes
+* xref:data-modeling/index.adoc[Data Modeling Overview] -- query-driven schema design fundamentals

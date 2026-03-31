@@ -1,19 +1,57 @@
 * xref:home::index.adoc[Home]
 * xref:index.adoc[Developers]
-* xref:quickstart.adoc[Quickstart]
-* xref:drivers.adoc[Drivers]
-* Data Modeling
-** xref:data-modeling/index.adoc[Data Modeling Overview]
-** xref:Cassandra:cassandra:developing/data-modeling/intro.adoc[Introduction]
-** xref:Cassandra:cassandra:developing/data-modeling/data-modeling_rdbms.adoc[Coming from SQL]
-** xref:Cassandra:cassandra:developing/data-modeling/data-modeling_conceptual.adoc[Conceptual Modeling]
-** xref:Cassandra:cassandra:developing/data-modeling/data-modeling_logical.adoc[Logical Modeling]
-** xref:Cassandra:cassandra:developing/data-modeling/data-modeling_physical.adoc[Physical Modeling]
-** xref:Cassandra:cassandra:developing/data-modeling/data-modeling_queries.adoc[Query-Driven Design]
-** xref:Cassandra:cassandra:developing/data-modeling/data-modeling_refining.adoc[Refining Your Model]
-** xref:Cassandra:cassandra:developing/data-modeling/data-modeling_schema.adoc[Schema Design]
-** xref:Cassandra:cassandra:developing/data-modeling/data-modeling_tools.adoc[Tools]
-* CQL
+
+* Get Started
+** xref:quickstart.adoc[Quickstart]
+** xref:quickstarts/java.adoc[Java Quickstart]
+** xref:quickstarts/python.adoc[Python Quickstart]
+** xref:quickstarts/go.adoc[Go Quickstart]
+** xref:quickstarts/nodejs.adoc[Node.js Quickstart]
+** xref:drivers.adoc[Choose a Driver]
+** xref:upgrading-to-cassandra6.adoc[Upgrading to Cassandra 6]
+
+* Learn
+** Data Modeling
+*** xref:data-modeling/index.adoc[Data Modeling Overview]
+*** xref:Cassandra:cassandra:developing/data-modeling/intro.adoc[Introduction]
+*** xref:Cassandra:cassandra:developing/data-modeling/data-modeling_rdbms.adoc[Coming from SQL]
+*** xref:Cassandra:cassandra:developing/data-modeling/data-modeling_conceptual.adoc[Conceptual Modeling]
+*** xref:Cassandra:cassandra:developing/data-modeling/data-modeling_logical.adoc[Logical Modeling]
+*** xref:Cassandra:cassandra:developing/data-modeling/data-modeling_physical.adoc[Physical Modeling]
+*** xref:Cassandra:cassandra:developing/data-modeling/data-modeling_queries.adoc[Query-Driven Design]
+*** xref:Cassandra:cassandra:developing/data-modeling/data-modeling_refining.adoc[Refining Your Model]
+*** xref:Cassandra:cassandra:developing/data-modeling/data-modeling_schema.adoc[Schema Design]
+*** xref:Cassandra:cassandra:developing/data-modeling/data-modeling_tools.adoc[Tools]
+** xref:guides/consistency-choices.adoc[Choosing Consistency Levels]
+** xref:guides/sai-usage-patterns.adoc[SAI Usage Patterns]
+** xref:guides/adopting-acid-transactions.adoc[Adopting ACID Transactions]
+
+* Build
+** xref:integration-patterns.adoc[Application Patterns]
+** xref:guides/time-series-modeling.adoc[Time-Series Modeling]
+** xref:guides/pagination.adoc[Paginating Query Results]
+** xref:guides/retries-and-idempotence.adoc[Retries and Idempotence]
+** xref:guides/schema-migrations.adoc[Schema Migrations]
+** Vector Search
+*** xref:vector-search/index.adoc[Vector Search Overview]
+*** xref:Cassandra:cassandra:vector-search/overview.adoc[Overview]
+*** xref:Cassandra:cassandra:vector-search/concepts.adoc[Concepts]
+*** xref:Cassandra:cassandra:vector-search/data-modeling.adoc[Data Modeling for Vector Search]
+*** xref:Cassandra:cassandra:vector-search/quickstarts.adoc[Quickstarts]
+*** xref:Cassandra:cassandra:vector-search/vector-search-working-with.adoc[Working with Vector Search]
+** AI and Agentic Patterns
+*** xref:agentic/ai-coding-assistants.adoc[Using Cassandra with AI Coding Assistants]
+*** xref:agentic/mcp-server.adoc[Cassandra MCP Server]
+*** xref:agentic/ai-application-patterns.adoc[AI Application Patterns]
+** xref:examples/index.adoc[Code Examples]
+
+* Operate Your App
+** xref:production/readiness-checklist.adoc[Production Readiness Checklist]
+** xref:production/driver-tuning.adoc[Driver Tuning]
+** xref:production/observability.adoc[Client-Side Observability]
+** xref:troubleshooting.adoc[Developer Troubleshooting]
+
+* CQL Reference
 ** xref:cql/index.adoc[CQL Overview]
 ** xref:cql/definitions.adoc[Definitions]
 ** xref:cql/types.adoc[Data Types]
@@ -37,12 +75,3 @@
 *** xref:cql/collections/list.adoc[Lists]
 *** xref:cql/collections/map.adoc[Maps]
 *** xref:cql/collections/set.adoc[Sets]
-* Vector Search
-** xref:vector-search/index.adoc[Vector Search Overview]
-** xref:Cassandra:cassandra:vector-search/overview.adoc[Overview]
-** xref:Cassandra:cassandra:vector-search/concepts.adoc[Concepts]
-** xref:Cassandra:cassandra:vector-search/data-modeling.adoc[Data Modeling for Vector Search]
-** xref:Cassandra:cassandra:vector-search/quickstarts.adoc[Quickstarts]
-** xref:Cassandra:cassandra:vector-search/vector-search-working-with.adoc[Working with Vector Search]
-* xref:integration-patterns.adoc[Application Patterns]
-* xref:troubleshooting.adoc[Developer Troubleshooting]

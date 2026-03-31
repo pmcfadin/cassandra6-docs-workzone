@@ -1,86 +1,158 @@
-= Client drivers
+= Choose a Driver
 
-Here are known Cassandra client drivers organized by language. Before
-choosing a driver, you should verify the Cassandra version and
-functionality supported by a specific driver.
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
 
-== Java
+Cassandra drivers handle the details that matter most to application reliability: connection pooling, query routing, token-aware load balancing, prepared statement caching, automatic paging through large result sets, and retry logic.
+Picking the right driver for your language and workload will save significant integration effort.
 
-* https://github.com/apache/cassandra-java-driver[Java Driver for Apache Cassandra]
+See xref:quickstart.adoc[Developer Quickstart] to get a running Cassandra instance before wiring up a driver.
 
-== Python
+== Recommended Drivers by Language
 
-* https://github.com/datastax/python-driver[Datastax Python driver]
-* https://github.com/axonops/async-python-cassandra-client[Async Python Cassandra Client]
+=== Java
 
-== Ruby
+https://github.com/apache/cassandra-java-driver[Apache Cassandra Java Driver] (apache/cassandra-java-driver) is the official Apache project driver.
+It is the most feature-complete driver available, covers all Cassandra protocol versions, and is maintained by contributors who also work on the server.
+Use it for any JVM-based application (Java, Kotlin, Groovy).
 
-* https://github.com/datastax/ruby-driver[Datastax Ruby driver]
+=== Python
 
-== C# / .NET
+https://github.com/datastax/python-driver[DataStax Python Driver] (datastax/python-driver) is the most widely used Python driver.
+It supports synchronous and async I/O, prepared statements, and token-aware routing.
+The https://github.com/axonops/async-python-cassandra-client[Async Python Cassandra Client] is an alternative if you need a purely asyncio-native interface.
 
-* https://github.com/datastax/csharp-driver[Datastax C# driver]
+=== Go
 
-== Nodejs
+https://github.com/gocql/gocql[gocql] (gocql/gocql) is the community-standard Go driver.
+It is well-maintained, widely deployed, and integrates with the Cassandra native protocol directly.
+Use it for microservices and cloud-native Go workloads.
 
-* https://github.com/datastax/nodejs-driver[Datastax Nodejs driver]
+=== Node.js
 
-== JDBC
+https://github.com/datastax/nodejs-driver[DataStax Node.js Driver] (datastax/nodejs-driver) is the most complete Node.js driver.
+It supports all major driver features including speculative execution, automatic paging, and prepared statements.
 
-* https://github.com/ing-bank/cassandra-jdbc-wrapper[Cassandra JDBC Wrapper]
+=== Rust
 
-== PHP
+https://github.com/scylladb/scylla-rust-driver[scylla-rust-driver] (scylladb/scylla-rust-driver) is an async Rust driver that works with both Scylla and Apache Cassandra.
+It is actively developed and well-suited for high-throughput, low-latency Rust services.
 
-* https://github.com/datastax/php-driver/[Datastax PHP driver]
+=== C#/.NET
 
-== C++
+https://github.com/datastax/csharp-driver[DataStax C# Driver] (datastax/csharp-driver) is the primary .NET driver.
+It targets .NET Standard and supports async/await patterns, LINQ integration, and object mapping.
 
-* https://github.com/datastax/cpp-driver[Datastax C++ driver]
+== Feature Matrix
 
-== Scala
+[cols="1,2,1,1,1,1,1,1", options="header"]
+|===
+| Language | Driver | Maintainer | Prepared Statements | Async API | Auto Paging | Token-Aware Routing | Speculative Execution
 
-* https://github.com/datastax/spark-cassandra-connector[Datastax Spark
-connector]
-* https://github.com/newzly/phantom[Phantom]
-* https://github.com/getquill/quill[Quill]
+| Java
+| https://github.com/apache/cassandra-java-driver[cassandra-java-driver]
+| Apache
+| Yes
+| Yes
+| Yes
+| Yes
+| Yes
 
-== Clojure
+| Python
+| https://github.com/datastax/python-driver[python-driver]
+| DataStax
+| Yes
+| Yes
+| Yes
+| Yes
+| Yes
 
-* https://github.com/mpenet/alia[Alia]
-* https://github.com/clojurewerkz/cassaforte[Cassaforte]
-* https://github.com/mpenet/hayt[Hayt]
+| Go
+| https://github.com/gocql/gocql[gocql]
+| Community
+| Yes
+| Yes
+| Yes
+| Yes
+| No
 
-== Erlang
+| Node.js
+| https://github.com/datastax/nodejs-driver[nodejs-driver]
+| DataStax
+| Yes
+| Yes
+| Yes
+| Yes
+| Yes
 
-* https://github.com/matehat/cqerl[CQerl]
-* https://github.com/silviucpp/erlcass[Erlcass]
+| C#/.NET
+| https://github.com/datastax/csharp-driver[csharp-driver]
+| DataStax
+| Yes
+| Yes
+| Yes
+| Yes
+| Yes
 
-== Go
+| Rust
+| https://github.com/scylladb/scylla-rust-driver[scylla-rust-driver]
+| ScyllaDB
+| Yes
+| Yes
+| Yes
+| Yes
+| No
+|===
 
-* https://github.com/gocql/gocql[GoCQL]
+== Which Driver Should I Use?
 
-== Haskell
+Not sure where to start? Use these rules of thumb:
 
-* https://github.com/ozataman/cassy[Cassy]
+* **New to Cassandra?** Start with the Java or Python driver. Both have the best documentation, the most examples online, and the largest communities answering questions.
+* **Building microservices or cloud-native services?** Go (gocql) and Rust (scylla-rust-driver) have minimal footprints and excellent async performance.
+* **Enterprise .NET shop?** The DataStax C# driver supports .NET Standard and integrates with common enterprise patterns.
+* **Full-stack JavaScript?** The DataStax Node.js driver covers both backend Node.js services and server-side rendering frameworks.
+* **JVM but not Java?** The Java driver works from any JVM language. Kotlin and Scala users often wrap it directly.
 
-== Rust
+For data modeling guidance before writing driver code, see xref:data-modeling/index.adoc[Data Modeling].
 
-* https://github.com/neich/rust-cql[Rust CQL]
+== What to Look For in a Driver
 
-== Perl
+When evaluating any driver — including community drivers not listed here — check for:
 
-* https://github.com/tvdw/perl-dbd-cassandra[Cassandra::Client and
-DBD::Cassandra]
+* **Active maintenance and release cadence** — look for recent commits, tagged releases, and a responsive issue tracker. A driver that has not been updated in two or more years may lag behind Cassandra protocol changes.
+* **Cassandra version compatibility** — confirm the driver supports the native protocol version your cluster uses. Cassandra 6 introduces new protocol features; verify the driver changelog explicitly calls out compatibility.
+* **Connection pooling and load balancing** — production workloads require per-host connection pools and a load balancing policy that respects data-center locality.
+* **Retry and speculative execution** — transient failures and tail latency are inevitable. Drivers with configurable retry policies and speculative execution allow you to tune resilience without changing application code.
+* **Community size and documentation quality** — a driver with an active forum presence, Stack Overflow answers, and maintained documentation is easier to debug when things go wrong.
 
-== Elixir
+== Community and Additional Drivers
 
-* https://github.com/lexhide/xandra[Xandra]
-* https://github.com/matehat/cqex[CQEx]
+The following drivers cover additional languages and runtimes.
+They are community-maintained and listed here for discoverability, not as primary recommendations.
 
-== Dart
+* **Ruby** -- https://github.com/datastax/ruby-driver[DataStax Ruby Driver]
+* **PHP** -- https://github.com/datastax/php-driver[DataStax PHP Driver]
+* **C++** -- https://github.com/datastax/cpp-driver[DataStax C++ Driver]
+* **JDBC** -- https://github.com/ing-bank/cassandra-jdbc-wrapper[Cassandra JDBC Wrapper] (use with Java applications that require a JDBC interface)
+* **Scala** -- https://github.com/datastax/spark-cassandra-connector[Spark Cassandra Connector], https://github.com/newzly/phantom[Phantom], https://github.com/getquill/quill[Quill]
+* **Clojure** -- https://github.com/mpenet/alia[Alia], https://github.com/clojurewerkz/cassaforte[Cassaforte]
+* **Erlang** -- https://github.com/matehat/cqerl[CQerl], https://github.com/silviucpp/erlcass[Erlcass]
+* **Elixir** -- https://github.com/lexhide/xandra[Xandra], https://github.com/matehat/cqex[CQEx]
+* **Haskell** -- https://github.com/ozataman/cassy[Cassy]
+* **Perl** -- https://github.com/tvdw/perl-dbd-cassandra[Cassandra::Client and DBD::Cassandra]
+* **Dart** -- https://github.com/achilleasa/dart_cassandra_cql[dart_cassandra_cql]
+* **Swift** -- https://github.com/apple/swift-cassandra-client[Swift Driver for Apache Cassandra]
 
-* https://github.com/achilleasa/dart_cassandra_cql[dart_cassandra_cql]
+== Getting Help
 
-== Swift
+Driver-specific issues are best handled through the driver's own channels:
 
-* https://github.com/apple/swift-cassandra-client[Swift Driver for Apache Cassandra]
+* **GitHub Issues** -- open an issue in the driver's repository for bugs, feature requests, and compatibility questions. Link your Cassandra version and driver version in the report.
+* **ASF Mailing Lists** -- the https://lists.apache.org/list.html?user@cassandra.apache.org[user@cassandra.apache.org] list covers general usage questions including driver integration.
+* **Stack Overflow** -- the https://stackoverflow.com/questions/tagged/cassandra[cassandra] and https://stackoverflow.com/questions/tagged/cql[cql] tags have broad community coverage for driver integration patterns.
+* **Driver documentation** -- each recommended driver above maintains its own Getting Started guide and API reference; these are the most authoritative source for driver-specific configuration options.
+
+For application-level troubleshooting, see xref:troubleshooting.adoc[Developer Troubleshooting].

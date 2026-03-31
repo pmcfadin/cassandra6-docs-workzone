@@ -1,0 +1,233 @@
+= Production Readiness Checklist
+:description: A checklist of application-side concerns to address before deploying your Cassandra-backed application to production, covering driver configuration, data model validation, and operational preparation.
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Before deploying your Cassandra-backed application to production, work through this checklist.
+It covers the application-side concerns that cause incidents: driver configuration, data model validation, consistency reasoning, monitoring, and pre-launch testing.
+Operator-side concerns (cluster sizing, replication topology, hardware) are outside this checklist's scope.
+
+== Driver Configuration
+
+Misconfigured drivers are one of the most common causes of production incidents with Cassandra.
+Review each item before go-live.
+
+=== Connection Pooling
+
+* [ ] Connection pooling is configured explicitly — defaults are not tuned for production workloads
+* [ ] Pool size is sized to your concurrency requirements, not left at the driver default
+
+[source,java]
+----
+// Java (Apache Cassandra Java Driver)
+DriverConfigLoader loader = DriverConfigLoader.programmaticBuilder()
+    .withInt(DefaultDriverOption.CONNECTION_POOL_LOCAL_SIZE, 4)
+    .withInt(DefaultDriverOption.CONNECTION_POOL_REMOTE_SIZE, 2)
+    .build();
+----
+
+[source,python]
+----
+# Python (DataStax Python Driver)
+cluster = Cluster(
+    ['host1', 'host2'],
+    executor_threads=4  # Adjust to your workload
+)
+----
+
+=== Request Timeouts
+
+* [ ] Read timeout set to match your expected query latency profile
+* [ ] Write timeout set appropriately for your write path complexity
+* [ ] Connection timeout is not so short that it causes spurious failures on high-latency networks
+
+[source,java]
+----
+// Java (Apache Cassandra Java Driver)
+DriverConfigLoader loader = DriverConfigLoader.programmaticBuilder()
+    .withDuration(DefaultDriverOption.REQUEST_TIMEOUT, Duration.ofSeconds(5))
+    .withDuration(DefaultDriverOption.CONNECTION_CONNECT_TIMEOUT, Duration.ofSeconds(5))
+    .build();
+----
+
+[source,python]
+----
+# Python (DataStax Python Driver)
+cluster = Cluster(
+    connect_timeout=5,
+    control_connection_timeout=5
+)
+session.default_timeout = 5.0
+----
+
+=== Retry Policy
+
+* [ ] Retry policy chosen deliberately, not left at the driver default
+* [ ] Idempotent operations are marked idempotent so the driver can retry them safely
+* [ ] Non-idempotent writes are not retried automatically
+
+[TIP]
+====
+See xref:guides/retries-and-idempotence.adoc[Retries and Idempotence] for a full explanation of idempotency in Cassandra and how it interacts with retry policies.
+====
+
+=== Load Balancing
+
+* [ ] Load balancing policy is set to DC-aware + token-aware (not round-robin across all DCs)
+* [ ] Local datacenter is explicitly named so the driver does not route requests to remote DCs under normal conditions
+
+[source,java]
+----
+// Java (Apache Cassandra Java Driver)
+CqlSession session = CqlSession.builder()
+    .withLocalDatacenter("dc1")
+    .build();
+----
+
+[source,python]
+----
+# Python (DataStax Python Driver)
+from cassandra.policies import DCAwareRoundRobinPolicy, TokenAwarePolicy
+
+cluster = Cluster(
+    load_balancing_policy=TokenAwarePolicy(
+        DCAwareRoundRobinPolicy(local_dc='dc1')
+    )
+)
+----
+
+=== Speculative Execution
+
+* [ ] Speculative execution is configured for latency-sensitive reads where tail latency matters
+* [ ] Speculative execution delay is tuned to your p99 read latency, not set arbitrarily
+
+[IMPORTANT]
+====
+Speculative execution sends the same read to a second replica if the first does not respond within the threshold delay.
+It reduces tail latency at the cost of slightly increased read traffic.
+Only enable it for idempotent reads.
+====
+
+=== Connection Health
+
+* [ ] Heartbeat/keepalive is enabled for long-lived connections so idle connections are detected and recycled
+* [ ] Reconnection policy is configured to recover gracefully after a node outage
+
+=== Prepared Statements
+
+* [ ] All hot-path queries use prepared statements (not inline CQL strings)
+* [ ] Prepared statement caching is verified — no repeated prepare-on-every-request patterns
+* [ ] Driver version is confirmed to support Cassandra 6 protocol features you are using
+
+== Data Model Validation
+
+Schema problems that are hard to fix in production are far easier to catch before launch.
+
+=== Partition Design
+
+* [ ] Every table has a well-chosen partition key that distributes load evenly across the ring
+* [ ] No unbounded partition growth patterns — partitions with no natural size ceiling are a reliability risk
+* [ ] Partition size estimates are within safe bounds (under 100 MB per partition is a common guideline; validate with your actual data volume)
+
+[TIP]
+====
+Use `nodetool tablehistograms <keyspace> <table>` on a loaded staging cluster to inspect partition size distribution before go-live.
+====
+
+=== Clustering and Query Alignment
+
+* [ ] Clustering columns match your query ordering requirements
+* [ ] Queries that filter on non-partition-key columns have an SAI index or are restructured to avoid full scans
+* [ ] No reliance on `ALLOW FILTERING` in production queries
+
+[IMPORTANT]
+====
+`ALLOW FILTERING` forces a full partition scan.
+It is acceptable for ad-hoc queries against small datasets, but it will degrade under production load.
+====
+
+=== Data Lifecycle
+
+* [ ] TTL is configured on tables where data has a natural expiration (event logs, session data, time-series windows)
+* [ ] Compaction strategy matches your workload:
+** `STCS` for write-heavy workloads with infrequent reads
+** `LCS` for read-heavy workloads requiring predictable read latency
+** `TWCS` for time-series data with rolling TTLs
+** `UCS` (Unified Compaction Strategy, Cassandra 5+) as a flexible alternative
+
+=== Indexes and Constraints
+
+* [ ] SAI indexes are placed on columns with sufficient cardinality to be selective
+* [ ] Schema constraints enforce critical data integrity rules (see xref:cql/constraints.adoc[CQL Constraints])
+* [ ] Index coverage matches your actual production query patterns, not just development queries
+
+== Consistency Level Verification
+
+Consistency level mismatches are silent in development and catastrophic in production.
+
+* [ ] Read and write consistency levels are chosen explicitly per query type, not left at driver defaults
+* [ ] Where strong consistency is required: `read_CL + write_CL > RF`
+** Example for RF=3: `LOCAL_QUORUM` (2) + `LOCAL_QUORUM` (2) = 4 > 3
+* [ ] Eventual consistency is explicitly accepted only where your application can tolerate stale reads
+* [ ] Multi-datacenter deployments use `LOCAL_*` consistency levels to avoid cross-DC latency on the hot path
+
+[TIP]
+====
+See xref:guides/consistency-choices.adoc[Choosing Consistency Levels] for a full treatment of consistency level combinations, tradeoffs, and use-case recommendations.
+====
+
+== Monitoring and Observability
+
+Production incidents that lack observability are much harder to diagnose and resolve.
+
+=== Driver Metrics
+
+* [ ] Driver metrics are exported to your monitoring system (latency histograms, error rates, connection pool utilization, retry counts)
+* [ ] Application-level Cassandra dashboards are created and reviewed before launch
+* [ ] Alerting is configured on error rates and latency thresholds
+
+=== Cluster-Side Observability
+
+* [ ] Slow query monitoring is enabled — use Cassandra 6 virtual tables or driver-level tracing to surface slow queries
+* [ ] Request tracing is available and documented for debugging specific query issues
+* [ ] Operators have dashboards covering node-level metrics (see xref:operators::observe/metrics.adoc[Metrics])
+
+[NOTE]
+====
+A full observability guide covering dashboard templates, virtual table queries, and alerting thresholds is planned for Phase 4.3 of this documentation project.
+====
+
+== Pre-Launch Testing
+
+Testing with realistic patterns before launch is the most effective way to surface production issues.
+
+=== Load Testing
+
+* [ ] Load testing performed with realistic query patterns and data volumes
+* [ ] Load test results reviewed for latency percentiles (p50, p99, p999), not just averages
+* [ ] Connection pool saturation checked under peak simulated load
+
+=== Failure Scenario Testing
+
+* [ ] Node-down behavior tested: kill a node in staging, verify the driver reconnects and queries succeed at the configured consistency level
+* [ ] Network partition behavior tested if your deployment spans multiple DCs
+* [ ] Driver reconnection recovery verified after node restart
+
+=== Schema and Deployment
+
+* [ ] Schema migrations tested in a staging environment that mirrors production topology
+* [ ] Schema migration order is documented and reproducible (see xref:guides/schema-migrations.adoc[Managing Schema Changes])
+* [ ] Rollback plan documented: know what you will do if the deployment needs to be reversed
+* [ ] Application startup behavior tested against an empty keyspace and against a keyspace with existing data
+
+== Related Pages
+
+* xref:drivers.adoc[Choose a Driver] — driver selection and feature comparison
+* xref:guides/consistency-choices.adoc[Choosing Consistency Levels] — consistency level tradeoffs and use-case recommendations
+* xref:guides/retries-and-idempotence.adoc[Retries and Idempotence] — retry policy design and idempotency
+* xref:guides/schema-migrations.adoc[Managing Schema Changes] — safe schema evolution patterns
+* xref:troubleshooting.adoc[Developer Troubleshooting] — common errors and how to resolve them
+* xref:data-modeling/index.adoc[Data Modeling] — partition key design and query-first modeling

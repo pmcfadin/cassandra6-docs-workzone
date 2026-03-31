@@ -1,0 +1,379 @@
+= Client-Side Observability
+:description: What to monitor from your application when running Cassandra in production, including driver metrics, slow-query detection, request tracing, alerting, and integration with Prometheus, OpenTelemetry, and commercial observability stacks.
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Your Cassandra cluster exposes server-side metrics through JMX, virtual tables, and system keyspaces.
+Those metrics tell you what the cluster is doing.
+They do not tell you what your application is experiencing.
+Client-side observability fills that gap: it measures latency, errors, and connection health from the application's point of view, which is the only perspective that reflects what your users actually see.
+
+This guide covers what to instrument, how to configure it in Java and Python drivers, and how to wire your metrics into common observability stacks.
+
+== Driver Metrics to Expose
+
+The following metrics provide the highest signal-to-noise ratio for production operations.
+Start with latency and error rate; add the others as your observability practice matures.
+
+=== Request Latency
+
+Track p50, p95, and p99 latency for executed statements.
+P99 is the most operationally important: it reveals tail latency that averages hide.
+A p99 above your SLA threshold is an actionable signal even when p50 looks healthy.
+
+=== Error Rate by Type
+
+Errors from the Cassandra driver are not all equivalent.
+Track them separately so you can route alerts to the right team:
+
+* **Timeouts** (read and write) -- the cluster was too slow or unavailable long enough for the driver to give up
+* **Unavailable errors** -- not enough replicas were reachable to satisfy the consistency level
+* **Read/write failures** -- replicas responded with failure (data corruption, disk errors, or similar)
+* **Client errors** -- bad CQL, schema mismatch, or application bugs
+
+=== Connection Pool Usage
+
+Each driver maintains a pool of connections to each node.
+Track:
+
+* **Open connections** -- total active connections per node
+* **Available streams** (per connection) -- remaining request capacity before backpressure
+* **Connections borrowed / returned** -- throughput through the pool
+
+A connection pool running near capacity is a leading indicator of throughput limits.
+
+=== Retry Count
+
+Every automatic retry is a sign that something went wrong on the first attempt.
+Track retries separately from errors: a high retry rate with a low error rate means the driver is recovering silently, which may mask a cluster problem.
+
+=== Speculative Execution Count
+
+Speculative executions fire when the primary request is too slow.
+A rising speculative execution rate indicates p99 latency is degrading on individual nodes, even if overall latency looks acceptable.
+
+[TIP]
+====
+Expose all five metric groups from day one, even if you only alert on two.
+Cheap to collect; expensive to add retroactively when an incident has already started.
+====
+
+=== Java: Enabling Micrometer Metrics
+
+The Apache Cassandra Java Driver supports Micrometer natively.
+Pass a `MicrometerMetricRegistry` at session build time:
+
+[source,java]
+----
+import com.datastax.oss.driver.api.core.CqlSession;
+import com.datastax.oss.driver.internal.metrics.micrometer.MicrometerMetricRegistry;
+import io.micrometer.core.instrument.MeterRegistry;
+
+MeterRegistry meterRegistry = ...; // your application's MeterRegistry
+
+CqlSession session = CqlSession.builder()
+    .withMetricRegistry(new MicrometerMetricRegistry(meterRegistry))
+    .build();
+----
+
+Enable specific metrics in `application.conf` or programmatically:
+
+[source,hocon]
+----
+datastax-java-driver.advanced.metrics {
+  session.enabled = [
+    connected-nodes,
+    cql-requests,
+    cql-client-timeouts
+  ]
+  node.enabled = [
+    pool.open-connections,
+    pool.available-streams,
+    pool.in-flight,
+    errors.request.timeouts,
+    errors.request.read-timeouts,
+    errors.request.write-timeouts,
+    errors.request.unavailables,
+    retries.total,
+    speculative-executions
+  ]
+}
+----
+
+=== Python: Collecting Driver Metrics
+
+The DataStax Python driver exposes metrics through `Session.get_metrics()` and through `ResponseFuture` callbacks.
+Use execution profiles to attach timing instrumentation:
+
+[source,python]
+----
+from cassandra.cluster import Cluster
+from cassandra.policies import ExecutionProfile, EXEC_PROFILE_DEFAULT
+import time
+
+# Wrap execute() to record timing
+class InstrumentedSession:
+    def __init__(self, session, metrics_client):
+        self._session = session
+        self._metrics = metrics_client
+
+    def execute(self, statement, *args, **kwargs):
+        start = time.perf_counter()
+        try:
+            result = self._session.execute(statement, *args, **kwargs)
+            self._metrics.record_latency(time.perf_counter() - start)
+            return result
+        except Exception as exc:
+            self._metrics.record_error(type(exc).__name__)
+            raise
+
+# Access built-in driver metrics
+metrics = session.get_metrics()
+print(f"Requests: {metrics.request_timer.count}")
+print(f"Connection errors: {metrics.connection_errors.count}")
+----
+
+[NOTE]
+====
+The Python driver's built-in `get_metrics()` provides cumulative counters.
+For time-windowed rates and histograms, wrap the session with a metrics client such as Prometheus's `python_client` or Datadog's `ddtrace`.
+====
+
+== Slow-Query Detection
+
+Slow queries cause both latency spikes and cascading load.
+Cassandra 6 offers two complementary ways to find them.
+
+=== Cassandra 6 Slow-Query Virtual Table
+
+Cassandra 6 exposes recent slow queries in a server-side virtual table.
+This captures queries that were slow from the server's perspective, regardless of which client issued them:
+
+[source,sql]
+----
+SELECT * FROM system_views.slow_queries;
+----
+
+The table includes the query text, coordinator node, total duration, and timestamp.
+It is useful for ad hoc investigation and for identifying patterns across all clients.
+
+See xref:operators::observe/virtualtables.adoc[Virtual Tables] for the full schema and configuration options.
+
+=== Driver-Side Request Tracing
+
+Driver tracing captures execution detail at the per-request level, including the coordinator and replica nodes contacted, round-trip times per node, and where time was spent.
+Enable it selectively on specific statements:
+
+[source,java]
+----
+import com.datastax.oss.driver.api.core.cql.SimpleStatement;
+import com.datastax.oss.driver.api.core.cql.ResultSet;
+import com.datastax.oss.driver.api.core.cql.ExecutionInfo;
+import com.datastax.oss.driver.api.core.tracker.QueryTrace;
+
+SimpleStatement stmt = SimpleStatement
+    .newInstance("SELECT * FROM orders WHERE customer_id = ?", customerId)
+    .setTracing(true);
+
+ResultSet rs = session.execute(stmt);
+ExecutionInfo info = rs.getExecutionInfo();
+QueryTrace trace = info.getQueryTrace();
+
+System.out.printf("Trace ID: %s%n", trace.getTraceId());
+trace.getEvents().forEach(event ->
+    System.out.printf("[%s] %s on %s%n",
+        event.getTimestamp(), event.getActivity(), event.getSource()));
+----
+
+=== When to Use Each Approach
+
+[cols="1,2,2", options="header"]
+|===
+| Approach | Best for | Avoid when
+
+| Slow-query virtual table
+| Cluster-wide slow query audit; ops team investigation; identifying rogue queries from any client
+| High-frequency polling from application code; real-time alerting
+
+| Driver request tracing
+| Diagnosing a specific query or code path; comparing execution across coordinator nodes
+| Production default-on; high-QPS paths (tracing adds non-trivial overhead)
+|===
+
+[WARNING]
+====
+Do not enable `setTracing(true)` as a default on all requests in production.
+Tracing writes events to the `system_traces` keyspace, which adds latency and generates significant write load at scale.
+Use it on a sampled subset or enable it dynamically for specific troubleshooting sessions.
+====
+
+== Request Tracing and Distributed Trace Correlation
+
+Driver traces become more useful when correlated with your application's distributed trace context.
+
+=== Correlating Trace IDs in Application Logs
+
+The Java driver returns a `traceId` UUID for each traced request.
+Log it alongside your application's own trace or request ID:
+
+[source,java]
+----
+QueryTrace trace = info.getQueryTrace();
+logger.info("cassandra_trace_id={} app_request_id={} query_duration_ms={}",
+    trace.getTraceId(),
+    appContext.getRequestId(),
+    trace.getDurationMicros() / 1000);
+----
+
+This lets you locate the Cassandra trace in `system_traces.sessions` when investigating a specific application request after the fact.
+
+=== OpenTelemetry Integration
+
+The Java driver can emit spans into an OpenTelemetry trace context.
+Add the `java-driver-opentelemetry` integration and configure a span publisher:
+
+[source,java]
+----
+// Add the OTel extension to your driver dependencies:
+// com.datastax.oss:java-driver-opentelemetry:<version>
+
+CqlSession session = CqlSession.builder()
+    .withConfigLoader(DriverConfigLoader.programmaticBuilder()
+        .withBoolean(DefaultDriverOption.MONITOR_REPORTING_ENABLED, true)
+        .build())
+    .addRequestTracker(
+        new OpenTelemetryRequestTracker(openTelemetry, "cassandra"))
+    .build();
+----
+
+Each CQL request becomes a child span of the current trace context.
+The span includes the query text, consistency level, coordinator node, and outcome.
+
+[TIP]
+====
+Pass `session.execute()` calls inside an active OpenTelemetry span to automatically attach Cassandra latency as a child span.
+This makes Cassandra time visible in distributed traces without any manual span creation.
+====
+
+== Key Alerts for Application Teams
+
+Start with two alerts and add the rest only when you have baseline data to set thresholds.
+
+=== Alert: Request Latency p99 Exceeds SLA Threshold
+
+The most important alert.
+Set the threshold to your application's SLA, not a generic value.
+If your SLA is 100 ms, alert at 80 ms to give time to react.
+
+----
+cassandra_cql_requests_seconds{quantile="0.99"} > 0.080
+----
+
+=== Alert: Error Rate Exceeds Baseline
+
+Track the error rate as a fraction of total requests, not an absolute count.
+Alert when the rate rises above a percentage you establish during normal operation.
+
+----
+rate(cassandra_cql_client_timeouts_total[5m]) /
+rate(cassandra_cql_requests_total[5m]) > 0.01
+----
+
+=== Alert: Connection Pool Exhaustion
+
+When available streams per connection drops to zero, new requests queue or fail immediately.
+Alert before exhaustion, not after.
+
+=== Alert: Excessive Retry Rate
+
+A retry rate above a few percent of total requests indicates a systemic problem.
+Silent retries hide cluster issues that should be escalated.
+
+=== Alert: Tombstone Warnings
+
+A query touching many tombstones will eventually fail with a `TombstoneOverwhelmingException`.
+The driver logs a warning before that threshold is reached.
+Route those warnings to your alerting system.
+
+[NOTE]
+====
+Resist the urge to page on every alert immediately.
+Start with latency p99 and error rate.
+Tune thresholds for your workload before adding the others.
+Alert fatigue from poorly-tuned thresholds causes real incidents to be ignored.
+====
+
+== Integration with Observability Stacks
+
+=== Prometheus and Grafana
+
+The Java driver's Micrometer registry integrates directly with the Prometheus Micrometer registry.
+Add the Prometheus registry to your application and expose the scrape endpoint:
+
+[source,java]
+----
+import io.micrometer.prometheus.PrometheusConfig;
+import io.micrometer.prometheus.PrometheusMeterRegistry;
+
+PrometheusMeterRegistry prometheusRegistry =
+    new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
+
+CqlSession session = CqlSession.builder()
+    .withMetricRegistry(new MicrometerMetricRegistry(prometheusRegistry))
+    .build();
+
+// Expose metrics at /metrics for Prometheus to scrape
+httpServer.addRoute("/metrics", req ->
+    prometheusRegistry.scrape());
+----
+
+Add a `prometheus.yml` scrape config targeting your application's metrics endpoint.
+Use the community Cassandra driver Grafana dashboard as a starting point; customize thresholds for your workload.
+
+=== OpenTelemetry
+
+Instrument the driver with the OpenTelemetry Micrometer bridge to send metrics to any OTel-compatible backend (Jaeger, Tempo, Honeycomb, and others):
+
+[source,java]
+----
+import io.micrometer.registry.otlp.OtlpMeterRegistry;
+
+OtlpMeterRegistry otlpRegistry = new OtlpMeterRegistry();
+
+CqlSession session = CqlSession.builder()
+    .withMetricRegistry(new MicrometerMetricRegistry(otlpRegistry))
+    .build();
+----
+
+Configure the OTLP exporter endpoint via environment variable:
+
+[source,bash]
+----
+OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318 \
+OTEL_SERVICE_NAME=my-service \
+java -jar app.jar
+----
+
+=== Datadog and New Relic
+
+Both Datadog and New Relic provide Micrometer registry implementations.
+Replace `PrometheusMeterRegistry` in the example above with `DatadogMeterRegistry` or `NewRelicMeterRegistry` and configure the appropriate API key and endpoint.
+The driver metric names and tags are consistent across all Micrometer backends.
+
+[TIP]
+====
+Micrometer's vendor-neutral API means you can switch observability backends without changing driver configuration or metric collection code.
+Pick the backend that matches your organization's existing tooling.
+====
+
+== Related Pages
+
+* xref:guides/retries-and-idempotence.adoc[Retries and Idempotence] -- how retry policies interact with error rates and retry metrics
+* xref:drivers.adoc[Choose a Driver] -- driver-specific configuration and supported features
+* xref:troubleshooting.adoc[Developer Troubleshooting] -- diagnosing timeout and connection errors
+* xref:cql/indexing/sai/operations/monitoring.adoc[SAI Monitoring] -- server-side secondary index metrics
+* xref:operators::observe/metrics.adoc[Cluster Metrics] -- server-side JMX and virtual table metrics for operators
+* xref:operators::observe/virtualtables.adoc[Virtual Tables] -- querying Cassandra's built-in observability views

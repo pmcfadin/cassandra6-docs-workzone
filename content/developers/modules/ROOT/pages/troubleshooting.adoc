@@ -95,8 +95,200 @@ For production, see the xref:cql/dml.adoc[DML documentation] for consistency lev
 Accord transactions require `TransactionalMode` to be enabled on the table.
 See xref:operators::upgrade/onboarding-to-accord.adoc[Onboarding to Accord] for configuration details.
 
+== Hot Partition Detection and Resolution
+
+A hot partition occurs when one partition key receives a disproportionate share of reads or writes, overloading the replica nodes that own it while others remain idle.
+
+=== Symptoms
+
+* Uneven load distribution across nodes in `nodetool tpstats` or metrics dashboards
+* Slow queries on specific partition keys while the overall cluster appears healthy
+* Coordinator timeouts that correlate with a small set of table rows
+* One or two nodes consistently at higher CPU or disk utilization than peers
+
+=== How to Detect
+
+Use `nodetool tablehistograms` to inspect partition size and latency distributions for a specific table:
+
+[source,bash]
+----
+nodetool tablehistograms <keyspace> <table>
+----
+
+Look at the partition size percentiles. If the 99th percentile is orders of magnitude larger than the median, you likely have hot partitions.
+
+Enable driver-level request tracing to identify which partition keys appear repeatedly in slow queries:
+
+[source,sql]
+----
+TRACING ON;
+SELECT * FROM orders WHERE customer_id = 12345;
+----
+
+You can also estimate partition sizes directly from system tables:
+
+[source,sql]
+----
+SELECT partition_key, estimated_partition_size_in_bytes
+FROM system.sstable_statistics
+WHERE keyspace_name = 'my_keyspace'
+  AND table_name = 'my_table';
+----
+
+NOTE: `system.sstable_statistics` reflects data as of the last compaction. Values are estimates; use `nodetool tablehistograms` for live distribution data.
+
+=== Resolution
+
+* **Redesign the partition key** to distribute traffic more evenly (see xref:data-modeling/index.adoc[Data Modeling])
+* **Add a time bucket** to partition keys for time-series data (e.g., append `YYYYMM` to the key) so data spreads across many partitions over time
+* **Shard large entities** by appending a shard suffix (e.g., `user_id + shard_number`) and querying all shards from the application layer
+
+WARNING: Adding `ALLOW FILTERING` or secondary indexes on a hot partition does not resolve the underlying load imbalance. Fix the data model first.
+
+== Tombstone-Heavy Query Diagnosis
+
+Tombstones are deletion markers that Cassandra must scan during reads before compaction removes them. A high tombstone-to-live-row ratio dramatically slows reads.
+
+=== Symptoms
+
+* Slow read latencies on tables with frequent deletes or TTL-based expiration
+* Log warnings: `Read X live rows and Y tombstones` in `system.log`
+* Driver-side `ReadTimeoutException` on queries that were previously fast
+* Degraded read performance after batch deletes or large-scale TTL expirations
+
+=== Why It Happens
+
+* Heavy application-level deletes leave tombstones until the next compaction
+* Expired TTLs accumulate as tombstone cells before compaction runs
+* Range queries that span deleted data must scan every tombstone in the range
+
+=== How to Detect
+
+Set thresholds in `cassandra.yaml` to log warnings and halt runaway reads:
+
+[source,yaml]
+----
+# cassandra.yaml
+tombstone_warn_threshold: 1000     # log a warning when exceeded
+tombstone_failure_threshold: 100000  # abort the query when exceeded
+----
+
+After restarting (or applying via `nodetool reloadlocalschema` on supported builds), queries that exceed these limits will appear in `system.log` with the table name and partition key.
+
+TIP: If you see tombstone warnings in driver traces, your data model may need range tombstones instead of individual deletes. A single range tombstone (`DELETE FROM t WHERE pk = ? AND ck >= ? AND ck <= ?`) is far cheaper to read past than thousands of cell-level tombstones.
+
+=== Resolution
+
+* **Adjust compaction strategy** -- `TWCS` (TimeWindowCompactionStrategy) is strongly preferred for time-series data with TTLs because it keeps tombstones and their target data in the same time window, enabling full-SSTable drops
+* **Narrow query ranges** -- avoid range scans across partitions with heavy deletes
+* **Redesign deletion patterns** -- prefer TTLs on writes over explicit deletes where possible, and batch deletes into time-bounded operations that compact cleanly
+
+== Read and Write Timeout Root Causes
+
+Timeouts fall into two categories: the coordinator could not collect enough responses from replicas within the deadline (read/write timeout), or not enough live replicas exist to even attempt the operation (unavailable). Understanding which category you are in shapes the fix.
+
+=== Read Timeout Causes
+
+* **Slow replicas** -- a replica node is overloaded, in a GC pause, or experiencing disk latency; the coordinator waits and eventually gives up
+* **Tombstone storms** -- too many tombstones scanned during a read (see <<Tombstone-Heavy Query Diagnosis>>)
+* **Large partition scans** -- reading a partition with millions of rows takes longer than the read timeout allows
+* **Cross-DC reads with high network latency** -- using `EACH_QUORUM` or a cross-DC consistency level adds round-trip time that may exceed the configured deadline
+
+=== Write Timeout Causes
+
+* **Slow commitlog disk** -- every write must be flushed to the commitlog before acknowledgment; a slow or saturated disk directly increases write latency
+* **Memtable pressure** -- if memtables cannot flush fast enough, write threads back off, causing cascading latency
+* **Hints accumulating** -- when a destination node is down, the coordinator writes hints to disk; if the node is down long enough, hint replay on recovery can spike write latency on the returning node
+
+=== What the Application Can Do
+
+* **Check consistency level** -- lowering from `QUORUM` to `LOCAL_QUORUM` or `ONE` reduces the number of replicas the coordinator must wait for (see xref:cql/dml.adoc[DML documentation])
+* **Enable speculative execution** in the driver -- the driver sends a second request to a different replica if the first does not respond within a threshold, hedging against a single slow replica
+* **Examine driver traces** -- enable per-query tracing to see exactly which replica was slow and at what stage
+
+TIP: Speculative execution is covered in the driver configuration documentation. See xref:drivers.adoc[Drivers] for driver-specific settings.
+
+== Coordinator Errors vs. Replica Errors
+
+The exception type returned by the driver tells you where in the request pipeline the failure occurred. Misreading the exception leads to the wrong fix.
+
+=== Exception Reference
+
+`NoHostAvailableException` / `AllNodesFailedException`::
+The coordinator could not establish a connection to any replica before attempting the query. The cluster may be unreachable from the application host, or all candidate replicas are down. This is a coordinator-side failure -- no query was sent.
+
+`UnavailableException`::
+The coordinator determined that not enough live replicas exist to satisfy the requested consistency level. *No attempt was made to execute the query.* This is a pre-flight check failure. Fix: reduce the consistency level, or bring nodes back online.
+
+`ReadTimeoutException`::
+Replicas were contacted but did not return the required number of responses within the read timeout. The query was attempted. Fix: investigate replica health, tombstones, or large partitions.
+
+`WriteTimeoutException`::
+Replicas were contacted for a write but did not acknowledge within the write timeout. The write *may or may not* have been applied on some replicas. Fix: investigate commitlog latency, memtable pressure, or replica health.
+
+=== Retry Semantics
+
+[cols="1,1,2", options="header"]
+|===
+| Exception | Safe to retry? | Notes
+
+| `NoHostAvailableException`
+| Yes, after backoff
+| Retry once the cluster is reachable; use exponential backoff
+
+| `UnavailableException`
+| Only at lower CL
+| Retrying at the same CL will fail again; lower the CL or wait for nodes
+
+| `ReadTimeoutException`
+| Yes (idempotent reads)
+| Reads are idempotent; retry is safe but may hit the same slow replica
+
+| `WriteTimeoutException`
+| Idempotent writes only
+| Non-idempotent writes (e.g. counters) must not be blindly retried; the write may have partially succeeded
+|===
+
+WARNING: Retrying a `WriteTimeoutException` on a non-idempotent operation can produce duplicate data. Use conditional writes (`IF NOT EXISTS`) or application-level deduplication where retry safety matters.
+
+== When to Escalate to Operators
+
+Not every Cassandra problem is a code or data-model issue. Use this decision guide to determine whether you can resolve the problem at the application layer or whether the cluster itself needs attention.
+
+=== Decision Guide
+
+Is the problem isolated to a specific query or table?::
+* Check the data model, consistency level, and tombstone counts.
+* This is a *developer problem* -- see the sections above.
+
+Are timeouts cluster-wide across multiple tables and applications?::
+* This is likely an operational issue (overloaded nodes, GC tuning, disk saturation).
+* *Escalate to operators.*
+
+Are specific nodes consistently slow while others are healthy?::
+* Likely hardware, JVM, or OS configuration issue on those nodes.
+* *Escalate to operators.*
+
+Does `nodetool describecluster` show schema disagreement?::
+* Schema agreement failure typically indicates network partitions or severely overloaded nodes preventing schema propagation.
+* *Escalate to operators.*
+
+Is the hints queue growing?::
+* One or more nodes are down or unreachable; the coordinator is accumulating hints.
+* Check `nodetool tpstats | grep HintedHandoff` and `nodetool info`.
+* *Escalate to operators* -- nodes need to be brought back or decommissioned.
+
+Is the problem limited to a single consistency level or a specific application?::
+* Likely a configuration or data-model issue scoped to that workload.
+* Adjust CL, retry policy, or speculative execution settings.
+* See xref:drivers.adoc[Drivers] and xref:production/readiness-checklist.adoc[Production Readiness].
+
+TIP: When escalating, provide the output of `nodetool status`, `nodetool tpstats`, and relevant excerpts from `system.log` so operators can triage quickly without back-and-forth.
+
 == Further Resources
 
 * xref:cql/cql_singlefile.adoc[CQL Language Reference] -- complete syntax documentation
 * xref:drivers.adoc[Drivers] -- driver-specific documentation and configuration
+* xref:production/readiness-checklist.adoc[Production Readiness] -- checklist for deploying applications against Cassandra
+* xref:guides/consistency-choices.adoc[Consistency Level Choices] -- selecting the right consistency level for your workload
 * xref:Cassandra:cassandra:troubleshooting/index.adoc[Cluster Troubleshooting] -- operator-focused troubleshooting for node and cluster issues

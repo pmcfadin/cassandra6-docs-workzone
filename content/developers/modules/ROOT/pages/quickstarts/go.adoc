@@ -1,0 +1,366 @@
+= Build a Go Application with Cassandra
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Connect a Go application to Cassandra, create a schema, and perform basic CRUD operations.
+Estimated time: ~10 minutes.
+
+== What You'll Build
+
+A simple user management application that demonstrates how to:
+
+* Connect to a Cassandra cluster using https://github.com/gocql/gocql[gocql]
+* Create a keyspace and table
+* Insert, query, update, and delete rows
+* Iterate over result sets with a scanner
+
+== Prerequisites
+
+* Go 1.21 or later
+* Docker (to run a local Cassandra node)
+
+== Start Cassandra
+
+Start a single-node Cassandra instance in Docker:
+
+[source,bash]
+----
+docker pull cassandra:latest
+docker run --name cassandra-go -d -p 9042:9042 cassandra:latest
+----
+
+Wait about 30 seconds for the node to initialize before connecting.
+You can confirm it is ready by running:
+
+[source,bash]
+----
+docker exec -it cassandra-go nodetool status
+----
+
+When the node shows status `UN` (Up/Normal), it is ready to accept connections.
+
+== Initialize Your Project
+
+Create a new Go module and install the gocql driver:
+
+[source,bash]
+----
+mkdir cassandra-quickstart && cd cassandra-quickstart
+go mod init cassandra-quickstart
+go get github.com/gocql/gocql
+----
+
+Create a file named `main.go` to hold the application.
+
+TIP: gocql uses token-aware routing by default for optimal performance.
+Queries are sent directly to the replica that owns the partition key, reducing inter-node hops.
+
+== Connect to Cassandra
+
+Add the following to `main.go` to establish a session:
+
+[source,go]
+----
+package main
+
+import (
+	"fmt"
+	"log"
+
+	"github.com/gocql/gocql"
+)
+
+func main() {
+	cluster := gocql.NewCluster("127.0.0.1")
+	cluster.Consistency = gocql.Quorum
+
+	session, err := cluster.CreateSession()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer session.Close()
+
+	fmt.Println("Connected to Cassandra!")
+}
+----
+
+Run it to verify the connection:
+
+[source,bash]
+----
+go run main.go
+----
+
+Expected output: `Connected to Cassandra!`
+
+== Create the Keyspace and Table
+
+Add a helper function to set up the schema.
+Call it from `main` after the session is opened:
+
+[source,go]
+----
+func setupSchema(session *gocql.Session) {
+	err := session.Query(`
+		CREATE KEYSPACE IF NOT EXISTS quickstart
+		WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}
+	`).Exec()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = session.Query(`
+		CREATE TABLE IF NOT EXISTS quickstart.users (
+			id    uuid PRIMARY KEY,
+			name  text,
+			email text
+		)
+	`).Exec()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println("Schema ready.")
+}
+----
+
+[source,go]
+----
+// Inside main(), after session.Close() is deferred:
+setupSchema(session)
+----
+
+== Insert Data
+
+Insert a row using a time-based UUID:
+
+[source,go]
+----
+func insertUser(session *gocql.Session, name, email string) gocql.UUID {
+	id := gocql.TimeUUID()
+
+	if err := session.Query(
+		"INSERT INTO quickstart.users (id, name, email) VALUES (?, ?, ?)",
+		id, name, email,
+	).Exec(); err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("Inserted user: %s (%s) with id %s\n", name, email, id)
+	return id
+}
+----
+
+Call `insertUser` from `main` to add a couple of users:
+
+[source,go]
+----
+insertUser(session, "Alice", "alice@example.com")
+insertUser(session, "Bob", "bob@example.com")
+----
+
+== Query Data
+
+Read all rows and scan each one into typed variables:
+
+[source,go]
+----
+func listUsers(session *gocql.Session) {
+	scanner := session.Query("SELECT id, name, email FROM quickstart.users").
+		Iter().Scanner()
+
+	for scanner.Next() {
+		var id gocql.UUID
+		var name, email string
+
+		if err := scanner.Scan(&id, &name, &email); err != nil {
+			log.Fatal(err)
+		}
+
+		fmt.Printf("User: %s (%s) — id: %s\n", name, email, id)
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Fatal(err)
+	}
+}
+----
+
+Call `listUsers(session)` from `main` after inserting rows to print them.
+
+== Update and Delete
+
+=== Update a Row
+
+[source,go]
+----
+func updateEmail(session *gocql.Session, id gocql.UUID, newEmail string) {
+	if err := session.Query(
+		"UPDATE quickstart.users SET email = ? WHERE id = ?",
+		newEmail, id,
+	).Exec(); err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("Updated email for %s to %s\n", id, newEmail)
+}
+----
+
+=== Delete a Row
+
+[source,go]
+----
+func deleteUser(session *gocql.Session, id gocql.UUID) {
+	if err := session.Query(
+		"DELETE FROM quickstart.users WHERE id = ?",
+		id,
+	).Exec(); err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("Deleted user %s\n", id)
+}
+----
+
+== Complete Application
+
+Here is the full `main.go` combining all steps:
+
+[source,go]
+----
+package main
+
+import (
+	"fmt"
+	"log"
+
+	"github.com/gocql/gocql"
+)
+
+func main() {
+	cluster := gocql.NewCluster("127.0.0.1")
+	cluster.Consistency = gocql.Quorum
+
+	session, err := cluster.CreateSession()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer session.Close()
+
+	fmt.Println("Connected to Cassandra!")
+
+	setupSchema(session)
+
+	alice := insertUser(session, "Alice", "alice@example.com")
+	insertUser(session, "Bob", "bob@example.com")
+
+	fmt.Println("\n-- All users --")
+	listUsers(session)
+
+	updateEmail(session, alice, "alice@updated.example.com")
+
+	fmt.Println("\n-- After update --")
+	listUsers(session)
+
+	deleteUser(session, alice)
+
+	fmt.Println("\n-- After delete --")
+	listUsers(session)
+}
+
+func setupSchema(session *gocql.Session) {
+	if err := session.Query(`
+		CREATE KEYSPACE IF NOT EXISTS quickstart
+		WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}
+	`).Exec(); err != nil {
+		log.Fatal(err)
+	}
+
+	if err := session.Query(`
+		CREATE TABLE IF NOT EXISTS quickstart.users (
+			id    uuid PRIMARY KEY,
+			name  text,
+			email text
+		)
+	`).Exec(); err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println("Schema ready.")
+}
+
+func insertUser(session *gocql.Session, name, email string) gocql.UUID {
+	id := gocql.TimeUUID()
+
+	if err := session.Query(
+		"INSERT INTO quickstart.users (id, name, email) VALUES (?, ?, ?)",
+		id, name, email,
+	).Exec(); err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("Inserted: %s (%s)\n", name, email)
+	return id
+}
+
+func listUsers(session *gocql.Session) {
+	scanner := session.Query("SELECT id, name, email FROM quickstart.users").
+		Iter().Scanner()
+
+	for scanner.Next() {
+		var id gocql.UUID
+		var name, email string
+
+		if err := scanner.Scan(&id, &name, &email); err != nil {
+			log.Fatal(err)
+		}
+
+		fmt.Printf("  %s (%s) — id: %s\n", name, email, id)
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func updateEmail(session *gocql.Session, id gocql.UUID, newEmail string) {
+	if err := session.Query(
+		"UPDATE quickstart.users SET email = ? WHERE id = ?",
+		newEmail, id,
+	).Exec(); err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("Updated email for %s to %s\n", id, newEmail)
+}
+
+func deleteUser(session *gocql.Session, id gocql.UUID) {
+	if err := session.Query(
+		"DELETE FROM quickstart.users WHERE id = ?",
+		id,
+	).Exec(); err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("Deleted user %s\n", id)
+}
+----
+
+Run the complete application:
+
+[source,bash]
+----
+go run main.go
+----
+
+You should see output showing the inserts, the full user list, the updated email, and the final list after deletion.
+
+== What's Next
+
+* xref:data-modeling/index.adoc[Data Modeling] -- design partition keys and clustering columns for your access patterns
+* xref:cql/txn-reference.adoc[ACID Transactions] -- use lightweight transactions and batch operations
+* xref:drivers.adoc[Choose a Driver] -- explore drivers for other languages and compare features
+* xref:vector-search/index.adoc[Vector Search] -- build AI-powered similarity search with vector embeddings

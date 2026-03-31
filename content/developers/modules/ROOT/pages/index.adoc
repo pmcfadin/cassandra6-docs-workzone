@@ -8,9 +8,25 @@
 This section is for application developers who build on Apache Cassandra.
 It covers data modeling, the CQL query language, vector search, drivers, and application patterns.
 
+== Find Your Path
+
+Not sure where to start? Pick the journey that matches where you are.
+
+New to Cassandra?::
+Start here -- xref:quickstart.adoc[Quickstart] | xref:drivers.adoc[Choose a Driver] | xref:data-modeling/index.adoc[Data Modeling Fundamentals]
+
+Upgrading from Cassandra 5?::
+What changed -- xref:upgrading-to-cassandra6.adoc[Upgrade Guide] | xref:cql/txn-reference.adoc[ACID Transactions] | xref:cql/constraints.adoc[Schema Constraints]
+
+Building AI or Vector Search Apps?::
+Get started -- xref:vector-search/index.adoc[Vector Search] | xref:agentic/ai-application-patterns.adoc[AI Application Patterns] | xref:agentic/ai-coding-assistants.adoc[AI Coding Assistants]
+
+Scaling to Production?::
+Prepare -- xref:production/readiness-checklist.adoc[Production Readiness] | xref:production/driver-tuning.adoc[Driver Tuning] | xref:production/observability.adoc[Observability] | xref:troubleshooting.adoc[Troubleshooting]
+
 == What's New for Developers in Cassandra 6
 
-* **xref:cql/txn-reference.adoc[Accord Transactions]** -- ACID transactions across partitions with `BEGIN TRANSACTION` / `COMMIT`
+* **xref:cql/txn-reference.adoc[ACID Transactions]** -- ACID transactions across partitions with `BEGIN TRANSACTION` / `COMMIT`
 * **xref:cql/constraints.adoc[Schema Constraints]** -- Enforce data integrity rules at the database level
 * **xref:vector-search/index.adoc[Vector Search]** -- Store and query vector embeddings with ANN indexes for AI/ML applications
 * **New CQL operators** -- `BETWEEN`, `NOT`, and `LIKE` for more expressive queries
@@ -75,3 +91,14 @@ It covers data modeling, the CQL query language, vector search, drivers, and app
 == Troubleshooting
 
 * xref:troubleshooting.adoc[Developer Troubleshooting]
+
+== Popular Guides
+
+* xref:guides/consistency-choices.adoc[Choosing Consistency Levels] -- pick the right consistency for your use case
+* xref:guides/time-series-modeling.adoc[Time-Series Modeling] -- partition bucketing, TTL, and TWCS
+* xref:guides/pagination.adoc[Paginating Query Results] -- safe pagination patterns
+* xref:guides/retries-and-idempotence.adoc[Retries and Idempotence] -- retry safely in distributed systems
+* xref:guides/adopting-acid-transactions.adoc[Adopting ACID Transactions] -- multi-partition atomic operations
+* xref:guides/sai-usage-patterns.adoc[SAI Usage Patterns] -- when and how to use secondary indexes
+* xref:guides/schema-migrations.adoc[Schema Migrations] -- evolving your schema safely
+* xref:examples/index.adoc[Code Examples] -- complete examples in Java, Python, and CQL

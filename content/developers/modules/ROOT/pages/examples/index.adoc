@@ -1,0 +1,547 @@
+= Code Examples
+:navtitle: Code Examples
+:description: Complete, copy-pasteable code examples for common Apache Cassandra operations, shown in CQL, Java, and Python.
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Complete, working code examples for common Cassandra operations.
+Each example is self-contained and ready to copy into your project.
+Examples are organized by task and shown in CQL, Java, and Python.
+
+All Java examples use the https://github.com/apache/cassandra-java-driver[Apache Cassandra Java Driver 4.x].
+All Python examples use the https://github.com/datastax/python-driver[Cassandra Python Driver].
+
+For step-by-step tutorials that walk through setup and build a full application, see the language quickstarts linked in xref:../quickstart.adoc[Quickstart].
+
+== CRUD Operations
+
+The examples below use this table schema:
+
+[source,sql]
+----
+CREATE KEYSPACE IF NOT EXISTS examples
+  WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};
+
+CREATE TABLE IF NOT EXISTS examples.users (
+  id    uuid PRIMARY KEY,
+  name  text,
+  email text
+);
+----
+
+NOTE: `SimpleStrategy` with `replication_factor: 1` is for single-node development only.
+Production clusters use `NetworkTopologyStrategy` with a replication factor matched to the datacenter topology.
+
+=== Insert a Row
+
+==== CQL
+
+[source,sql]
+----
+INSERT INTO examples.users (id, name, email)
+  VALUES (uuid(), 'Alice', 'alice@example.com');
+----
+
+==== Java
+
+[source,java]
+----
+import com.datastax.oss.driver.api.core.CqlSession;
+import com.datastax.oss.driver.api.core.cql.PreparedStatement;
+import java.util.UUID;
+
+PreparedStatement ps = session.prepare(
+    "INSERT INTO examples.users (id, name, email) VALUES (?, ?, ?)");
+
+session.execute(ps.bind(UUID.randomUUID(), "Alice", "alice@example.com"));
+----
+
+TIP: Always use prepared statements in production.
+The driver parses and caches the query on first use; subsequent executions send only the bound values, reducing per-request overhead.
+
+==== Python
+
+[source,python]
+----
+import uuid
+
+ps = session.prepare(
+    "INSERT INTO examples.users (id, name, email) VALUES (?, ?, ?)")
+
+session.execute(ps, [uuid.uuid4(), "Alice", "alice@example.com"])
+----
+
+=== Read Rows
+
+==== CQL
+
+[source,sql]
+----
+-- All rows (small tables only)
+SELECT * FROM examples.users;
+
+-- Single row by primary key
+SELECT id, name, email FROM examples.users WHERE id = ?;
+----
+
+==== Java
+
+[source,java]
+----
+import com.datastax.oss.driver.api.core.cql.ResultSet;
+import com.datastax.oss.driver.api.core.cql.Row;
+
+ResultSet rs = session.execute(
+    session.prepare("SELECT id, name, email FROM examples.users WHERE id = ?")
+           .bind(userId));
+
+Row row = rs.one();
+if (row != null) {
+    System.out.printf("User: %s  <%s>%n",
+        row.getString("name"),
+        row.getString("email"));
+}
+----
+
+==== Python
+
+[source,python]
+----
+ps = session.prepare(
+    "SELECT id, name, email FROM examples.users WHERE id = ?")
+
+row = session.execute(ps, [user_id]).one()
+if row:
+    print(f"User: {row.name}  <{row.email}>")
+----
+
+=== Update a Row
+
+==== CQL
+
+[source,sql]
+----
+UPDATE examples.users
+  SET email = 'alice@newdomain.com'
+  WHERE id = ?;
+----
+
+==== Java
+
+[source,java]
+----
+PreparedStatement ps = session.prepare(
+    "UPDATE examples.users SET email = ? WHERE id = ?");
+
+session.execute(ps.bind("alice@newdomain.com", userId));
+----
+
+==== Python
+
+[source,python]
+----
+ps = session.prepare(
+    "UPDATE examples.users SET email = ? WHERE id = ?")
+
+session.execute(ps, ["alice@newdomain.com", user_id])
+----
+
+=== Delete a Row
+
+==== CQL
+
+[source,sql]
+----
+DELETE FROM examples.users WHERE id = ?;
+----
+
+==== Java
+
+[source,java]
+----
+PreparedStatement ps = session.prepare(
+    "DELETE FROM examples.users WHERE id = ?");
+
+session.execute(ps.bind(userId));
+----
+
+==== Python
+
+[source,python]
+----
+ps = session.prepare("DELETE FROM examples.users WHERE id = ?")
+session.execute(ps, [user_id])
+----
+
+== ACID Transactions
+
+ACID transactions in Cassandra 6 are powered by the Accord consensus protocol (CEP-15).
+They let you atomically read and write across multiple partitions and tables in a single CQL block.
+
+Tables must have `transactional_mode = 'full'` and Accord must be enabled in `cassandra.yaml`.
+See xref:guides/adopting-acid-transactions.adoc[Adopting ACID Transactions] for prerequisites and configuration.
+
+=== Conditional Insert
+
+Insert a row only if no row with that ID already exists.
+
+[source,sql]
+----
+CREATE TABLE IF NOT EXISTS examples.users (
+  id    uuid PRIMARY KEY,
+  name  text,
+  email text
+) WITH transactional_mode = 'full';
+----
+
+[source,sql]
+----
+BEGIN TRANSACTION
+  LET existing = (SELECT id FROM examples.users WHERE id = :new_id);
+  IF existing IS NULL THEN
+    INSERT INTO examples.users (id, name, email)
+      VALUES (:new_id, 'Alice', 'alice@example.com');
+  END IF
+COMMIT TRANSACTION;
+----
+
+The `LET` clause reads the current state within the transaction.
+The `IF` guard makes the write conditional on the read result.
+If `existing` is not `NULL` (a row already exists), the insert is skipped and the transaction commits with no write.
+
+For the full `BEGIN TRANSACTION` grammar, see xref:cql/txn-reference.adoc[BEGIN TRANSACTION Reference].
+
+=== Multi-Table Atomic Transfer
+
+Debit one account and credit another as a single atomic operation.
+Either both writes happen or neither does.
+
+[source,sql]
+----
+CREATE TABLE IF NOT EXISTS examples.accounts (
+  id      text PRIMARY KEY,
+  balance decimal
+) WITH transactional_mode = 'full';
+----
+
+[source,sql]
+----
+BEGIN TRANSACTION
+  LET src = (SELECT balance FROM examples.accounts WHERE id = 'src-acct');
+  IF src.balance >= 100 THEN
+    UPDATE examples.accounts
+      SET balance = src.balance - 100
+      WHERE id = 'src-acct';
+    UPDATE examples.accounts
+      SET balance = balance + 100
+      WHERE id = 'dest-acct';
+  END IF
+COMMIT TRANSACTION;
+----
+
+NOTE: Both `UPDATE` statements target different partition keys (`'src-acct'` and `'dest-acct'`).
+A non-transactional CQL batch cannot guarantee atomicity across partitions; `BEGIN TRANSACTION` can.
+
+== Vector Search
+
+Cassandra stores vector embeddings as a native `VECTOR` column type.
+An SAI index on that column enables approximate nearest neighbor (ANN) queries.
+See xref:vector-search/index.adoc[Vector Search] for a full overview.
+
+=== Schema
+
+[source,sql]
+----
+CREATE TABLE IF NOT EXISTS examples.documents (
+  id        uuid PRIMARY KEY,
+  content   text,
+  embedding vector<float, 3>    -- dimension must match your embedding model
+);
+
+CREATE CUSTOM INDEX ON examples.documents (embedding)
+  USING 'StorageAttachedIndex'
+  WITH OPTIONS = {'similarity_function': 'cosine'};
+----
+
+NOTE: The vector dimension (`3` in this example) is fixed at table creation and must match the output dimension of your embedding model.
+Production embeddings are typically 768, 1024, or 1536 dimensions.
+
+=== Insert a Document with Embedding
+
+==== CQL
+
+[source,sql]
+----
+INSERT INTO examples.documents (id, content, embedding)
+  VALUES (uuid(), 'Sample document', [0.1, 0.2, 0.3]);
+----
+
+==== Java
+
+[source,java]
+----
+import com.datastax.oss.driver.api.core.data.CqlVector;
+
+PreparedStatement ps = session.prepare(
+    "INSERT INTO examples.documents (id, content, embedding) VALUES (?, ?, ?)");
+
+CqlVector<Float> embedding = CqlVector.newInstance(0.1f, 0.2f, 0.3f);
+session.execute(ps.bind(UUID.randomUUID(), "Sample document", embedding));
+----
+
+==== Python
+
+[source,python]
+----
+ps = session.prepare(
+    "INSERT INTO examples.documents (id, content, embedding) VALUES (?, ?, ?)")
+
+session.execute(ps, [uuid.uuid4(), "Sample document", [0.1, 0.2, 0.3]])
+----
+
+=== ANN Query (Approximate Nearest Neighbor)
+
+Retrieve the five documents most similar to a query vector.
+
+==== CQL
+
+[source,sql]
+----
+SELECT content, similarity_cosine(embedding, [0.15, 0.25, 0.35]) AS score
+  FROM examples.documents
+  ORDER BY embedding ANN OF [0.15, 0.25, 0.35]
+  LIMIT 5;
+----
+
+==== Java
+
+[source,java]
+----
+PreparedStatement ps = session.prepare(
+    "SELECT content, similarity_cosine(embedding, ?) AS score " +
+    "FROM examples.documents " +
+    "ORDER BY embedding ANN OF ? " +
+    "LIMIT 5");
+
+CqlVector<Float> queryVec = CqlVector.newInstance(0.15f, 0.25f, 0.35f);
+ResultSet rs = session.execute(ps.bind(queryVec, queryVec));
+
+for (Row row : rs) {
+    System.out.printf("%.4f  %s%n",
+        row.getFloat("score"),
+        row.getString("content"));
+}
+----
+
+==== Python
+
+[source,python]
+----
+ps = session.prepare(
+    "SELECT content, similarity_cosine(embedding, ?) AS score "
+    "FROM examples.documents "
+    "ORDER BY embedding ANN OF ? "
+    "LIMIT 5")
+
+query_vec = [0.15, 0.25, 0.35]
+rows = session.execute(ps, [query_vec, query_vec])
+
+for row in rows:
+    print(f"{row.score:.4f}  {row.content}")
+----
+
+== Pagination
+
+For large result sets, use paging state to retrieve rows page by page without loading everything into memory at once.
+For a full explanation of Cassandra pagination semantics, see xref:guides/pagination.adoc[Paginating Query Results].
+
+=== Java — Manual Paging with Cursor
+
+[source,java]
+----
+import com.datastax.oss.driver.api.core.cql.SimpleStatement;
+import java.nio.ByteBuffer;
+import java.util.Base64;
+
+// First page
+SimpleStatement stmt = SimpleStatement.newInstance("SELECT * FROM examples.users")
+    .setPageSize(25);
+ResultSet rs = session.execute(stmt);
+
+for (Row row : rs.currentPage()) {
+    System.out.println(row.getString("name"));
+}
+
+// Serialize paging state to a cursor string (e.g., return to HTTP client)
+ByteBuffer pagingState = rs.getExecutionInfo().getPagingState();
+String cursor = Base64.getEncoder().encodeToString(pagingState.array());
+
+// --- On the next request, decode the cursor and resume ---
+
+byte[] decoded = Base64.getDecoder().decode(cursor);
+SimpleStatement nextStmt = SimpleStatement.newInstance("SELECT * FROM examples.users")
+    .setPageSize(25)
+    .setPagingState(ByteBuffer.wrap(decoded));
+ResultSet nextRs = session.execute(nextStmt);
+
+for (Row row : nextRs.currentPage()) {
+    System.out.println(row.getString("name"));
+}
+----
+
+=== Python — Manual Paging with Cursor
+
+[source,python]
+----
+from cassandra.query import SimpleStatement
+import base64
+
+# First page
+stmt = SimpleStatement("SELECT * FROM examples.users", fetch_size=25)
+result = session.execute(stmt)
+
+for row in result.current_rows:
+    print(row.name)
+
+# Serialize paging state (e.g., return to HTTP client as a cursor token)
+cursor = base64.b64encode(result.paging_state).decode("utf-8")
+
+# --- On the next request, decode the cursor and resume ---
+
+paging_state = base64.b64decode(cursor)
+stmt = SimpleStatement("SELECT * FROM examples.users", fetch_size=25)
+result = session.execute(stmt, paging_state=paging_state)
+
+for row in result.current_rows:
+    print(row.name)
+----
+
+[IMPORTANT]
+====
+A paging state token is valid only for the exact query that produced it — same table, same `WHERE` clause, same selected columns, same consistency level.
+Validate any cursor token received from a client before using it; do not forward untrusted bytes directly to Cassandra.
+====
+
+== Batch Operations
+
+Cassandra batches group multiple CQL statements into a single coordinator request.
+Choose the batch type carefully — batches are not a general-purpose bulk-insert accelerator.
+
+=== Unlogged Batch (Multi-Partition Inserts)
+
+Use an unlogged batch when inserting into multiple partitions at the same time and you do not need atomicity guarantees.
+
+[source,sql]
+----
+CREATE TABLE IF NOT EXISTS examples.events (
+  partition_key text,
+  event_id      timeuuid,
+  data          text,
+  PRIMARY KEY (partition_key, event_id)
+);
+----
+
+[source,sql]
+----
+BEGIN UNLOGGED BATCH
+  INSERT INTO examples.events (partition_key, event_id, data)
+    VALUES ('p1', now(), 'payload-1');
+  INSERT INTO examples.events (partition_key, event_id, data)
+    VALUES ('p2', now(), 'payload-2');
+APPLY BATCH;
+----
+
+[WARNING]
+====
+Use `UNLOGGED BATCH` for multi-partition writes where atomicity is not required.
+Logged batches (`BEGIN BATCH`) add a two-phase batchlog coordination step that guarantees atomicity within a single partition, but this coordination overhead makes them unsuitable as a general multi-partition write strategy.
+If you need multi-partition atomicity, use `BEGIN TRANSACTION` instead.
+====
+
+== SAI Queries
+
+Storage-Attached Indexing (SAI) is Cassandra's recommended secondary indexing engine.
+It supports equality, range, and collection queries on non-partition-key columns, and powers vector ANN search.
+See xref:guides/sai-usage-patterns.adoc[SAI Usage Patterns] for guidance on when and how to use SAI.
+
+=== Create an SAI Index
+
+[source,sql]
+----
+CREATE TABLE IF NOT EXISTS examples.orders (
+  order_id    uuid PRIMARY KEY,
+  customer_id text,
+  status      text,
+  total       decimal
+);
+
+CREATE CUSTOM INDEX ON examples.orders (status)
+  USING 'StorageAttachedIndex';
+
+CREATE CUSTOM INDEX ON examples.orders (customer_id)
+  USING 'StorageAttachedIndex';
+
+CREATE CUSTOM INDEX ON examples.orders (total)
+  USING 'StorageAttachedIndex';
+----
+
+=== Single-Column SAI Filter
+
+[source,sql]
+----
+SELECT order_id, status, total
+  FROM examples.orders
+  WHERE customer_id = 'cust-001'
+    AND status = 'pending';
+----
+
+=== Combined SAI Filters (Range + Equality)
+
+SAI lets you combine filters on multiple indexed columns in a single query.
+Each additional filter further narrows the result set, which improves selectivity and performance.
+
+[source,sql]
+----
+CREATE TABLE IF NOT EXISTS examples.products (
+  product_id uuid PRIMARY KEY,
+  category   text,
+  price      decimal,
+  in_stock   boolean
+);
+
+CREATE CUSTOM INDEX ON examples.products (category)
+  USING 'StorageAttachedIndex';
+
+CREATE CUSTOM INDEX ON examples.products (price)
+  USING 'StorageAttachedIndex';
+
+CREATE CUSTOM INDEX ON examples.products (in_stock)
+  USING 'StorageAttachedIndex';
+----
+
+[source,sql]
+----
+-- Find in-stock electronics priced between 100 and 500
+SELECT product_id, category, price
+  FROM examples.products
+  WHERE category = 'electronics'
+    AND price > 100
+    AND price < 500
+    AND in_stock = true;
+----
+
+TIP: SAI combined filters use AND logic by default.
+The most selective filter (the one that returns the fewest rows) should appear first for best performance.
+
+== Related Pages
+
+* xref:quickstart.adoc[Quickstart] -- connect to Cassandra and run your first query
+* xref:guides/adopting-acid-transactions.adoc[Adopting ACID Transactions] -- when and how to use `BEGIN TRANSACTION`
+* xref:vector-search/index.adoc[Vector Search] -- full vector search guide including schema design and driver integration
+* xref:guides/pagination.adoc[Paginating Query Results] -- deep dive into auto-paging and manual paging state
+* xref:guides/sai-usage-patterns.adoc[SAI Usage Patterns] -- SAI column types, collection indexes, and migration from SASI
+* xref:cql/txn-reference.adoc[BEGIN TRANSACTION Reference] -- full CQL grammar and semantics for ACID transactions
+* xref:cql/dml.adoc[Data Manipulation (DML)] -- complete `SELECT`, `INSERT`, `UPDATE`, and `DELETE` CQL reference
