@@ -232,8 +232,7 @@ xref:nodetool/removenode.adoc[removenode] -                           Show statu
 
 xref:nodetool/repair.adoc[repair] -                               Repair one or more tables
 
-xref:nodetool/repair_admin.adoc[repair_admin] -                     
-xref:nodetool/list.adoc[list] -  and fail incremental repair sessions
+xref:nodetool/repair_admin.adoc[repair_admin] -                     List and fail incremental repair sessions
 
 xref:nodetool/replaybatchlog.adoc[replaybatchlog] -                       Kick off batchlog replay and wait for finish
 
@@ -249,8 +248,7 @@ xref:nodetool/scrub.adoc[scrub] -                                Scrub (rebuild 
 
 xref:nodetool/setauthcacheconfig.adoc[setauthcacheconfig] -                   Set configuration for Auth cache
 
-xref:nodetool/setautorepairconfig.adoc[setautorepairconfig] -              
-xref:nodetool/sets.adoc[sets] -  the autorepair configuration
+xref:nodetool/setautorepairconfig.adoc[setautorepairconfig] -              Set the autorepair configuration
 
 xref:nodetool/setbatchlogreplaythrottle.adoc[setbatchlogreplaythrottle] -            Set batchlog replay throttle in KB per second, or 0 to disable throttling. This will be reduced proportionally to the number of nodes in the cluster.
 

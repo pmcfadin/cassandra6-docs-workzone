@@ -166,7 +166,7 @@ will result in:
 include::Cassandra:cassandra:example$RESULTS/autoexpand_exclude_dc.result[]
 ----
 
-If xref:new/transientreplication.adoc[transient replication] has been enabled, transient replicas can be
+If transient replication has been enabled, transient replicas can be
 configured for both `SimpleStrategy` and `NetworkTopologyStrategy` by
 defining replication factors in the format
 `'<total_replicas>/<transient_replicas>'`

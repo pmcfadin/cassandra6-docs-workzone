@@ -72,7 +72,7 @@ for the entire cluster as pre-flight step to running incremental repair. This wi
 consistent state which will reduce the amount of streaming between replicas when incremental repair initially runs.
 
 If you do not have strong data consistency requirements, one may consider using
-xref:reference::sstable/sstablerepairedset.adoc[nodetool sstablerepairedset] to mark all SSTables as repaired
+xref:reference::nodetool/nodetool.adoc[nodetool command reference] to mark all SSTables as repaired
 before enabling incremental repair scheduling using Auto Repair. This will reduce the burden of initially running
 incremental repair because all existing data will be considered as repaired, so subsequent incremental repairs will
 only run against new data.

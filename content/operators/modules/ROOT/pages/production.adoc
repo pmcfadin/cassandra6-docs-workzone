@@ -95,7 +95,7 @@ The argument of 8 above is equivalent to 4KB, or 8 * 512 bytes.
 All systems are different, so use these recommendations as a starting point and
 tune, based on your SLA and throughput requirements.
 To understand how read ahead impacts disk resource usage, we recommend carefully
-reading through the xref:troubleshooting/use_tools.adoc[Diving Deep, using external tools]
+reading through the xref:Cassandra:cassandra:troubleshooting/use_tools.adoc[Diving Deep, using external tools]
 section.
 
 == Compression
@@ -118,7 +118,7 @@ https://thelastpickle.com/blog/2018/08/08/compression_performance.html[The Last 
 
 == Compaction
 
-There are different xref:compaction/index.adoc[compaction] strategies available
+There are different xref:operate/compaction-overview.adoc[compaction] strategies available
 for different workloads.
 We recommend reading about the different strategies to understand which is the
 best for your environment.

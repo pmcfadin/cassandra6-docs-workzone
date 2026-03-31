@@ -4,7 +4,7 @@
 Storage Attached Indexing (SAI) provides CQL-based virtual tables that enable you to discover the current state of system metadata for SAI indices and associated SSTables.
 These virtual tables reside in the `system_views` keyspace.
 
-For related information, see the xref:developers::cql/indexing/sai/sai-overview.adoc[SAI information].
+For related information, see the xref:developers::cql/indexing/sai/sai-concepts.adoc[SAI information].
 
 == system_views.sai_column_indexes
 

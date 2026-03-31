@@ -402,5 +402,5 @@ The following questions were resolved by source verification against the `trunk`
 == Related Pages
 
 * xref:index.adoc[Operating Cassandra] -- operator overview
-* xref:configuration-reference.adoc[Configuration Reference] -- full `cassandra.yaml` property reference
-* xref:cassandra:developing:cql/ddl.adoc[CQL Data Definition] -- `CREATE KEYSPACE` and `ALTER KEYSPACE` syntax reference
+* xref:reference::configuration/cassandra_yaml_file.adoc[Configuration Reference] -- full `cassandra.yaml` property reference
+* xref:developers::cql/ddl.adoc[CQL Data Definition] -- `CREATE KEYSPACE` and `ALTER KEYSPACE` syntax reference
