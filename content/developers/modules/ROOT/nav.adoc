@@ -1,5 +1,6 @@
 * xref:home::index.adoc[Home]
 * xref:index.adoc[Developers]
+* xref:quickstart.adoc[Quickstart]
 * xref:drivers.adoc[Drivers]
 * Data Modeling
 ** xref:data-modeling/index.adoc[Data Modeling Overview]
@@ -43,4 +44,5 @@
 ** xref:Cassandra:cassandra:vector-search/data-modeling.adoc[Data Modeling for Vector Search]
 ** xref:Cassandra:cassandra:vector-search/quickstarts.adoc[Quickstarts]
 ** xref:Cassandra:cassandra:vector-search/vector-search-working-with.adoc[Working with Vector Search]
-* xref:integration-patterns.adoc[Integration Patterns]
+* xref:integration-patterns.adoc[Application Patterns]
+* xref:troubleshooting.adoc[Developer Troubleshooting]

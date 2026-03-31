@@ -1,0 +1,89 @@
+= Performance Tuning Guide
+
+This page consolidates performance tuning guidance for Apache Cassandra, linking to detailed documentation for each area.
+
+== Hardware and Deployment
+
+Start with the right foundation:
+
+* xref:production.adoc[Production Recommendations] -- hardware sizing, disk layout, network requirements
+* Use SSDs for data directories; spinning disks are not recommended for production workloads
+* Separate commitlog and data directories onto different physical devices when possible
+
+== JVM and Garbage Collection
+
+Cassandra 6 supports JDK 17 and JDK 21.
+JDK 21 with Generational ZGC provides the best GC pause behavior:
+
+[source,bash]
+----
+-XX:+UseZGC -XX:+ZGenerational
+----
+
+Key JVM tuning areas:
+
+* **Heap size**: Set `-Xms` and `-Xmx` equal; typically 8-16 GB. Avoid heaps larger than 32 GB.
+* **GC algorithm**: Generational ZGC (JDK 21+), G1GC (JDK 17), or CMS (legacy)
+* **Off-heap memory**: Cassandra uses significant off-heap memory for memtables, bloom filters, and compression metadata. Monitor total process RSS, not just heap.
+
+JVM options are configured in `jvm-server.options`, `jvm17-server.options`, or `jvm21-server.options` under the Cassandra `conf/` directory.
+
+== Compaction Strategy Selection
+
+The compaction strategy has a major impact on read/write performance:
+
+xref:operate/compaction-overview.adoc[Compaction Overview]::
+Understanding how compaction works and when it runs.
+
+xref:operate/ucs.adoc[Unified Compaction Strategy (UCS)]::
+New in Cassandra 5.0+. A single strategy that adapts to different workloads. Recommended as the default for new deployments.
+
+xref:Cassandra:cassandra:managing/operating/compaction/stcs.adoc[Size Tiered Compaction (STCS)]::
+Good for write-heavy workloads. Default in older Cassandra versions.
+
+xref:Cassandra:cassandra:managing/operating/compaction/lcs.adoc[Leveled Compaction (LCS)]::
+Good for read-heavy workloads with low write amplification requirements.
+
+xref:Cassandra:cassandra:managing/operating/compaction/twcs.adoc[Time Window Compaction (TWCS)]::
+Optimized for time-series data with TTL-based expiration.
+
+== Compression
+
+xref:operate/compression.adoc[Compression] reduces disk usage and I/O at the cost of CPU:
+
+* **LZ4** (default) -- best balance of speed and compression ratio
+* **Zstd** -- better compression ratio, slightly more CPU
+* **ZstdDictionary** -- new in Cassandra 6, provides improved compression for small SSTables
+
+Tune `chunk_length_in_kb` based on your read patterns: smaller chunks improve random read performance, larger chunks improve sequential scan throughput.
+
+== Read Path Tuning
+
+Key `cassandra.yaml` settings affecting read performance:
+
+* `concurrent_reads` -- number of concurrent read threads (default: 32). Increase for SSD-backed storage.
+* `read_request_timeout` -- timeout for read operations
+* `key_cache_size` -- cache for partition key lookups (reduces disk seeks)
+* `row_cache_size` -- cache for entire rows (use sparingly; most workloads benefit more from OS page cache)
+
+See xref:reference::configuration/cassandra_yaml_file.adoc[cassandra.yaml Reference] for all configuration options.
+
+== Write Path Tuning
+
+Key settings affecting write performance:
+
+* `concurrent_writes` -- number of concurrent write threads (default: 32)
+* `commitlog_sync` -- `periodic` (default, batches syncs) vs. `batch` (sync per write, higher durability)
+* `memtable_heap_space` and `memtable_offheap_space` -- memory allocated to memtables before flushing
+
+== Monitoring for Performance
+
+Use xref:observe/metrics.adoc[Cassandra Metrics] to identify bottlenecks:
+
+* **Read/write latency histograms** -- `ReadLatency` and `WriteLatency` per table
+* **Compaction pending tasks** -- sustained high values indicate compaction can't keep up
+* **GC pause time** -- long pauses affect tail latencies
+* **Memtable flush frequency** -- frequent flushes may indicate insufficient memtable memory
+* **Dropped messages** -- indicates timeouts or overload
+
+Use xref:tune/async-profiler.adoc[async-profiler] for CPU and allocation profiling of running Cassandra instances.

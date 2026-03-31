@@ -17,4 +17,7 @@
 ** xref:cql-commands/commands-toc.adoc[Commands Reference]
 ** xref:cql-commands/compact-subproperties.adoc[Compaction Subproperties]
 ** xref:cql-commands/list-superusers.adoc[LIST SUPERUSERS]
+* CQL Reference
+** xref:Cassandra:cassandra:developing/cql/types.adoc[Data Types]
+* xref:version-compatibility.adoc[Version and Compatibility]
 * xref:sai-virtual-table-indexes.adoc[SAI Virtual Table Indexes]

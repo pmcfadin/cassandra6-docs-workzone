@@ -1,0 +1,102 @@
+= Developer Troubleshooting
+
+Common issues developers encounter when building applications with Cassandra, and how to resolve them.
+
+== CQL Query Issues
+
+=== "InvalidRequest: No keyspace has been specified"
+
+You must set a keyspace before querying tables:
+
+[source,sql]
+----
+USE my_keyspace;
+----
+
+Or fully qualify the table name:
+
+[source,sql]
+----
+SELECT * FROM my_keyspace.my_table;
+----
+
+=== "InvalidRequest: Undefined column name"
+
+Check that the column exists in the table schema:
+
+[source,sql]
+----
+DESCRIBE TABLE my_keyspace.my_table;
+----
+
+Column names are case-insensitive unless quoted during creation.
+
+=== Queries Return No Results When Data Exists
+
+Cassandra requires queries to include the partition key.
+Without it, the query may scan the wrong partitions or be rejected entirely.
+Review your xref:data-modeling/index.adoc[data model] to ensure queries align with partition key design.
+
+=== "InvalidRequest: Cannot execute this query as it might involve data filtering"
+
+Cassandra rejects queries that would require scanning all partitions.
+Either:
+
+* Restructure the query to use the partition key
+* Add a secondary index or SAI index on the filtered column
+* Add `ALLOW FILTERING` (use with caution in production -- it forces a full scan)
+
+== Driver Connection Issues
+
+=== Connection Refused
+
+Verify that Cassandra is listening on the expected address and port:
+
+[source,bash]
+----
+nodetool status
+nodetool info | grep "Native Transport"
+----
+
+Check `cassandra.yaml` for:
+
+* `native_transport_port` (default: 9042)
+* `rpc_address` or `broadcast_rpc_address`
+
+=== Timeout Errors
+
+Driver-side timeouts may indicate:
+
+* **Slow queries** -- check for queries missing partition keys
+* **Overloaded cluster** -- check operator metrics (see xref:operators::observe/metrics.adoc[Metrics])
+* **Network issues** -- verify connectivity between application and cluster nodes
+
+Most drivers allow configuring timeout values per query or globally.
+
+== Consistency Level Errors
+
+=== "Unavailable: Not enough replicas available"
+
+The cluster cannot satisfy the requested consistency level.
+Verify the replication factor and number of live nodes:
+
+[source,bash]
+----
+nodetool status
+----
+
+For development, use `LOCAL_ONE` or `ONE`.
+For production, see the xref:cql/dml.adoc[DML documentation] for consistency level guidance.
+
+== Transaction Errors (Cassandra 6)
+
+=== "Cannot execute Accord transaction"
+
+Accord transactions require `TransactionalMode` to be enabled on the table.
+See xref:operators::upgrade/onboarding-to-accord.adoc[Onboarding to Accord] for configuration details.
+
+== Further Resources
+
+* xref:cql/cql_singlefile.adoc[CQL Language Reference] -- complete syntax documentation
+* xref:drivers.adoc[Drivers] -- driver-specific documentation and configuration
+* xref:Cassandra:cassandra:troubleshooting/index.adoc[Cluster Troubleshooting] -- operator-focused troubleshooting for node and cluster issues

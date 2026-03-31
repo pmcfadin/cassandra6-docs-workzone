@@ -1,0 +1,5 @@
+= DROP AGGREGATE
+
+Deletes a user-defined aggregate from a keyspace.
+
+For complete syntax and examples, see the xref:developers::cql/cql_singlefile.adoc[CQL Language Reference].

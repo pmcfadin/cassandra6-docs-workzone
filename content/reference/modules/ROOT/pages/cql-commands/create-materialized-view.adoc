@@ -1,0 +1,5 @@
+= CREATE MATERIALIZED VIEW
+
+Creates a materialized view that duplicates data from a base table.
+
+For complete syntax and examples, see the xref:developers::cql/cql_singlefile.adoc[CQL Language Reference].

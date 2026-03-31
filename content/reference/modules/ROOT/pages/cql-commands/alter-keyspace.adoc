@@ -1,0 +1,5 @@
+= ALTER KEYSPACE
+
+Changes keyspace replication strategy and enables or disables commit log.
+
+For complete syntax and examples, see the xref:developers::cql/cql_singlefile.adoc[CQL Language Reference].

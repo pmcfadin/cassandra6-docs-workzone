@@ -1,0 +1,51 @@
+= Version and Compatibility
+
+Compatibility requirements and version information for Apache Cassandra.
+
+== Java Requirements
+
+[cols="1,1,1"]
+|===
+| Cassandra Version | Build JDK | Runtime JDK
+
+| Cassandra 6.0
+| JDK 11 or 17
+| JDK 17 or 21 (21 recommended for Generational ZGC)
+
+| Cassandra 5.0
+| JDK 11 or 17
+| JDK 11 or 17
+
+| Cassandra 4.1
+| JDK 8 or 11
+| JDK 8 or 11
+|===
+
+JDK 21 with Generational ZGC (`-XX:+UseZGC -XX:+ZGenerational`) is the recommended runtime for Cassandra 6.
+See xref:Cassandra:cassandra:reference/java17.adoc[Java Support] for details on JVM flag changes.
+
+== Python Requirements
+
+cqlsh requires Python 3.6 or later.
+
+== Operating System Support
+
+Cassandra is supported on Linux.
+It can run on macOS and Windows for development, but production deployments should use Linux.
+
+== Native Protocol Version
+
+Cassandra 6 supports native protocol v6.
+Older protocol versions (v3, v4, v5) remain supported for backward compatibility with older drivers.
+
+See xref:native-protocol.adoc[Native Protocol Specification] for the complete protocol reference.
+
+== Driver Compatibility
+
+Official Apache Cassandra drivers are available for Java, Python, and Go.
+See xref:developers::drivers.adoc[Drivers] for the current driver list and version requirements.
+
+[NOTE]
+====
+For the complete list of release artifacts and download links, see the https://cassandra.apache.org/_/download.html[Apache Cassandra download page].
+====

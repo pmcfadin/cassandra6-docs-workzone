@@ -1,0 +1,5 @@
+= UPDATE
+
+Modifies one or more column values to a row in a table.
+
+For complete syntax and examples, see the xref:developers::cql/cql_singlefile.adoc[CQL Language Reference].

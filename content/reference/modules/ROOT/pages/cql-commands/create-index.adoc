@@ -1,0 +1,5 @@
+= CREATE INDEX
+
+Defines a new index for a single column of a table.
+
+For complete syntax and examples, see the xref:developers::cql/cql_singlefile.adoc[CQL Language Reference].

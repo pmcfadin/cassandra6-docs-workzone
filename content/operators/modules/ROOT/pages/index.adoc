@@ -5,7 +5,27 @@
 *Preview | Unofficial | For review only*
 ====
 
-This section covers deployment, configuration, monitoring, maintenance, and upgrade topics for Apache Cassandra 6 operators.
+This section is for the people who deploy, configure, secure, monitor, and maintain Apache Cassandra clusters in production.
+Whether you are standing up your first cluster or upgrading a fleet to Cassandra 6, start here.
+
+== What's New for Operators in Cassandra 6
+
+* **xref:tcm-overview.adoc[Transactional Cluster Metadata (TCM)]** -- Cluster topology and schema changes are now Raft-based and transactional, replacing the gossip-driven model
+* **xref:operate/auto_repair.adoc[Automated Repair]** -- Cassandra can now schedule and run repairs automatically without external orchestration
+* **xref:guardrails-reference.adoc[Guardrails]** -- Configurable guardrails that warn or reject queries and schema changes that violate operational policy
+* **xref:operate/ucs.adoc[Unified Compaction Strategy]** -- A single compaction strategy that adapts to different workloads, replacing the need to choose between STCS/LCS/TWCS
+* **xref:secure/password_validation.adoc[Password Validation]** and **xref:secure/role_name_generation.adoc[Role Name Generation]** -- New security primitives for credential management
+* **JDK 21 with Generational ZGC** -- Recommended runtime for best GC performance
+
+== Recommended Reading Path
+
+. xref:quickstart.adoc[Quickstart] -- Get Cassandra running in minutes
+. xref:install.adoc[Install] and xref:production.adoc[Production Recommendations] -- Prepare for production
+. xref:configure.adoc[Configure] -- Tune cassandra.yaml, JVM options, and cluster topology
+. xref:secure/security.adoc[Secure] -- Authentication, authorization, and TLS
+. xref:operate/compaction-overview.adoc[Operate] -- Compaction, repair, hints, and bulk loading
+. xref:observe/metrics.adoc[Observe] -- Metrics, audit logging, and troubleshooting
+. xref:upgrade/onboarding-to-accord.adoc[Upgrade] -- Migrate to TCM and Accord
 
 == Install
 
@@ -47,6 +67,7 @@ This section covers deployment, configuration, monitoring, maintenance, and upgr
 
 == Tune
 
+* xref:tune/performance.adoc[Performance Tuning Guide]
 * xref:tune/async-profiler.adoc[Async Profiler]
 
 == Backup and Recovery

@@ -1,0 +1,81 @@
+= Developer Quickstart
+
+Connect to Cassandra and run your first queries.
+
+== Prerequisites
+
+You need a running Cassandra instance.
+The fastest way to start one for development:
+
+[source,bash]
+----
+docker pull cassandra:latest
+docker run --name cassandra -d cassandra:latest
+----
+
+Wait about 30 seconds for the node to initialize, then connect with cqlsh:
+
+[source,bash]
+----
+docker exec -it cassandra cqlsh
+----
+
+For detailed setup options, see the xref:Cassandra:cassandra:getting-started/cassandra-quickstart.adoc[Cassandra Quickstart].
+
+== Your First Queries
+
+=== Create a Keyspace
+
+[source,sql]
+----
+CREATE KEYSPACE my_app
+  WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};
+
+USE my_app;
+----
+
+=== Create a Table
+
+[source,sql]
+----
+CREATE TABLE users (
+  user_id uuid PRIMARY KEY,
+  name text,
+  email text,
+  created_at timestamp
+);
+----
+
+=== Insert Data
+
+[source,sql]
+----
+INSERT INTO users (user_id, name, email, created_at)
+  VALUES (uuid(), 'Alice', 'alice@example.com', toTimestamp(now()));
+
+INSERT INTO users (user_id, name, email, created_at)
+  VALUES (uuid(), 'Bob', 'bob@example.com', toTimestamp(now()));
+----
+
+=== Query Data
+
+[source,sql]
+----
+SELECT * FROM users;
+----
+
+== Connect from Your Application
+
+Cassandra provides official drivers for multiple languages.
+See xref:drivers.adoc[Drivers] for the complete list including:
+
+* https://github.com/apache/cassandra-java-driver[Java Driver]
+* https://github.com/datastax/python-driver[Python Driver]
+* https://github.com/apache/cassandra-gocql-driver[Go Driver]
+
+== Next Steps
+
+* xref:data-modeling/index.adoc[Data Modeling] -- design tables for your access patterns
+* xref:cql/cql_singlefile.adoc[CQL Reference] -- complete query language documentation
+* xref:vector-search/index.adoc[Vector Search] -- build AI-powered search with vector embeddings
+* xref:Cassandra:cassandra:getting-started/sai-quickstart.adoc[SAI Quickstart] -- create storage-attached indexes for flexible queries

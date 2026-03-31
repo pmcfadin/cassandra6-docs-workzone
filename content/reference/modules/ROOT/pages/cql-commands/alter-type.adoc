@@ -1,0 +1,5 @@
+= ALTER TYPE
+
+Modifies an existing user-defined type (UDT).
+
+For complete syntax and examples, see the xref:developers::cql/cql_singlefile.adoc[CQL Language Reference].

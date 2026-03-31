@@ -1,0 +1,5 @@
+= DROP USER
+
+Deprecated. Removes a user.
+
+For complete syntax and examples, see the xref:developers::cql/cql_singlefile.adoc[CQL Language Reference].

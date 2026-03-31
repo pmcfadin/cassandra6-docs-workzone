@@ -1,0 +1,5 @@
+= REVOKE
+
+Removes privileges on database objects from roles.
+
+For complete syntax and examples, see the xref:developers::cql/cql_singlefile.adoc[CQL Language Reference].

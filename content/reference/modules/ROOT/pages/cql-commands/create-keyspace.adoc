@@ -1,0 +1,5 @@
+= CREATE KEYSPACE
+
+Creates a top-level namespace that defines replication strategy and other options.
+
+For complete syntax and examples, see the xref:developers::cql/cql_singlefile.adoc[CQL Language Reference].

@@ -1,0 +1,5 @@
+= BATCH
+
+Applies multiple data modification language (DML) statements with atomicity and/or in isolation.
+
+For complete syntax and examples, see the xref:developers::cql/cql_singlefile.adoc[CQL Language Reference].

@@ -1,22 +1,110 @@
-= Third-Party Plugins
-:navtitle: Plug-ins
+= Application Patterns
+:navtitle: Application Patterns
 
-Available third-party plugins for Apache Cassandra
+Common patterns for building applications with Apache Cassandra.
 
-== Cassandra Lucene Index
+== Data Modeling Patterns
 
-**NOTE** Support for the Cassandra Lucene Index Plug-in was retired by Instaclustr after the release of Cassandra 5.0 with Storage-attached Indexing (SAI). It remains support for Cassandra 4.x releases.
+=== Query-Driven Table Design
 
-The Cassandra Lucene Index Plug-in was a Cassandra secondary index implementation
-based on http://lucene.apache.org/[Apache Lucene]. It extended
-Cassandra's functionality to provide near real-time distributed search
-engine capabilities such as with ElasticSearch or
-http://lucene.apache.org/solr/[Apache Solr], including full text search
-capabilities, free multivariable, geospatial and bitemporal search,
-relevance queries and sorting based on column value, relevance or
-distance. Each node indexes its own data, so high availability and
-scalability is guaranteed.
+Cassandra tables are designed around your query patterns, not entity relationships.
+Each query typically maps to one table, with the partition key chosen to group related data for efficient retrieval.
 
-The official Github repository
-https://github.com/instaclustr/cassandra-lucene-index/[Cassandra Lucene
-Index] contains everything you need to build/run/configure the plugin.
+See xref:data-modeling/index.adoc[Data Modeling] for comprehensive guidance, including:
+
+* xref:Cassandra:cassandra:developing/data-modeling/data-modeling_queries.adoc[Query-driven design methodology]
+* xref:Cassandra:cassandra:developing/data-modeling/data-modeling_physical.adoc[Physical data model mapping]
+
+=== Time-Series Data
+
+For time-series workloads (logs, metrics, events):
+
+* Use a compound partition key with a time bucket (e.g., `(sensor_id, date)`)
+* Use clustering columns for time ordering within each partition
+* Set TTL on inserts for automatic data expiration
+* Use xref:Cassandra:cassandra:managing/operating/compaction/twcs.adoc[Time Window Compaction (TWCS)] for efficient cleanup of expired data
+
+=== Denormalization
+
+Cassandra prefers denormalized data models over joins.
+If the same data is needed by multiple queries, create multiple tables with different partition keys.
+With Cassandra 6's xref:cql/txn-reference.adoc[Accord transactions], you can update multiple denormalized tables atomically.
+
+== Consistency Patterns
+
+=== Consistency Level Selection
+
+Choose consistency levels based on your application's requirements:
+
+* `LOCAL_ONE` / `ONE` -- lowest latency, eventual consistency
+* `LOCAL_QUORUM` / `QUORUM` -- strong consistency for most applications
+* `ALL` -- highest consistency, lowest availability
+
+See xref:cql/dml.adoc[DML] for details on consistency level behavior.
+
+=== Lightweight Transactions (Pre-Cassandra 6)
+
+For conditional updates (compare-and-set):
+
+[source,sql]
+----
+INSERT INTO users (user_id, email) VALUES (?, ?)
+  IF NOT EXISTS;
+
+UPDATE users SET email = ? WHERE user_id = ?
+  IF email = 'old@example.com';
+----
+
+=== Accord Transactions (Cassandra 6)
+
+For multi-partition ACID transactions:
+
+[source,sql]
+----
+BEGIN TRANSACTION
+  UPDATE accounts SET balance = balance - 100 WHERE account_id = 'A';
+  UPDATE accounts SET balance = balance + 100 WHERE account_id = 'B';
+COMMIT TRANSACTION;
+----
+
+See xref:cql/txn-reference.adoc[BEGIN TRANSACTION Reference] for complete syntax.
+
+== Vector Search Patterns
+
+Cassandra 6 supports vector embeddings for AI/ML applications.
+
+=== Retrieval-Augmented Generation (RAG)
+
+Store document chunks with their vector embeddings and retrieve relevant context for LLM prompts:
+
+[source,sql]
+----
+CREATE TABLE documents (
+  doc_id uuid,
+  chunk_id int,
+  content text,
+  embedding vector<float, 1536>,
+  PRIMARY KEY (doc_id, chunk_id)
+);
+
+CREATE CUSTOM INDEX ON documents(embedding) USING 'StorageAttachedIndex';
+----
+
+=== Semantic Search
+
+Find items by meaning rather than exact keyword match using ANN (approximate nearest neighbor) queries.
+
+=== Personalized Recommendations
+
+Store user preference vectors and find similar items or users through vector similarity.
+
+See xref:vector-search/index.adoc[Vector Search] for detailed examples of all three patterns.
+
+== Third-Party Integrations
+
+=== Cassandra Lucene Index (Retired)
+
+The Cassandra Lucene Index plugin by Instaclustr was retired after the release of Cassandra 5.0 with Storage-Attached Indexing (SAI).
+It remains available for Cassandra 4.x releases at https://github.com/instaclustr/cassandra-lucene-index/[GitHub].
+
+For Cassandra 5.0+, use xref:cql/indexing/sai/sai-concepts.adoc[SAI] for secondary indexing and full-text search capabilities.

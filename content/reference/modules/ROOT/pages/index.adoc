@@ -29,6 +29,14 @@ Lookup-oriented reference material for Apache Cassandra 6.
 * xref:cql-commands/commands-toc.adoc[CQL Commands Reference]
 * xref:cql-commands/compact-subproperties.adoc[Compaction Subproperties]
 
+== CQL Reference
+
+* xref:Cassandra:cassandra:developing/cql/types.adoc[Data Types and Syntax]
+
+== Version and Compatibility
+
+* xref:version-compatibility.adoc[Version and Compatibility Reference]
+
 == SAI
 
 * xref:sai-virtual-table-indexes.adoc[SAI Virtual Table Indexes]

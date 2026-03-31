@@ -1,5 +1,6 @@
 * xref:home::index.adoc[Home]
 * xref:index.adoc[Operators]
+* xref:quickstart.adoc[Quickstart]
 * Overview
 ** xref:production.adoc[Production Recommendations]
 * Install
@@ -16,6 +17,9 @@
 ** xref:operate/compaction-overview.adoc[Compaction Overview]
 ** xref:operate/tombstones.adoc[Tombstones]
 ** xref:operate/ucs.adoc[Unified Compaction Strategy]
+** xref:Cassandra:cassandra:managing/operating/compaction/stcs.adoc[Size Tiered Compaction (STCS)]
+** xref:Cassandra:cassandra:managing/operating/compaction/lcs.adoc[Leveled Compaction (LCS)]
+** xref:Cassandra:cassandra:managing/operating/compaction/twcs.adoc[Time Window Compaction (TWCS)]
 ** xref:operate/compression.adoc[Compression]
 ** xref:operate/repair.adoc[Repair]
 ** xref:operate/auto_repair.adoc[Automated Repair]
@@ -35,6 +39,7 @@
 *** xref:tcm-operations.adoc[TCM Operations]
 *** xref:tcm-troubleshooting.adoc[TCM Troubleshooting]
 * Tune
+** xref:tune/performance.adoc[Performance Tuning Guide]
 ** xref:tune/async-profiler.adoc[Async Profiler]
 * Backup and Recovery
 ** xref:backup-recovery/backups.adoc[Backups and Snapshots]

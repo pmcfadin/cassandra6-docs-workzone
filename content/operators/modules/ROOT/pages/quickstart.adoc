@@ -1,0 +1,41 @@
+= Operator Quickstart
+
+Get a Cassandra cluster running locally in minutes.
+
+== Docker Quickstart
+
+The fastest way to start Cassandra for evaluation:
+
+[source,bash]
+----
+docker pull cassandra:latest
+docker run --name cassandra -d cassandra:latest
+----
+
+Wait about 30 seconds, then verify the node is running:
+
+[source,bash]
+----
+docker exec -it cassandra nodetool status
+----
+
+Connect with cqlsh:
+
+[source,bash]
+----
+docker exec -it cassandra cqlsh
+----
+
+For a step-by-step walkthrough including loading sample data, see the xref:Cassandra:cassandra:getting-started/cassandra-quickstart.adoc[Cassandra Quickstart].
+
+== Next Steps
+
+After verifying Cassandra runs:
+
+. Review xref:production.adoc[Production Recommendations] before deploying to production
+. Follow the xref:install.adoc[Installation Guide] for bare-metal or package-based installation
+. Configure your cluster using the xref:configure.adoc[Configuration Guide]
+. Set up xref:secure/security.adoc[Security] (authentication, authorization, TLS)
+. Plan your xref:upgrade/onboarding-to-accord.adoc[Upgrade Path] if migrating from an earlier version
+
+TIP: For production deployments, never use the Docker quickstart configuration. See xref:production.adoc[Production Recommendations] for hardware sizing, disk layout, and JVM tuning guidance.

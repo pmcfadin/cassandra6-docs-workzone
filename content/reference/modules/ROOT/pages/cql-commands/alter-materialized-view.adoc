@@ -1,0 +1,5 @@
+= ALTER MATERIALIZED VIEW
+
+Changes the table properties of a materialized view.
+
+For complete syntax and examples, see the xref:developers::cql/cql_singlefile.adoc[CQL Language Reference].

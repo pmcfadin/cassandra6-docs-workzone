@@ -1,0 +1,5 @@
+= CREATE ROLE
+
+Creates a cluster-wide database object used for access control.
+
+For complete syntax and examples, see the xref:developers::cql/cql_singlefile.adoc[CQL Language Reference].
