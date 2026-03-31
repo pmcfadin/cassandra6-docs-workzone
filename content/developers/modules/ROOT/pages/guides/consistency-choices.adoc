@@ -155,7 +155,7 @@ Use `LOCAL_QUORUM` / `LOCAL_QUORUM` if read-after-write consistency matters.
 Consistency is set at the statement level in all major Cassandra drivers.
 Do not set consistency globally unless every query in your application has the same requirements.
 
-=== Java (DataStax Java Driver)
+=== Java (Apache Cassandra Java Driver)
 
 [source,java]
 ----
@@ -175,7 +175,7 @@ SimpleStatement insert = SimpleStatement.newInstance(
 session.execute(insert);
 ----
 
-=== Python (DataStax Python Driver)
+=== Python (Apache Cassandra Python Driver)
 
 [source,python]
 ----

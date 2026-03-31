@@ -34,13 +34,13 @@ Most Cassandra drivers expose a schema agreement check directly:
 
 [source,java]
 ----
-// Java (DataStax Java Driver)
+// Java (Apache Cassandra Java Driver)
 boolean agreed = session.checkSchemaAgreement();
 ----
 
 [source,python]
 ----
-# Python (DataStax Python Driver)
+# Python (Apache Cassandra Python Driver)
 agreed = session.cluster.refresh_schema_metadata()
 ----
 

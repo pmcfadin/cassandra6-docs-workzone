@@ -1,6 +1,6 @@
 = Build a Python Application with Cassandra
 
-Build a simple user management application using the DataStax Python driver.
+Build a simple user management application using the Apache Cassandra Python driver.
 This quickstart takes about 10 minutes to complete.
 
 == What You'll Build
@@ -31,7 +31,7 @@ You do not need to manage individual connections or threads.
 
 == Install the Driver
 
-Install the DataStax Python driver from PyPI:
+Install the Apache Cassandra Python driver from PyPI:
 
 [source,bash]
 ----

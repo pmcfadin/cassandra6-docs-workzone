@@ -20,7 +20,7 @@ Use it for any JVM-based application (Java, Kotlin, Groovy).
 
 === Python
 
-https://github.com/datastax/python-driver[DataStax Python Driver] (datastax/python-driver) is the most widely used Python driver.
+https://github.com/apache/cassandra-python-driver[Apache Cassandra Python Driver] (apache/cassandra-python-driver) is the most widely used Python driver.
 It supports synchronous and async I/O, prepared statements, and token-aware routing.
 The https://github.com/axonops/async-python-cassandra-client[Async Python Cassandra Client] is an alternative if you need a purely asyncio-native interface.
 
@@ -32,7 +32,7 @@ Use it for microservices and cloud-native Go workloads.
 
 === Node.js
 
-https://github.com/datastax/nodejs-driver[DataStax Node.js Driver] (datastax/nodejs-driver) is the most complete Node.js driver.
+https://github.com/apache/cassandra-nodejs-driver[Apache Cassandra Node.js Driver] (apache/cassandra-nodejs-driver) is the most complete Node.js driver.
 It supports all major driver features including speculative execution, automatic paging, and prepared statements.
 
 === Rust
@@ -42,7 +42,7 @@ It is actively developed and well-suited for high-throughput, low-latency Rust s
 
 === C#/.NET
 
-https://github.com/datastax/csharp-driver[DataStax C# Driver] (datastax/csharp-driver) is the primary .NET driver.
+https://github.com/apache/cassandra-csharp-driver[Apache Cassandra C# Driver] (apache/cassandra-csharp-driver) is the primary .NET driver.
 It targets .NET Standard and supports async/await patterns, LINQ integration, and object mapping.
 
 == Feature Matrix
@@ -61,8 +61,8 @@ It targets .NET Standard and supports async/await patterns, LINQ integration, an
 | Yes
 
 | Python
-| https://github.com/datastax/python-driver[python-driver]
-| DataStax
+| https://github.com/apache/cassandra-python-driver[cassandra-python-driver]
+| Apache
 | Yes
 | Yes
 | Yes
@@ -79,8 +79,8 @@ It targets .NET Standard and supports async/await patterns, LINQ integration, an
 | No
 
 | Node.js
-| https://github.com/datastax/nodejs-driver[nodejs-driver]
-| DataStax
+| https://github.com/apache/cassandra-nodejs-driver[cassandra-nodejs-driver]
+| Apache
 | Yes
 | Yes
 | Yes
@@ -88,8 +88,8 @@ It targets .NET Standard and supports async/await patterns, LINQ integration, an
 | Yes
 
 | C#/.NET
-| https://github.com/datastax/csharp-driver[csharp-driver]
-| DataStax
+| https://github.com/apache/cassandra-csharp-driver[cassandra-csharp-driver]
+| Apache
 | Yes
 | Yes
 | Yes
@@ -112,8 +112,8 @@ Not sure where to start? Use these rules of thumb:
 
 * **New to Cassandra?** Start with the Java or Python driver. Both have the best documentation, the most examples online, and the largest communities answering questions.
 * **Building microservices or cloud-native services?** Go (gocql) and Rust (scylla-rust-driver) have minimal footprints and excellent async performance.
-* **Enterprise .NET shop?** The DataStax C# driver supports .NET Standard and integrates with common enterprise patterns.
-* **Full-stack JavaScript?** The DataStax Node.js driver covers both backend Node.js services and server-side rendering frameworks.
+* **Enterprise .NET shop?** The Apache Cassandra C# driver supports .NET Standard and integrates with common enterprise patterns.
+* **Full-stack JavaScript?** The Apache Cassandra Node.js driver covers both backend Node.js services and server-side rendering frameworks.
 * **JVM but not Java?** The Java driver works from any JVM language. Kotlin and Scala users often wrap it directly.
 
 For data modeling guidance before writing driver code, see xref:data-modeling/index.adoc[Data Modeling].
@@ -133,9 +133,9 @@ When evaluating any driver — including community drivers not listed here — c
 The following drivers cover additional languages and runtimes.
 They are community-maintained and listed here for discoverability, not as primary recommendations.
 
-* **Ruby** -- https://github.com/datastax/ruby-driver[DataStax Ruby Driver]
-* **PHP** -- https://github.com/datastax/php-driver[DataStax PHP Driver]
-* **C++** -- https://github.com/datastax/cpp-driver[DataStax C++ Driver]
+* **Ruby** -- https://github.com/apache/cassandra-ruby-driver[Apache Cassandra Ruby Driver]
+* **PHP** -- https://github.com/apache/cassandra-php-driver[Apache Cassandra PHP Driver]
+* **C++** -- https://github.com/apache/cassandra-cpp-driver[Apache Cassandra C++ Driver]
 * **JDBC** -- https://github.com/ing-bank/cassandra-jdbc-wrapper[Cassandra JDBC Wrapper] (use with Java applications that require a JDBC interface)
 * **Scala** -- https://github.com/datastax/spark-cassandra-connector[Spark Cassandra Connector], https://github.com/newzly/phantom[Phantom], https://github.com/getquill/quill[Quill]
 * **Clojure** -- https://github.com/mpenet/alia[Alia], https://github.com/clojurewerkz/cassaforte[Cassaforte]

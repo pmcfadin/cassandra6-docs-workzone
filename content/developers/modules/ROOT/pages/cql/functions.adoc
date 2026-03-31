@@ -550,7 +550,7 @@ An exception during function execution will result in the entire statement faili
 Valid queries for UDF use are `SELECT`, `INSERT` and `UPDATE` statements.
 
 _Complex_ types like collections, tuple types and user-defined types are valid argument and return types in UDFs.
-Tuple types and user-defined types use the DataStax Java Driver conversion functions.
+Tuple types and user-defined types use the Apache Cassandra Java Driver conversion functions.
 Please see the Java Driver documentation for details on handling tuple types and user-defined types.
 
 Arguments for functions can be literals or terms.

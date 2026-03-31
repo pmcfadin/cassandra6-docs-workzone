@@ -8,7 +8,7 @@
 
 The default driver configuration is designed to work out of the box for development.
 Production workloads have different requirements: higher concurrency, tighter latency budgets, multi-datacenter topologies, and behavior that must remain stable under partial failures.
-This guide covers the most impactful tuning settings for the Apache Cassandra Java Driver and the DataStax Python Driver.
+This guide covers the most impactful tuning settings for the Apache Cassandra Java Driver and the Apache Cassandra Python Driver.
 
 See xref:drivers.adoc[Choose a Driver] for an overview of available drivers and how to select one for your language.
 

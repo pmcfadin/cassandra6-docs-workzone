@@ -105,7 +105,7 @@ datastax-java-driver.advanced.metrics {
 
 === Python: Collecting Driver Metrics
 
-The DataStax Python driver exposes metrics through `Session.get_metrics()` and through `ResponseFuture` callbacks.
+The Apache Cassandra Python driver exposes metrics through `Session.get_metrics()` and through `ResponseFuture` callbacks.
 Use execution profiles to attach timing instrumentation:
 
 [source,python]

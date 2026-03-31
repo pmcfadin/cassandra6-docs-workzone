@@ -7,7 +7,7 @@ You will build a simple user management app that creates a keyspace and table, i
 
 A command-line Node.js script that:
 
-* Connects to a local Cassandra instance using the DataStax Node.js driver
+* Connects to a local Cassandra instance using the Apache Cassandra Node.js driver
 * Creates a keyspace and a `users` table
 * Inserts, queries, updates, and deletes rows using CQL and prepared statements
 * Shuts down cleanly
@@ -49,7 +49,7 @@ npm init -y
 npm install cassandra-driver
 ----
 
-The `cassandra-driver` package is the https://github.com/datastax/nodejs-driver[DataStax Node.js Driver].
+The `cassandra-driver` package is the https://github.com/apache/cassandra-nodejs-driver[Apache Cassandra Node.js Driver].
 It supports all major Cassandra features including prepared statements, token-aware routing, automatic paging, and speculative execution.
 
 == Connect to Cassandra

@@ -30,9 +30,9 @@ For detailed setup options, see the xref:Cassandra:cassandra:getting-started/cas
 Jump straight into a working application in your language:
 
 * xref:quickstarts/java.adoc[*Java*] -- Maven/Gradle project with the Apache Cassandra Java Driver
-* xref:quickstarts/python.adoc[*Python*] -- Script using the DataStax Python Driver
+* xref:quickstarts/python.adoc[*Python*] -- Script using the Apache Cassandra Python Driver
 * xref:quickstarts/go.adoc[*Go*] -- Module using gocql
-* xref:quickstarts/nodejs.adoc[*Node.js*] -- Project using the DataStax Node.js Driver
+* xref:quickstarts/nodejs.adoc[*Node.js*] -- Project using the Apache Cassandra Node.js Driver
 
 Each quickstart takes about 10 minutes and produces a complete, runnable application with CRUD operations.
 

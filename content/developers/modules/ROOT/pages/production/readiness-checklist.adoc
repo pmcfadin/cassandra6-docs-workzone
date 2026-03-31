@@ -31,7 +31,7 @@ DriverConfigLoader loader = DriverConfigLoader.programmaticBuilder()
 
 [source,python]
 ----
-# Python (DataStax Python Driver)
+# Python (Apache Cassandra Python Driver)
 cluster = Cluster(
     ['host1', 'host2'],
     executor_threads=4  # Adjust to your workload
@@ -55,7 +55,7 @@ DriverConfigLoader loader = DriverConfigLoader.programmaticBuilder()
 
 [source,python]
 ----
-# Python (DataStax Python Driver)
+# Python (Apache Cassandra Python Driver)
 cluster = Cluster(
     connect_timeout=5,
     control_connection_timeout=5
@@ -89,7 +89,7 @@ CqlSession session = CqlSession.builder()
 
 [source,python]
 ----
-# Python (DataStax Python Driver)
+# Python (Apache Cassandra Python Driver)
 from cassandra.policies import DCAwareRoundRobinPolicy, TokenAwarePolicy
 
 cluster = Cluster(

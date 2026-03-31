@@ -12,7 +12,7 @@ Each example is self-contained and ready to copy into your project.
 Examples are organized by task and shown in CQL, Java, and Python.
 
 All Java examples use the https://github.com/apache/cassandra-java-driver[Apache Cassandra Java Driver 4.x].
-All Python examples use the https://github.com/datastax/python-driver[Cassandra Python Driver].
+All Python examples use the https://github.com/apache/cassandra-python-driver[Apache Cassandra Python Driver].
 
 For step-by-step tutorials that walk through setup and build a full application, see the language quickstarts linked in xref:../quickstart.adoc[Quickstart].
 
