@@ -1,57 +1,103 @@
 = Installing Cassandra
 
-Apache Cassandra can be installed on a number of Linux distributions:
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Before installing, choose your deployment model.
+The right installation method depends on whether you are running a local evaluation, a production pilot, or a production cluster.
+See xref:deployment-guide.adoc[Choose Your Deployment Model] for a decision guide covering bare metal, cloud IaaS, and Kubernetes.
+
+For Kubernetes deployments, installation is managed by the K8ssandra operator rather than the methods below.
+See xref:automate/kubernetes-considerations.adoc[Kubernetes Considerations] for guidance.
+
+== Supported Platforms
+
+Apache Cassandra runs on the following Linux distributions:
 
 * AlmaLinux
-* Amazon Linux Amazon Machine Images (AMIs)
+* Amazon Linux AMIs
 * Debian
 * RedHat Enterprise Linux (RHEL)
 * SUSE Enterprise Linux
 * Ubuntu
 
-This is not an exhaustive list of operating system platforms, nor is it prescriptive.
-However, users are well-advised to conduct exhaustive tests if using a less-popular distribution of Linux.
-Deploying on older Linux versions is not recommended unless you have previous experience with the older distribution in a production environment.
+This is not an exhaustive list.
+Test thoroughly on less common distributions before production use.
+Deploying on older Linux versions is not recommended unless you have direct experience with that distribution in production.
 
 == Prerequisites
 
-* Install the latest version of Java 11 or Java 17, from one of the following locations:
-** https://www.oracle.com/java/technologies/javase/jdk11-archive-downloads.html[Oracle Java Standard Edition 11 Archived Version]
-** https://www.oracle.com/java/technologies/downloads/#java17[Oracle Java Standard Edition 17]
-** https://jdk.java.net/archive/[OpenJDK 11]
-** https://jdk.java.net/archive/[OpenJDK 17]
+=== Java Runtime
+
+Cassandra 6 requires **JDK 17 minimum**; **JDK 21 is strongly recommended** for production deployments.
+JDK 21 enables Generational ZGC, which delivers the best garbage collection behavior for Cassandra workloads.
+
+[cols="1,1,2",options="header"]
+|===
+|JDK Version |Support Status |Notes
+
+|JDK 21 (LTS)
+|**Recommended**
+|Required for Generational ZGC. Best GC performance for production.
+
+|JDK 17 (LTS)
+|Supported
+|Minimum supported version for Cassandra 6. Use JDK 21 when possible.
+
+|JDK 11
+|Not supported in Cassandra 6
+|Supported in Cassandra 4.x and 5.x only.
+|===
+
+Download JDK 21 from one of the following sources:
+
+* https://adoptium.net/temurin/releases/?version=21[Eclipse Temurin (OpenJDK 21)] — recommended open-source distribution
+* https://www.oracle.com/java/technologies/downloads/#java21[Oracle JDK 21]
+* https://jdk.java.net/21/[OpenJDK 21 (jdk.java.net)]
 
 include::Cassandra:cassandra:partial$java_version.adoc[]
 
-* To use the CQL shell `cqlsh`, install the latest version of Python 3.8-3.11.
+=== Python (for cqlsh)
 
-To verify that you have the correct version of Python installed, type `python --version`.
+To use the CQL shell `cqlsh`, install Python 3.8–3.11.
+
+[source,bash]
+----
+python --version
+----
 
 [NOTE]
 ====
-Support for Python 2.7 is deprecated.
+Python 2.7 support is removed. Python 3.8 or later is required.
 ====
 
-== Choosing an installation method
+== Choosing an Installation Method
 
-There are three methods of installing Cassandra that are common:
+[cols="1,2,2",options="header"]
+|===
+|Method |Best For |Notes
 
-* Docker image
-* Tarball binary file
-* Package installation (RPM, YUM)
+|**Package (RPM/DEB)**
+|Production installs on supported Linux distributions
+|Requires `root`. Installs binaries as the `cassandra` OS user. Managed by APT or YUM.
 
-If you are a current Docker user, installing a Docker image is simple.
-You'll need to install Docker Desktop for Mac, Docker Desktop for Windows, or have `docker` installed on Linux.
-Pull the appropriate image from the Docker Hub and start Cassandra with a `docker run` command.
+|**Tarball**
+|Development, testing, and installs without root
+|No root required. Works on any Linux distribution. Recommended for contributors and lab environments.
 
-For many users, installing the binary tarball is also a simple choice.
-The tarball unpacks all its contents into a single location with binaries and configuration files located in their own subdirectories.
-The most obvious advantage of a tarball installation is that it does not require `root` permissions and can be installed on any Linux
-distribution.
+|**Docker**
+|Local evaluation and development only
+|Not for production. Useful for getting started quickly or running integration tests locally.
+|===
 
-Packaged installations require `root` permissions, and are most appropriate for production installs.
-Install the RPM build on CentOS and RHEL-based distributions if you want to install Cassandra using YUM.
-Install the Debian build on Ubuntu and other Debian-based distributions if you want to install Cassandra using APT.
+[WARNING]
+====
+The Docker method is suitable for local evaluation and development.
+Do not use it for production clusters.
+For production, use package installs on supported Linux distributions.
+====
 
 [WARNING]
 ====
@@ -277,6 +323,13 @@ include::Cassandra:cassandra:partial$tail_syslog.adoc[]
 +
 include::Cassandra:cassandra:partial$nodetool_and_cqlsh_nobin.adoc[]
 
-== Further installation info
+== Further Installation Info
 
-For help with installation issues, see the xref:Cassandra:cassandra:troubleshooting/index.adoc[Troubleshooting] section.
+For installation issues, see the xref:Cassandra:cassandra:troubleshooting/index.adoc[Troubleshooting] section.
+
+After installing, continue with:
+
+* xref:production.adoc[Production Recommendations] — token configuration, compaction, OS-level tuning
+* xref:configure.adoc[Configuration Overview] — `cassandra.yaml`, JVM options, rack and topology files
+* xref:secure/security.adoc[Security Overview] — authentication, authorization, and TLS
+* xref:automate/kubernetes-considerations.adoc[Kubernetes Considerations] — if you are running Cassandra on Kubernetes

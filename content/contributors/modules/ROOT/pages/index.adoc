@@ -6,28 +6,67 @@
 ====
 
 Apache Cassandra is an open-source project that welcomes contributions of all kinds: code, documentation, tests, bug reports, and tooling improvements.
-This section provides everything you need to go from first clone to committed patch.
+Whether you are fixing your first bug or implementing a major feature, this section provides everything you need to contribute effectively.
 
-== Where to Start
+== Find Your Path
 
-If you are new to the project, start with xref:build-test/gettingstarted.adoc[Getting Started] to set up your environment, then read xref:patch-review/patches.adoc[Contributing Code Changes] for the contribution workflow.
+Not sure where to start?
+The xref:orientation/roadmap.adoc[Contributor Roadmap] helps you choose the right path based on what you want to do: fix a bug, add a feature, learn the codebase, write tests, improve documentation, or review patches.
+
+== Learn the Codebase
+
+Cassandra is a large distributed systems codebase.
+These resources make it legible:
+
+* xref:internals/internals-map.adoc[Cassandra Internals Map] -- every major subsystem mapped to source packages, key classes, and cross-subsystem boundaries
+* xref:internals/query-path.adoc[Query Execution Path] -- trace a CQL query from client to disk and back
+* xref:internals/messaging.adoc[Messaging and Failure Handling] -- how nodes communicate and detect failures
+* xref:sstable-architecture/fundamentals.adoc[SSTable Architecture] -- deep dive into the storage engine, from the SSTable book
 
 == Sections
 
-Architecture::
-xref:architecture/index.adoc[Architecture Overview] -- Cassandra internals: the Dynamo-inspired storage engine, consistent hashing, and the Accord consensus protocol.
+Get Oriented::
+xref:orientation/roadmap.adoc[Contributor Roadmap] -- find the right starting path for your contribution goals. +
+xref:internals/internals-map.adoc[Cassandra Internals Map] -- a subsystem-by-subsystem map of the codebase. +
+xref:orientation/expert-discovery.adoc[Subsystem Expert Discovery] -- who reviews what, and how to find the right people.
 
-Build and Test::
-xref:build-test/index.adoc[Build and Test Overview] -- Clone the repository, build from source, set up your IDE, and run the test suites.
+Learn the Codebase::
+xref:architecture/index.adoc[Architecture Overview] -- Cassandra internals: the Dynamo-inspired storage engine, consistent hashing, and the Accord consensus protocol. +
+xref:internals/query-path.adoc[Query Execution Path] -- follow a CQL request through coordinator, replica, and storage layers. +
+xref:internals/messaging.adoc[Messaging and Failure Handling] -- internode communication, gossip, and failure detection.
 
-Patches and Review::
-xref:patch-review/index.adoc[Patches and Review Overview] -- The contribution workflow from JIRA ticket to committed patch, including code style, the review checklist, and the committer merge process.
+SSTable Architecture::
+xref:sstable-architecture/fundamentals.adoc[SSTable Fundamentals] -- what SSTables are, component anatomy, format evolution. +
+xref:sstable-architecture/write-path.adoc[Write Path: CQL to Disk] -- the full mutation pipeline from CQL to flushed SSTable. +
+xref:sstable-architecture/data-format.adoc[SSTable Data Format] -- on-disk encoding for partitions, rows, cells, and collections. +
+xref:sstable-architecture/read-path.adoc[Read Path: Lookups and Indexes] -- Bloom filters, indexes, and how reads find data. +
+xref:sstable-architecture/compaction-lifecycle.adoc[Compaction and Tombstone Lifecycle] -- compaction strategies, tombstone reconciliation, repair, and backups. +
+xref:sstable-architecture/reference.adoc[SSTable Reference] -- versioning matrix, encoding cheat sheet, tools, and glossary.
 
-Documentation::
-xref:documentation/index.adoc[Working on Documentation] -- How Cassandra docs are structured, how to preview changes locally, and how to submit documentation patches.
+Build and Validate::
+xref:build-test/index.adoc[Build and Test Overview] -- clone the repository, build from source, set up your IDE, and run the test suites. +
+xref:build-test/test-selection-matrix.adoc[Test Selection Matrix] -- which tests to run for which kind of change. +
+xref:build-test/debugging.adoc[Debugging Locally] -- debug unit tests, dtests, and reproduce CI failures. +
+xref:build-test/profiling.adoc[Profiling and Performance Validation] -- CPU profiling, benchmarks, and regression detection.
 
-Release and Publish::
-xref:release-publish/index.adoc[Release and Publish Overview] -- CI infrastructure, dependency management, and the release process.
+Develop Features::
+xref:develop/feature-playbook.adoc[Feature Development Playbook] -- end-to-end guide from scoping to submission. +
+xref:develop/patch-classification.adoc[Patch Classification Guide] -- expectations per patch type: tests, docs, reviewers. +
+xref:develop/compatibility-checklist.adoc[Compatibility and Upgrade Checklist] -- pre-submission checks for protocol, config, and format changes. +
+xref:develop/operational-empathy.adoc[Operational Empathy Checklist] -- connecting code changes to operator consequences.
 
-Generated Docs::
-xref:generated-docs/index.adoc[Generated Documentation] -- How reference pages for `cassandra.yaml`, nodetool, and the native protocol are generated from source.
+Submit and Review::
+xref:patch-review/index.adoc[Patches and Review Overview] -- the contribution workflow from JIRA ticket to committed patch. +
+xref:patch-review/code_style.adoc[Code Style] -- formatting and style conventions. +
+xref:patch-review/how_to_review.adoc[Review Checklist] -- what reviewers look for. +
+xref:policy/ai-contribution.adoc[AI-Assisted Contribution Policy] -- rules for AI-generated code and docs. +
+xref:policy/agentic-tools.adoc[Working with Agentic Coding Tools] -- using Claude Code, Cursor, and Copilot with Cassandra.
+
+Release and Docs::
+xref:release-publish/index.adoc[Release and Publish Overview] -- CI infrastructure, dependency management, and the release process. +
+xref:documentation/index.adoc[Working on Documentation] -- how Cassandra docs are structured and how to submit documentation patches. +
+xref:generated-docs/index.adoc[Generated Documentation] -- how reference pages for `cassandra.yaml`, nodetool, and the native protocol are generated from source.
+
+Good First Contributions::
+xref:orientation/contribution-ladder.adoc[Contribution Ladder] -- stepped entry points from first bug fix to cross-cutting feature. +
+xref:orientation/first-deep-contribution.adoc[First Deep Contribution Walkthrough] -- a worked example tying together the internals map, test selection, and review process.
