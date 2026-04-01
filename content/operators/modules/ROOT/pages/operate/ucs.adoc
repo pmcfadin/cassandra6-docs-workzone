@@ -6,6 +6,11 @@
 *Preview | Unofficial | For review only*
 ====
 
+UCS keeps SSTables close to a target size while splitting each compaction
+output into token-range shards. The practical effect is that Cassandra can
+compact different shards in parallel while still keeping read amplification
+bounded.
+
 [[ucs]]
 The `UnifiedCompactionStrategy (UCS)` is recommended for most workloads, whether read-heavy, write-heavy, mixed read-write, or time-series.
 There is no need to use legacy compaction strategies, because UCS can be configured to behave like any of them.
@@ -428,8 +433,9 @@ There are two extensions currently implemented, SSTable growth and a minimum SST
 
 First, let's examine the case when the size of the data set is expected to grow very large.
 To avoid pre-specifying a sufficiently large target size to avoid problems with per-SSTable overhead, an `SSTtable growth` parameter has been implemented.
-// LLP: I don't know what this means: determines what part of the density growth should be assigned to increased SSTable size
-This parameter determines what part of the density growth should be assigned to increased SSTable size, reducing the growth of the number of shards, and hence, non-overlapping SSTables.
+This parameter determines how much of the density growth should be
+assigned to larger SSTables instead of more shards, reducing the growth
+of the number of shards and keeping SSTables non-overlapping.
 
 The second extension is a mode of operation with a fixed number of shards that splits conditionally on reaching a minimum size.
 Defining a `minimum SSTable size`, the base shard count can be reduced whenever a split would result in SSTables smaller than the provided minimum.
@@ -528,8 +534,10 @@ In addition to `TRANSITIVE`, "overlap inclusion methods" of `NONE` and `SINGLE` 
 
 In normal operation, we compact all SSTables in the compaction bucket. 
 If compaction is very late, we may apply a limit on the number of overlapping sources we compact.
-// LLP: What does limit-many mean in the next sentence?
-In that case, we use the collection of oldest SSTables that would select at most limit-many in any included overlap set, making sure that if an SSTable is included in this compaction, all older ones are also included to maintain time order.
+In that case, we use the collection of oldest SSTables that keeps every
+overlap set within the configured overlap limit, making sure that if an
+SSTable is included in this compaction, all older ones are also included
+to maintain time order.
 
 === Selecting the compaction to run
 

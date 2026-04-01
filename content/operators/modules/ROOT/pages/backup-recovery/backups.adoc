@@ -42,6 +42,11 @@ Once enabled, Cassandra creates a hard link to each SSTable flushed or streamed
 locally in a `backups/` subdirectory of the keyspace data.
 Incremental backups of system tables are also created.
 
+Ephemeral snapshots are created and managed by Cassandra for internal operations such as
+truncate and drop handling. You do not delete them by hand; Cassandra removes them when the
+operation completes and the snapshot is no longer needed. Treat them as part of the normal
+write path, not as operator-managed backup artifacts.
+
 == Data Directory Structure
 
 The directory structure of Cassandra data consists of different
@@ -325,7 +330,7 @@ include::Cassandra:cassandra:example$RESULTS/nodetool_list_snapshots_ephemeral.r
 
 [NOTE]
 ====
-You can not manually remove ephemeral snapshots.
+You cannot manually remove ephemeral snapshots.
 ====
 
 It is also possible to list snapshots via `system_views.snapshots` virtual table:

@@ -439,7 +439,7 @@ spec:
             severity: warning
           annotations:
             summary: "Cassandra coordinator read p99 latency above 10ms"
-            description: "Node {{ $labels.instance }} read p99 is {{ $value | humanizeDuration }} µs."
+            description: "Node {{ $labels.instance }} read p99 is {{ $value | printf \"%.0f\" }} µs."
 
         - alert: CassandraHighReadLatencyCritical
           expr: |
@@ -449,7 +449,7 @@ spec:
             severity: critical
           annotations:
             summary: "Cassandra coordinator read p99 latency above 50ms"
-            description: "Node {{ $labels.instance }} read p99 is {{ $value | humanizeDuration }} µs."
+            description: "Node {{ $labels.instance }} read p99 is {{ $value | printf \"%.0f\" }} µs."
 
         - alert: CassandraHighWriteLatencyCritical
           expr: |
@@ -459,7 +459,7 @@ spec:
             severity: critical
           annotations:
             summary: "Cassandra coordinator write p99 latency above 25ms"
-            description: "Node {{ $labels.instance }} write p99 is {{ $value | humanizeDuration }} µs."
+            description: "Node {{ $labels.instance }} write p99 is {{ $value | printf \"%.0f\" }} µs."
 
     - name: cassandra.errors
       interval: 30s

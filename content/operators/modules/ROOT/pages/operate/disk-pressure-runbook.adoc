@@ -9,6 +9,63 @@
 This runbook guides operators through diagnosing, mitigating, and resolving disk pressure on Cassandra nodes.
 Follow the sections in order: confirm the symptom, apply immediate actions to stop growth, apply short-term mitigations to reclaim space, then address the root cause with long-term fixes.
 
+== Cassandra 6 Disk Usage Guardrails
+
+Cassandra 6 introduces configurable disk usage guardrails that
+automatically warn and reject writes before disk pressure causes a node
+to become unavailable.
+
+=== Threshold Settings
+
+Configure thresholds in `conf/cassandra.yaml`:
+
+[source,yaml]
+----
+# Warn threshold: writes targeting replicas on this node generate a client warning
+data_disk_usage_percentage_warn_threshold: 70
+
+# Fail threshold: writes targeting replicas on this node are rejected
+data_disk_usage_percentage_fail_threshold: 90
+
+# Optional: cap the disk size used for threshold calculations
+# If unset, the actual disk capacity is used
+# data_disk_usage_max_disk_size: 500 GiB
+----
+
+Both thresholds default to `-1` (disabled).
+Enabling them is strongly recommended for production clusters.
+
+=== Keyspace-Wide Write Rejection (New in Cassandra 6)
+
+Cassandra 6 adds a keyspace-wide protection mode that rejects writes to a
+keyspace if *any* node in any datacenter replicating that keyspace exceeds
+the fail threshold.
+This prevents cascading failures where writes redirected away from full
+nodes overload the remaining nodes.
+
+[source,yaml]
+----
+# Enable keyspace-wide write rejection when any replicating node is full
+data_disk_usage_keyspace_wide_protection_enabled: true
+----
+
+This setting defaults to `false`.
+It has no effect unless `data_disk_usage_percentage_fail_threshold` is also
+set to a positive value.
+
+When a write is rejected by this guardrail, the client receives:
+
+[source,none]
+----
+Write request failed because disk usage exceeds failure threshold in <keyspace> <datacenter>.
+----
+
+Operators can update guardrail thresholds at runtime without restart via
+JMX (`GuardrailsMBean`).
+
+See xref:guardrails-reference.adoc[Guardrails Reference] for full
+configuration details and all guardrail properties.
+
 == Symptom: Node Disk Usage Above 70%
 
 A node is under disk pressure when data directory usage approaches or exceeds 70% of available capacity.
@@ -23,6 +80,14 @@ Check overall disk utilization on each node:
 df -h /var/lib/cassandra
 ----
 
+Example:
+
+[source,none]
+----
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/sda1       500G  360G  140G  72% /var/lib/cassandra
+----
+
 Check Cassandra's own view of data directory sizes and SSTable counts per keyspace:
 
 [source,none]
@@ -30,11 +95,30 @@ Check Cassandra's own view of data directory sizes and SSTable counts per keyspa
 nodetool tablestats
 ----
 
+Example excerpt:
+
+[source,none]
+----
+Space used (total): 384.2 GiB
+SSTable count: 1421
+----
+
 Check the node's current load and token ownership to understand whether the disk footprint is expected:
 
 [source,none]
 ----
 nodetool status
+----
+
+Example:
+
+[source,none]
+----
+Datacenter: dc1
+=======================
+Status=Up/Down
+|/ State=Normal/Leaving/Joining/Moving
+UN  127.0.0.1  12.4 GiB  256  100.0%  <host-id>  rack1
 ----
 
 If `df` shows data directory utilization at or above 70%, or if `nodetool tablestats` shows unexpectedly large table sizes, proceed to the next section.
@@ -108,6 +192,14 @@ Check compaction history for recently completed tasks:
 [source,none]
 ----
 nodetool compactionhistory
+----
+
+Example:
+
+[source,none]
+----
+Completed compactions: 14
+Last compaction time: 2026-04-01T14:05:00Z
 ----
 
 If the pending task count is large (hundreds or more) and not decreasing, compaction throughput may be throttled too aggressively.
@@ -264,55 +356,6 @@ See xref:operate/ucs.adoc[Unified Compaction Strategy] for the Cassandra 6 unifi
 
 Avoid running major compaction (`nodetool compact` without a table target) as a routine operation.
 It produces a single large SSTable that must then be re-split by minor compaction, temporarily worsening disk usage.
-
-== Cassandra 6 Disk Usage Guardrails
-
-Cassandra 6 introduces configurable disk usage guardrails that automatically warn and reject writes before disk pressure causes a node to become unavailable.
-
-=== Threshold Settings
-
-Configure thresholds in `conf/cassandra.yaml`:
-
-[source,yaml]
-----
-# Warn threshold: writes targeting replicas on this node generate a client warning
-data_disk_usage_percentage_warn_threshold: 70
-
-# Fail threshold: writes targeting replicas on this node are rejected
-data_disk_usage_percentage_fail_threshold: 90
-
-# Optional: cap the disk size used for threshold calculations
-# If unset, the actual disk capacity is used
-# data_disk_usage_max_disk_size: 500 GiB
-----
-
-Both thresholds default to `-1` (disabled).
-Enabling them is strongly recommended for production clusters.
-
-=== Keyspace-Wide Write Rejection (New in Cassandra 6)
-
-Cassandra 6 adds a keyspace-wide protection mode that rejects writes to a keyspace if *any* node in any datacenter replicating that keyspace exceeds the fail threshold.
-This prevents cascading failures where writes redirected away from full nodes overload the remaining nodes.
-
-[source,yaml]
-----
-# Enable keyspace-wide write rejection when any replicating node is full
-data_disk_usage_keyspace_wide_protection_enabled: true
-----
-
-This setting defaults to `false`.
-It has no effect unless `data_disk_usage_percentage_fail_threshold` is also set to a positive value.
-
-When a write is rejected by this guardrail, the client receives:
-
-[source,none]
-----
-Write request failed because disk usage exceeds failure threshold in <keyspace> <datacenter>.
-----
-
-Operators can update guardrail thresholds at runtime without restart via JMX (`GuardrailsMBean`).
-
-See xref:guardrails-reference.adoc[Guardrails Reference] for full configuration details and all guardrail properties.
 
 == Related Pages
 

@@ -156,16 +156,3 @@ JDK 11 and JDK 17 remain supported on Cassandra 6.0. If you stay on JDK 11 or JD
 === Related Changes
 
 * CASSANDRA-20980 introduces `gc_concurrent_phase_log_threshold` and `gc_concurrent_phase_warn_threshold` in `cassandra.yaml` for logging and warning thresholds specific to concurrent GC phases (such as those in ZGC). These settings are separate from the `jvm21-server.options` file. See the `cassandra.yaml` reference for details.
-
-=== Open Questions (Draft)
-
-[NOTE]
-====
-The following items require verification before this page is promoted from draft status:
-
-* Confirm whether CASSANDRA-18831 is the sole JIRA for the ZGC-as-default change or whether a sub-task covers that decision separately.
-* Confirm recommended heap size ranges for ZGC vs G1GC on typical Cassandra workloads (not documented in `jvm21-server.options` as of trunk research date).
-* Verify whether `cassandra-env.sh` JDK detection logic requires documentation updates.
-* Confirm interaction with CASSANDRA-20980 (concurrent GC thresholds) — consider co-locating or cross-referencing that content here.
-* Technical review requested from Josh McKenzie or Mick Semb Wever (CASSANDRA-18831 patch authors/reviewers).
-====

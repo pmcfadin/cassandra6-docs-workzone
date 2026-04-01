@@ -33,7 +33,7 @@ Use this decision guide before starting any replacement procedure.
 | Node has persistent hardware failure (failed disk, NIC, failed host)
 | Replace the node — use Option A or Option B below
 
-| Node is DOWN and has been unreachable > hint_window_persistent_window
+| Node is DOWN and has been unreachable longer than `max_hint_window`
 | Replace the node using Option B (dead-node replacement)
 
 | Node is DOWN and hints are still within the window
@@ -325,6 +325,10 @@ nodetool status
 The replacement must appear as UN.
 No other node should be in an abnormal state.
 
+Successful replacement should also produce log lines that mention
+`START_REPLACE`, `MID_REPLACE`, and `FINISH_REPLACE`. If those markers are
+missing, the replacement did not complete cleanly.
+
 . Confirm no pending TCM operations:
 +
 [source,bash]
@@ -387,6 +391,10 @@ Alert thresholds to watch:
 * Pending compaction tasks growing unbounded: review compaction strategy
 * P99 read or write latency increase > 2x baseline: check repair completion and GC logs
 * Any node transitioning to DN: do not start another replacement until resolved
+
+Investigate immediately if the replacement node shows dropped messages or
+if pending compactions stay elevated for more than 15 minutes after
+streaming completes.
 
 == Related Pages
 

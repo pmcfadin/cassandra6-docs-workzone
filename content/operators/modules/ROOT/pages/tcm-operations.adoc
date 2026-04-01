@@ -202,6 +202,9 @@ When a topology operation completes (FINISH_JOIN, FINISH_LEAVE, FINISH_MOVE),
 the final epoch is committed and a progress barrier ensures that affected nodes
 have acknowledged it before the system considers the operation fully propagated.
 The barrier starts at `EACH_QUORUM` — quorum acknowledgment in every datacenter.
+That is the operational replacement for "wait until the ring settles."
+If the barrier cannot complete at `EACH_QUORUM`, the system logs the degraded path and
+the operator should treat the operation as slowed, not finished.
 
 **The next operation can start immediately.**
 There is no propagation delay to wait for.
@@ -582,10 +585,3 @@ Source: `src/java/org/apache/cassandra/tcm/`
 * xref:tcm-pre-upgrade.adoc[TCM Pre-Upgrade Prerequisites]
 * xref:tcm-upgrade-procedure.adoc[TCM Upgrade Procedure]
 * xref:tcm-troubleshooting.adoc[TCM Troubleshooting]
-
-== Unresolved Questions
-
-* The `CoordinatorBehindException` behavior — when exactly it is thrown versus when the
-  coordinator silently triggers a background fetch — needs clarification for driver developers.
-* Specific guidance on `metadata_snapshot_frequency` tuning for clusters with thousands of
-  tables (large schema serialization cost) has not been quantified in public documentation.

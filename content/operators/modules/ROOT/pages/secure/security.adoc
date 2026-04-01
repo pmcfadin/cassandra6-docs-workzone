@@ -25,8 +25,24 @@ access internode communication and JMX ports can still:
 * Attach to the cluster directly to capture write traffic
 
 Correct configuration of all three security components should negate
-theses vectors. Therefore, understanding Cassandra's security features
+these vectors. Therefore, understanding Cassandra's security features
 is crucial to configuring your cluster to meet your security needs.
+
+== New Cluster Checklist
+
+Before you turn on security features for a new cluster, decide these
+items first:
+
+* turn on TLS for client traffic
+* turn on TLS for internode traffic
+* choose the JMX access model you will use during bootstrap and after
+  the node joins the ring
+* set the `system_auth` replication factor before you enable password
+  authentication
+* create a non-default superuser and disable the default `cassandra`
+  login once bootstrap is complete
+* decide whether clients will use password auth, mTLS, or both during
+  the transition period
 
 == TLS/SSL Encryption
 
@@ -260,6 +276,14 @@ using the `role_manager` setting in `cassandra.yaml`. The default
 setting uses `CassandraRoleManager`, an implementation which stores role
 information in the tables of the `system_auth` keyspace.
 
+Keep these terms distinct:
+
+* `role` is the authorization object stored in Cassandra
+* `user` is a role with `LOGIN = true`
+* `principal` is the authenticated caller seen by the server
+* `identity` is an external credential string, such as an mTLS
+  certificate identity, that can be mapped to a role
+
 See also the xref:developers::cql/security.adoc#database-roles[`CQL documentation on roles`].
 
 == Authentication
@@ -298,6 +322,15 @@ the setup process, so you may want to remove it from client config,
 block it at the network level or possibly add a new temporary node to
 the cluster for this purpose. On that node, perform the following steps:
 
+[WARNING]
+====
+Do not restart a node for authentication until `system_auth` uses the
+target replication factor and the data is available on the replicas that
+will serve login traffic. If a node restarts before that replication is
+in place, the cluster can accept login requests before credential data
+is safely distributed.
+====
+
 [arabic]
 . Open a `cqlsh` session and change the replication factor of the
 `system_auth` keyspace. By default, this keyspace uses
@@ -310,6 +343,13 @@ is to configure a replication factor of 3 to 5 per-DC.
 ----
 ALTER KEYSPACE system_auth WITH replication = {'class': 'NetworkTopologyStrategy', 'DC1': 3, 'DC2': 3};
 ----
+
+[NOTE]
+====
+If you are increasing the `system_auth` replication factor on an
+existing cluster, wait for the new replicas to be populated before you
+move on to the restart step.
+====
 
 [arabic, start=2]
 . Edit `cassandra.yaml` to change the `authenticator` option like so:
@@ -362,6 +402,9 @@ At the end of these steps, the one node is configured to use password
 authentication. To roll that out across the cluster, repeat steps 2 and
 3 on each node in the cluster. Once all nodes have been restarted,
 authentication will be fully enabled throughout the cluster.
+Only continue once the `system_auth` change is in place on the cluster
+and the credential data is present on the replicas that will serve
+logins.
 
 Note that using `PasswordAuthenticator` also requires the use of
 xref:developers::cql/security.adoc#operation-roles[`CassandraRoleManager`].
@@ -496,6 +539,17 @@ Access control for JMX clients is configured separately to that for CQL.
 For both authentication and authorization, two providers are available;
 the first based on standard JMX security and the second which integrates
 more closely with Cassandra's own auth subsystem.
+
+Choose the JMX path before you change any settings:
+
+[cols="1,2,2",options="header"]
+|===
+|Need |Choose |Why
+|Local-only access during bootstrap |Standard local JMX | Keeps access simple while the node is still joining.
+|Remote access with simple credentials |Standard JMX auth with SSL | Fastest path when you do not need Cassandra roles for JMX.
+|Remote access controlled by Cassandra roles |Cassandra integrated auth | Reuses CQL roles, but only after the node has joined the ring.
+|Any remote JMX access over the network |Add SSL | JMX credentials should not travel in clear text.
+|===
 
 The default settings for Cassandra make JMX accessible only from
 localhost. To enable remote JMX connections, edit `cassandra-env.sh`
@@ -748,22 +802,21 @@ File-Based Password Authentication In JMX]
 
 === Cassandra Integrated Auth
 
-An alternative to the out-of-the-box JMX auth is to useeCassandra's own
+An alternative to the out-of-the-box JMX auth is to use Cassandra's own
 authentication and/or authorization providers for JMX clients. This is
-potentially more flexible and secure but it come with one major caveat.
-Namely that it is not available until [.title-ref]#after# a node has
-joined the ring, because the auth subsystem is not fully configured
-until that point However, it is often critical for monitoring purposes
-to have JMX access particularly during bootstrap. So it is recommended,
-where possible, to use local only JMX auth during bootstrap and then, if
-remote connectivity is required, to switch to integrated auth once the
-node has joined the ring and initial setup is complete.
+potentially more flexible and secure but it comes with one major caveat:
+it is not available until after a node has joined the ring, because the
+auth subsystem is not fully configured before that point. It is often
+critical for monitoring purposes to have JMX access during bootstrap, so
+it is recommended, where possible, to use local-only JMX auth during
+bootstrap and then switch to integrated auth once the node has joined
+the ring and initial setup is complete.
 
 With this option, the same database roles used for CQL authentication
 can be used to control access to JMX, so updates can be managed
 centrally using just `cqlsh`. Furthermore, fine grained control over
 exactly which operations are permitted on particular MBeans can be
-acheived via xref:developers::cql/security.adoc#grant-permission[`GRANT PERMISSION`].
+achieved via xref:developers::cql/security.adoc#grant-permission[`GRANT PERMISSION`].
 
 To enable integrated authentication, edit `cassandra-env.sh` to
 uncomment these lines:

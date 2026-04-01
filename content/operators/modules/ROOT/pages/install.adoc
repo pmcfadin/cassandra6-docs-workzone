@@ -5,16 +5,14 @@
 *Preview | Unofficial | For review only*
 ====
 
-Before installing, choose your deployment model.
-The right installation method depends on whether you are running a local evaluation, a production pilot, or a production cluster.
-See xref:deployment-guide.adoc[Choose Your Deployment Model] for a decision guide covering bare metal, cloud IaaS, and Kubernetes.
-
-For Kubernetes deployments, installation is managed by the K8ssandra operator rather than the methods below.
-See xref:automate/kubernetes-considerations.adoc[Kubernetes Considerations] for guidance.
+Choose the install path that matches your goal.
+Docker is good for quick evaluation, tarballs are good for manual
+installs without root, and packages are the usual choice for production
+hosts.
 
 == Supported Platforms
 
-Apache Cassandra runs on the following Linux distributions:
+Apache Cassandra runs on these Linux distributions:
 
 * AlmaLinux
 * Amazon Linux AMIs
@@ -23,313 +21,82 @@ Apache Cassandra runs on the following Linux distributions:
 * SUSE Enterprise Linux
 * Ubuntu
 
-This is not an exhaustive list.
-Test thoroughly on less common distributions before production use.
-Deploying on older Linux versions is not recommended unless you have direct experience with that distribution in production.
+That list is not exhaustive. Test less common distributions before you
+use them in production.
 
 == Prerequisites
 
-=== Java Runtime
+* JDK 21 is recommended for Cassandra 6
+* JDK 17 is the minimum supported runtime
+* Python 3.8 to 3.11 is required for `cqlsh`
 
-Cassandra 6 requires **JDK 17 minimum**; **JDK 21 is strongly recommended** for production deployments.
-JDK 21 enables Generational ZGC, which delivers the best garbage collection behavior for Cassandra workloads.
-
-[cols="1,1,2",options="header"]
-|===
-|JDK Version |Support Status |Notes
-
-|JDK 21 (LTS)
-|**Recommended**
-|Required for Generational ZGC. Best GC performance for production.
-
-|JDK 17 (LTS)
-|Supported
-|Minimum supported version for Cassandra 6. Use JDK 21 when possible.
-
-|JDK 11
-|Not supported in Cassandra 6
-|Supported in Cassandra 4.x and 5.x only.
-|===
-
-Download JDK 21 from one of the following sources:
-
-* https://adoptium.net/temurin/releases/?version=21[Eclipse Temurin (OpenJDK 21)] — recommended open-source distribution
-* https://www.oracle.com/java/technologies/downloads/#java21[Oracle JDK 21]
-* https://jdk.java.net/21/[OpenJDK 21 (jdk.java.net)]
-
-include::Cassandra:cassandra:partial$java_version.adoc[]
-
-=== Python (for cqlsh)
-
-To use the CQL shell `cqlsh`, install Python 3.8–3.11.
-
-[source,bash]
-----
-python --version
-----
-
-[NOTE]
-====
-Python 2.7 support is removed. Python 3.8 or later is required.
-====
-
-== Choosing an Installation Method
+== Choose an Installation Method
 
 [cols="1,2,2",options="header"]
 |===
 |Method |Best For |Notes
 
-|**Package (RPM/DEB)**
+|Docker
+|Local evaluation and development
+|Fastest way to get a single node running.
+
+|Tarball
+|Development, labs, and hosts without package management
+|No root required. The archive unpacks into a versioned directory.
+
+|Package
 |Production installs on supported Linux distributions
-|Requires `root`. Installs binaries as the `cassandra` OS user. Managed by APT or YUM.
-
-|**Tarball**
-|Development, testing, and installs without root
-|No root required. Works on any Linux distribution. Recommended for contributors and lab environments.
-
-|**Docker**
-|Local evaluation and development only
-|Not for production. Useful for getting started quickly or running integration tests locally.
+|Use your platform package manager and start Cassandra as a service.
 |===
-
-[WARNING]
-====
-The Docker method is suitable for local evaluation and development.
-Do not use it for production clusters.
-For production, use package installs on supported Linux distributions.
-====
-
-[WARNING]
-====
-Note that both the YUM and APT methods required `root` permissions and will install the binaries and configuration files as the `cassandra` OS user.
-====
 
 == Install with Docker
 
-. Pull the docker image. For the latest image, use:
-+
-[source, shell]
+. Pull the image:
+
+[source,bash]
 ----
-include::Cassandra:cassandra:example$BASH/docker_pull.sh[]
-----
-+
-This `docker pull` command will get the latest version of the official Docker
-Apache Cassandra image available from the https://hub.docker.com/_/cassandra[Dockerhub].
-. Start Cassandra with a `docker run` command:
-+
-[source, shell]
-----
-include::Cassandra:cassandra:example$BASH/docker_run.sh[]
-----
-+
-The `--name` option will be the name of the Cassandra cluster created.
-This example uses the name `cass_cluster`.
-. Start the CQL shell, `cqlsh` to interact with the Cassandra node created:
-+
-[source, shell]
-----
-include::Cassandra:cassandra:example$BASH/docker_cqlsh.sh[]
+docker pull cassandra:latest
 ----
 
-== Install tarball file
-
-include::Cassandra:cassandra:partial$java_version.adoc[]
-
-. Download the binary tarball from one of the mirrors on the {cass_url}download/[Apache Cassandra Download] site.
-For example, to download Cassandra {cass-version}:
-+
-[source,shell]
-----
-include::Cassandra:cassandra:example$BASH/curl_install.sh[]
-----
-+
-[NOTE]
-====
-The mirrors only host the latest versions of each major supported release.
-To download an earlier version of Cassandra, visit the http://archive.apache.org/dist/cassandra/[Apache Archives].
-====
-. OPTIONAL: Verify the integrity of the downloaded tarball using one of the methods https://www.apache.org/dyn/closer.cgi#verify[here].
-For example, to verify the hash of the downloaded file using GPG:
-+
-[tabs]
-====
-Command::
-+
---
-[source,shell]
-----
-include::Cassandra:cassandra:example$BASH/verify_gpg.sh[]
-----
---
-
-Result::
-+
---
-[source,plaintext]
-----
-include::Cassandra:cassandra:example$RESULTS/verify_gpg.result[]
-----
---
-====
-+
-Compare the signature with the SHA256 file from the Downloads site:
-+
-[tabs]
-====
-Command::
-+
---
-[source,shell]
-----
-include::Cassandra:cassandra:example$BASH/curl_verify_sha.sh[]
-----
---
-
-Result::
-+
---
-[source,console]
-----
-include::example$RESULTS/curl_verify_sha.result[]
-----
---
-====
-. Unpack the tarball:
-+
-[source,shell]
-----
-include::Cassandra:cassandra:example$BASH/tarball.sh[]
-----
-+
-The files will be extracted to the `apache-cassandra-4.0.0/` directory.
-This is the tarball installation location.
-. Located in the tarball installation location are the directories for the scripts, binaries, utilities, configuration, data and log files:
-+
-[source,plaintext]
-----
-include::Cassandra:cassandra:example$TEXT/tarball_install_dirs.txt[]
-----
-<1> location of the commands to run cassandra, cqlsh, nodetool, and SSTable tools
-<2> location of cassandra.yaml and other configuration files
-<3> location of the commit logs, hints, and SSTables
-<4> location of system and debug logs
-<5>location of cassandra-stress tool
-+
 . Start Cassandra:
-+
-[source,shell]
-----
-include::Cassandra:cassandra:example$BASH/start_tarball.sh[]
-----
-+
-[NOTE]
-====
-This will run Cassandra as the authenticated Linux user.
-====
-+
-include::Cassandra:cassandra:partial$tail_syslog.adoc[]
-+
-include::Cassandra:cassandra:partial$nodetool_and_cqlsh.adoc[]
 
-== Install as Debian package
+[source,bash]
+----
+docker run --name cassandra -d -p 9042:9042 cassandra:latest
+----
 
-include::Cassandra:cassandra:partial$java_version.adoc[]
+. Connect with `cqlsh`:
 
-. Add the Apache repository of Cassandra to the file `cassandra.sources.list`.
-+
-include::Cassandra:cassandra:partial$package_versions.adoc[]
-+
-[source,shell]
+[source,bash]
 ----
-include::Cassandra:cassandra:example$BASH/get_deb_package.sh[]
+docker exec -it cassandra cqlsh
 ----
-. Add the Apache Cassandra repository keys to the list of trusted keys on the server:
-+
-[tabs]
-====
-Command::
-+
---
-[source,shell]
-----
-include::Cassandra:cassandra:example$BASH/add_repo_keys.sh[]
-----
---
 
-Result::
-+
---
-[source,plaintext]
-----
-include::Cassandra:cassandra:example$RESULTS/add_repo_keys.result[]
-----
---
-====
-. Update the package index from sources:
-+
-[source,shell]
-----
-include::Cassandra:cassandra:example$BASH/apt-get_update.sh[]
-----
-. Install Cassandra with APT:
-+
-[source,shell]
-----
-include::Cassandra:cassandra:example$BASH/apt-get_cass.sh[]
-----
-+
-include::Cassandra:cassandra:partial$tail_syslog.adoc[]
-+
-include::Cassandra:cassandra:partial$nodetool_and_cqlsh_nobin.adoc[]
+== Install from a Tarball
 
-== Install as RPM package
+. Download the tarball for the Cassandra release you want.
+. Verify the archive if your process requires it.
+. Unpack the archive:
 
-include::Cassandra:cassandra:partial$java_version.adoc[]
+[source,bash]
+----
+tar -xzf apache-cassandra-<version>-bin.tar.gz
+----
 
-. Add the Apache repository of Cassandra to the file `/etc/yum.repos.d/cassandra.repo` (as the `root` user).
-+
-include::Cassandra:cassandra:partial$package_versions.adoc[]
-+
-[source,plaintext]
-----
-include::Cassandra:cassandra:example$RESULTS/add_yum_repo.result[]
-----
-. Update the package index from sources:
-+
-[source,shell]
-----
-include::Cassandra:cassandra:example$BASH/yum_update.sh[]
-----
-. Install Cassandra with YUM:
-+
-[source,shell]
-----
-include::Cassandra:cassandra:example$BASH/yum_cass.sh[]
-----
-+
-[NOTE]
-====
-A new Linux user `cassandra` will get created as part of the installation.
-The Cassandra service will also be run as this user.
-====
-. Start the Cassandra service:
-+
-[source,shell]
-----
-include::Cassandra:cassandra:example$BASH/yum_start.sh[]
-----
-+
-include::Cassandra:cassandra:partial$tail_syslog.adoc[]
-+
-include::Cassandra:cassandra:partial$nodetool_and_cqlsh_nobin.adoc[]
+The files unpack into `apache-cassandra-<version>/`.
 
-== Further Installation Info
+. Start Cassandra:
 
-For installation issues, see the xref:Cassandra:cassandra:troubleshooting/index.adoc[Troubleshooting] section.
+[source,bash]
+----
+cd apache-cassandra-<version>
+bin/cassandra -f
+----
 
-After installing, continue with:
+== Install as a Package
 
-* xref:production.adoc[Production Recommendations] — token configuration, compaction, OS-level tuning
-* xref:configure.adoc[Configuration Overview] — `cassandra.yaml`, JVM options, rack and topology files
-* xref:secure/security.adoc[Security Overview] — authentication, authorization, and TLS
-* xref:automate/kubernetes-considerations.adoc[Kubernetes Considerations] — if you are running Cassandra on Kubernetes
+. Add the Cassandra package repository for your distribution.
+. Install the package with `apt`, `yum`, or your platform equivalent.
+. Start Cassandra with your service manager.
+
+After startup, verify the node with `nodetool status` and `cqlsh`.

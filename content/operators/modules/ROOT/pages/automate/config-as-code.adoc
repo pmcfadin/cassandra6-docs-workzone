@@ -113,7 +113,11 @@ The Ansible task to deploy the template:
 [IMPORTANT]
 ====
 Some `cassandra.yaml` changes require restart, others are dynamic.
-Before triggering an automated restart, verify whether the changed parameters are live-reloadable via `nodetool reloadlocalschema` or `nodetool setcachecapacity` (for applicable settings), or check the parameter's `restart_required` annotation in the source.
+Before triggering an automated restart, verify whether the changed parameters are live-reloadable.
+`nodetool reloadlocalschema` only refreshes schema-related metadata; it is not a general
+configuration reload command.
+Use the dedicated nodetool command for the setting you changed, or check the parameter's
+`restart_required` annotation in the source before rolling the node.
 Avoid unnecessary restarts in production.
 ====
 

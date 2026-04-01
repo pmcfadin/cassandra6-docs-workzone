@@ -136,6 +136,9 @@ The node is ready when `nodetool status` shows `UN` for it.
 ----
 nodetool status
 ----
+If the node does not return to `UN`, stop the rollout and investigate the node before
+moving to the next host.
+Check `system.log` for streaming or join failures and confirm the service is still healthy.
 
 . *Run the validation gate before moving to the next node.*
 +
@@ -266,6 +269,8 @@ run the following verification steps before declaring the upgrade complete.
 Cassandra 6.0 can read SSTables written by prior versions, but those files will not
 benefit from the new format improvements until they are rewritten.
 Schedule `upgradesstables` during a maintenance window after the full cluster is on 6.0.
+If you skip this step, the cluster continues to carry legacy SSTables and the old disk,
+compaction, and table layout costs remain until normal compaction rewrites them.
 
 [source,bash]
 ----
@@ -274,6 +279,7 @@ nodetool upgradesstables
 
 Run this on every node.
 Monitor compaction progress with `nodetool compactionstats`.
+If `upgradesstables` stalls, investigate the compaction queue and logs before retrying.
 
 === Confirm Metrics Pipeline
 
@@ -294,6 +300,7 @@ Confirm these are visible and that thresholds are appropriate for your workload.
 
 Run a full repair after `upgradesstables` completes.
 This ensures all replicas are consistent on the new SSTable format.
+Repair does not replace the SSTable rewrite step; it validates replica agreement after the rewrite.
 
 [source,bash]
 ----

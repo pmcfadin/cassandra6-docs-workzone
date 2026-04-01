@@ -102,6 +102,12 @@ Once a majority is up, the system recovers automatically.
 * **Option B: Emergency recovery.**
   If the CMS nodes are permanently lost, proceed to the Total CMS Loss playbook.
 
+Decision criteria:
+
+* Choose **wait** when at least one CMS node is expected back soon and no topology or schema change is urgent.
+* Choose **restore or replace** when the missing CMS node is individually recoverable but quorum is currently lost.
+* Choose **emergency recovery** only when the CMS set is unrecoverable as deployed and no normal restart path exists.
+
 ==== Prevention
 
 Size your CMS appropriately.
@@ -867,14 +873,3 @@ grep -i "snapshot" /var/log/cassandra/system.log
 * xref:tcm-pre-upgrade.adoc[TCM Pre-Upgrade Prerequisites]
 * xref:tcm-upgrade-procedure.adoc[TCM Upgrade Procedure]
 * xref:tcm-operations.adoc[TCM Operations]
-
-== Unresolved Questions
-
-* Whether `nodetool cms cancel_in_progress_sequences` can safely cancel operations in any
-  phase (PREPARE, START, MID, FINISH) or has restrictions on cancellation phase.
-  The source suggests type-specific handling, but the constraints are not fully documented
-  from available evidence.
-* The `nodetool cms resumedropaccordtable` subcommand is repo-validated
-  (source: `src/java/org/apache/cassandra/tools/nodetool/CMSAdmin.java`)
-  but its interaction with Accord (CEP-15) is not documented in the available source material.
-  This needs clarification before the troubleshooting guide is finalized.

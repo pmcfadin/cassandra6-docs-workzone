@@ -16,6 +16,24 @@ As SSTables accumulate, the distribution of data can require accessing more and 
 To keep the database healthy, Cassandra periodically merges SSTables and discards old data. 
 This process is called https://cassandra.apache.org/_/glossary.html#compaction[compaction].
 
+For operators, compaction is the mechanism that turns many small or stale
+files into fewer, cleaner SSTables. That reduces read amplification and
+creates space for tombstones and expired TTL data to be dropped safely.
+
+[source,text]
+----
+memtables flush to SSTables
+        |
+        v
+compaction picks overlapping SSTables
+        |
+        v
+merge latest rows, keep live data, drop safe tombstones
+        |
+        v
+fewer SSTables and lower disk pressure
+----
+
 == Why must compaction be run?
 
 Since SSTables are consulted during read operations, it is important to keep the number of SSTables small.
@@ -79,6 +97,32 @@ With LCS the resulting SSTable will end up in L0.
 
 Different compaction strategies are available to optimize for different workloads.
 Picking the right compaction strategy for your workload will ensure the best performance for both querying and for compaction itself.
+
+Use the table below as a starting point. It is intentionally conservative:
+pick the first strategy that matches the workload, then tune after you
+have measured read amplification, write amplification, and tombstone
+pressure in production.
+
+[cols="1,2,2",options="header"]
+|===
+| Strategy | Good starting point | Watch for
+
+| STCS
+| Write-heavy tables or a compatibility fallback
+| Large SSTables and more overlap between files
+
+| LCS
+| Read-heavy tables with tighter space amplification needs
+| Higher write cost and more compaction work in low levels
+
+| TWCS
+| Mostly immutable time-series data with TTLs
+| Data outside the configured windows is slower to purge
+
+| UCS
+| New tables and mixed workloads
+| Tuning `scaling_parameters`, `target_sstable_size`, and `base_shard_count`
+|===
 
 xref:operate/ucs.adoc[`Unified Compaction Strategy (UCS)`]::
 UCS is a good choice for most workloads and is recommended for new workloads.

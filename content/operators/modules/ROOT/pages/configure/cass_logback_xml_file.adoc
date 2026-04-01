@@ -82,9 +82,11 @@ Specify the format of the message. Part of the rolling policy.
 
 === Logging system logs to Cassandra virtual table
 
-It is possible to configure logback.xml in such a way that logs would appear in `system_views.system_log` table.
-This is achieved by appender implemented in class `VirtualTableAppender` which is called `CQLLOG` in the
-default configration. When the appender is commented out, no system logs are written to the virtual table.
+It is possible to configure logback.xml in such a way that logs would
+appear in `system_views.system_log` table. This is achieved by an
+appender implemented in class `VirtualTableAppender`, which is called
+`CQLLOG` in the default configuration. When the appender is commented
+out, no system logs are written to the virtual table.
 
 CQLLOG appender is special as the underlying structure it saves log messages into can not grow without any bound
 as a node would run out of memory. For this reason, `system_log` table is limited on its size.

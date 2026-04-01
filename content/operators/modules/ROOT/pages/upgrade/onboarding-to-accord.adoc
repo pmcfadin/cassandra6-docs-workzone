@@ -25,64 +25,64 @@ This guide does not cover the new transaction syntax.
 You need to set `accord.enabled` to true for Accord to be initialized at
 startup.
 
-`accord.default++_++transactional++_++mode` allows you to set a default
+`accord.default_transactional_mode` allows you to set a default
 transactional mode for newly created tables which will be used in create
-table statements when no `transactional++_++mode` is specified. This
+table statements when no `transactional_mode` is specified. This
 prevents accidentally creating non-Accord tables that will need
 migration to Accord.
 
-`accord.range++_++migration` configures the behavior of altering the
-`transactional++_++mode` of a table. When set to `auto` the entire ring
-will be marked as migrating when the `transactional++_++mode` of a table
+`accord.range_migration` configures the behavior of altering the
+`transactional_mode` of a table. When set to `auto` the entire ring
+will be marked as migrating when the `transactional_mode` of a table
 is altered. When set to `explicit` no ranges will be marked as migrating
-when the `transactional++_++mode` of a table is altered.
+when the `transactional_mode` of a table is altered.
 
 === Table parameters
 
-`transactional++_++mode` can be set when a table is created
-`CREATE TABLE foo WITH transactional++_++mode = ‘full'` or it can be set
+`transactional_mode` can be set when a table is created
+`CREATE TABLE foo WITH transactional_mode = ‘full'` or it can be set
 by altering an existing table
-`ALTER TABLE foo WITH transactional++_++mode = ‘full'`.
-`transactional++_++mode` designates the target or intended transaction
+`ALTER TABLE foo WITH transactional_mode = ‘full'`.
+`transactional_mode` designates the target or intended transaction
 system for the table and for a newly created table this will be the
 transaction system that is used, but for existing tables that are being
 altered the table will still need to be migrated to the target system.
 
-`transactional++_++mode` can be set to `full`, `mixed++_++reads`, and
+`transactional_mode` can be set to `full`, `mixed_reads`, and
 `off`. `off` means that Paxos will be used and transaction statements
 will be rejected. `full` means that all reads and writes will execute on
-Accord. `mixed++_++reads` means that all writes will execute on Accord
+Accord. `mixed_reads` means that all writes will execute on Accord
 along with `SERIAL` reads/writes, but non-SERIAL reads/writes will
 execute on the existing eventually consistent path. Applying the
 mutations for blocking read repair will always be done through Accord in
-`full` in and `mixed++_++reads`.
+`full` in and `mixed_reads`.
 
-`transactional++_++migration++_++from` indicates whether a migration is
+`transactional_migration_from` indicates whether a migration is
 currently in progress although it does not indicate which ranges are
 actively being migrated. This is set automatically when you create a
-table or alter `transactional++_++mode` and should not be set manually.
-It's possible to manually set `transactional++_++migration++_++from` to
+table or alter `transactional_mode` and should not be set manually.
+It's possible to manually set `transactional_migration_from` to
 force the completion of migration without actually running the necessary
 migration steps.
 
-`transactional++_++migration++_++from` can be set to `none`, `off`,
-`full`, and `mixed++_++reads`. `off`, `full`, and `mixed++_++reads`
-correspond to the `transactional++_++mode` being migrated away from and
+`transactional_migration_from` can be set to `none`, `off`,
+`full`, and `mixed_reads`. `off`, `full`, and `mixed_reads`
+correspond to the `transactional_mode` being migrated away from and
 `none` indicates that no migration is in progress either because the
 migration has completed or because the table was created with its
-current `transactional++_++mode`.
+current `transactional_mode`.
 
-=== mixed++_++reads vs full
+=== mixed_reads vs full
 
-When Accord is running with `transactional++_++mode` `full` it will be
+When Accord is running with `transactional_mode` `full` it will be
 able to perform asynchronous commit saving a WAN roundtrip.
-`mixed++_++reads` allows non-SERIAL reads to continue to execute using
-the original eventually consistent read path. `mixed++_++reads`, unlikes
+`mixed_reads` allows non-SERIAL reads to continue to execute using
+the original eventually consistent read path. `mixed_reads`, unlikes
 `full`, always requires Accord to always synchronously commit at the
 requested consistency level in order to make acknowledged Accord writes
 visible to non-SERIAL reads.
 
-There is no `transactional++_++mode` that allows non-SERIAL writes
+There is no `transactional_mode` that allows non-SERIAL writes
 because they break Accord's transaction recovery resulting in
 transactions appearing to have different outcomes at different nodes.
 
@@ -108,8 +108,8 @@ ALTER TABLE foo WITH transactional_mode = 'full'
 ....
 
 After the table is altered it is required to run
-`nodetool consensus++_++admin begin-migration` on ranges in the table
-unless `accord.range++_++migration=auto`.
+`nodetool consensus_admin begin-migration` on ranges in the table
+unless `accord.range_migration=auto`.
 
 When a range is initially marked migrating to Accord all non-SERIAL
 writes will execute on Accord while `SERIAL` writes will continue to
@@ -125,16 +125,16 @@ when a range is marked migrating, and the second phase starting after a
 full or incremental data repair, and then the migration completing after
 a second repair which must be a full data repair {plus} Paxos repair.
 While marking the range as migrating can be done automatically with
-`accord.range++_++migration=auto`, there is not automation for
+`accord.range_migration=auto`, there is not automation for
 triggering the repairs. If you regularly run compatible repairs then the
 migration will eventually complete, but if you don't run them or want
 the migration to complete sooner then you will need to either trigger
-them manually or invoke `nodetool consensus++_++admin finish-migration`
+them manually or invoke `nodetool consensus_admin finish-migration`
 to trigger them.
 
 Any repair that is compatible will drive migration forward whether it
 only covers part of the migrating range or whether is started via
-`nodetool consensus++_++admin finish-migration` or some other external
+`nodetool consensus_admin finish-migration` or some other external
 process that initiates repair. Force repair with down nodes will not be
 eligible to drive any type or phase of migration forward. Force repair
 with all nodes up will still work.
@@ -157,11 +157,11 @@ safely read them.
 === Second phase
 
 In the second phase all reads and writes execute through Accord
-(assuming `transactional++_++mode="full"`). Before an operation can execute on
+(assuming `transactional_mode="full"`). Before an operation can execute on
 Accord it is necessary to run a Paxos key repair in order to ensure that
 any uncommitted Paxos transactions are committed and this check will
 take at least one extra WAN RTT. Additionally Accord has to read at `QUORUM`
-(where it would normally only read from a single replica in `transactional++_++mode="full"` and migration completed) because
+(where it would normally only read from a single replica in `transactional_mode="full"` and migration completed) because
 Paxos writes are only visible at `QUORUM`.
 
 All reads and CAS operations in the range should start showing up in the
@@ -183,7 +183,7 @@ the repair before running the Paxos repair.
 == Migration from Accord
 
 Migration from Accord to Paxos occurs in a single phase and begins by
-altering the table's `transactional++_++mode` to `off` and then
+altering the table's `transactional_mode` to `off` and then
 optionally marking ranges as migrating as discussed above.
 
 Once a range is marked migrating all operations in the migrating range
@@ -207,10 +207,10 @@ manage consensus migration. The existing methods for starting repairs
 can also be used to start the repairs that are needed to complete
 migration.
 
-=== nodetool consensus++_++admin list
+=== nodetool consensus_admin list
 
 Invoking `nodetool` with
-`consensus++_++admin list ++[<++keyspace++>++ ++<++tables++>++...++]++`
+`consensus_admin list ++[<++keyspace++>++ ++<++tables++>++...++]++`
 will connect to the specified node and retrieve that nodes view of what
 tables are currently being migrated from transactional cluster metadata.
 Tables that are not being migrated are not listed.
@@ -219,10 +219,10 @@ The results can be printed out in several different formats using the
 `format` parameter which supports `json`, `minified-json`, `yaml`, and
 `minified-yaml`.
 
-=== nodetool consensus++_++admin begin-migration
+=== nodetool consensus_admin begin-migration
 
 Invoking `nodetool` with
-`consensus++_++admin begin-migration ++[<++keyspace++>++ ++<++tables++>++...++]++`
+`consensus_admin begin-migration ++[<++keyspace++>++ ++<++tables++>++...++]++`
 can be used to mark ranges on a table as migrating. This can only be
 done after the migration has been started by altering the tables.
 Marking ranges as migrating is a lightweight operation and does not
@@ -234,7 +234,7 @@ specified keyspace and tables. If the entire range is marked migrating it is
 only necessary to invoke `begin-migration` on one node.
 
 This is only needed if
-`accord.default++_++transactional++_++mode=explicit` is set in
+`accord.default_transactional_mode=explicit` is set in
 `cassandra.yaml` otherwise all the ranges will already have been marked
 migrating when the alter occurred.
 
@@ -242,10 +242,10 @@ Ranges that are migrating will require at least an extra WAN roundtrip
 for each request that touches a migrating range because both transaction
 systems may need to be used to execute the request.
 
-=== nodetool consensus++_++admin finish-migration
+=== nodetool consensus_admin finish-migration
 
 Invoking `nodetool` with
-`consensus++_++admin finish-migration ++[<++keyspace++>++ ++<++tables++>++...`
+`consensus_admin finish-migration ++[<++keyspace++>++ ++<++tables++>++...`
 will run the repairs needed to complete the migration for the specified
 ranges. If no range is specified it will default to the primary range of
 the node that `nodetool` is connecting to so you can call it once on
@@ -265,7 +265,7 @@ the requested consistency level.
 
 Once migration is complete the read and write consistency levels will be
 ignored with transactional mode `full` . With transactional mode
-`mixed++_++reads` Accord will continue to do synchronous commit and
+`mixed_reads` Accord will continue to do synchronous commit and
 honor the requested commit/write consistency level.
 
 Accord will always reject any requests to execute at unsupported

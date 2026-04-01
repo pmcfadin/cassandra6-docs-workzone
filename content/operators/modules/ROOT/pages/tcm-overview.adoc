@@ -16,6 +16,15 @@ For upgrade instructions, see xref:tcm-pre-upgrade.adoc[Pre-Upgrade Prerequisite
 xref:tcm-upgrade-procedure.adoc[Upgrade Procedure].
 For day-2 operations, see xref:tcm-operations.adoc[TCM Operations].
 
+== Why TCM Exists
+
+TCM exists to remove the guesswork from cluster metadata.
+Under gossip, operators had to wait for propagation, infer whether nodes had converged,
+and accept brief windows where different coordinators could make different placement decisions.
+TCM turns that metadata into a committed log so every node applies the same change in the same order.
+The progress barrier is the operator-visible proof point: once a transformation commits, affected nodes
+acknowledge the new epoch before the next topology step proceeds.
+
 == What TCM Is
 
 TCM was introduced in Cassandra 6.0 as CEP-21.
@@ -109,6 +118,14 @@ Any system reading gossip (monitoring agents, older sidecar processes, mixed-ver
 rolling upgrade) sees exactly what it expects.
 
 Source: `src/java/org/apache/cassandra/tcm/migration/`
+
+== Barrier Semantics
+
+The progress barrier is the synchronization point that replaces "wait for gossip to settle."
+It does not mean metadata is merely broadcast; it means the commit is not treated as complete until
+the affected nodes have acknowledged the new epoch.
+That is why topology operations can move on immediately after a finished step, while conflicting
+operations are rejected instead of racing the cluster.
 
 === What Stays the Same for Operators
 

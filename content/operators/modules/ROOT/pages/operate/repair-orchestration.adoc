@@ -6,7 +6,7 @@ Repair is essential to Cassandra's eventual consistency guarantee: it reconciles
 Running a single `nodetool repair` on one node is straightforward.
 Orchestrating repair continuously across dozens or hundreds of nodes — without disrupting production traffic — is a distinct operational discipline.
 
-This page covers how to think about repair orchestration, when Cassandra 6's built-in Auto Repair (CEP-37) is sufficient, when to reach for an external orchestrator like Reaper, and how repair interacts with compaction and anti-compaction at the system level.
+This page covers how to think about repair orchestration, when Cassandra 6's built-in Auto Repair (CEP-37) is sufficient, when to reach for an external orchestrator like Reaper, and how repair interacts with compaction and anticompaction at the system level.
 
 [NOTE]
 ====
@@ -18,7 +18,7 @@ Before reading this page, familiarise yourself with the foundational concepts in
 A common starting point is a cron job that runs `nodetool repair -pr` on each node in sequence.
 This approach breaks down at scale for several reasons:
 
-* **No coordination**: Two cron jobs on replicas of the same range may start simultaneously, doubling streaming load and causing anti-compaction conflicts during incremental repair.
+* **No coordination**: Two cron jobs on replicas of the same range may start simultaneously, doubling streaming load and causing anticompaction conflicts during incremental repair.
 * **No retries**: A failed session leaves a gap in coverage with no automatic remediation.
 * **No back-pressure**: Cron fires regardless of current cluster load — a repair session launched during a compaction storm compounds the problem.
 * **No visibility**: There is no centralised record of which token ranges were repaired when, making SLA reasoning impossible.
@@ -39,7 +39,7 @@ A repair orchestrator — whether Auto Repair or an external tool — provides t
 | Splits the full ring into bounded subrange sessions so that a single node failure does not invalidate hours of progress.
 
 | Replica coordination
-| Ensures that at most N replicas of the same range are repairing concurrently, preventing anti-compaction storms.
+| Ensures that at most N replicas of the same range are repairing concurrently, preventing anticompaction storms.
 
 | Retry logic
 | Re-queues failed sessions with configurable back-off rather than abandoning coverage silently.
@@ -129,7 +129,7 @@ An incremental `min_repair_interval` of `1h` is appropriate for active clusters;
 | `allow_parallel_replica_repair`
 | `false`
 | Keep `false`.
-  Allowing concurrent replica repair multiplies anti-compaction work.
+  Allowing concurrent replica repair multiplies anticompaction work.
 
 | `bytes_per_assignment`
 | (splitter default)
@@ -256,7 +256,7 @@ Use incremental repair as the steady-state default when:
 [WARNING]
 ====
 Do not interleave incremental and full repair on the same tables without understanding the SSTable state transitions.
-Mixing repair types without care can leave SSTables in an inconsistent repaired/unrepaired classification, causing anti-compaction to behave unexpectedly.
+Mixing repair types without care can leave SSTables in an inconsistent repaired/unrepaired classification, causing anticompaction to behave unexpectedly.
 ====
 
 === Subrange Repair
@@ -290,18 +290,18 @@ Understanding its interaction with compaction is critical for avoiding unplanned
 
 === The Anti-Compaction Phase of Incremental Repair
 
-When an incremental repair session completes for a token range, Cassandra performs **anti-compaction**: it splits SSTables that span both repaired and unrepaired token ranges into separate repaired and unrepaired SSTables.
+When an incremental repair session completes for a token range, Cassandra performs **anticompaction**: it splits SSTables that span both repaired and unrepaired token ranges into separate repaired and unrepaired SSTables.
 This write amplification is proportional to the number of SSTables that straddle the repair boundary.
 
 [WARNING]
 ====
-Enabling incremental repair for the first time on a large existing cluster can trigger a wave of anti-compaction across every SSTable on every node.
+Enabling incremental repair for the first time on a large existing cluster can trigger a wave of anticompaction across every SSTable on every node.
 This can temporarily double disk usage and saturate I/O on all nodes simultaneously.
 
 Mitigate this by:
 
 . Running a full repair first to stabilise the dataset.
-. Setting `bytes_per_assignment` to a conservative value (e.g., `10GiB`) for the initial incremental sweep, then increasing it once anti-compaction activity stabilises.
+. Setting `bytes_per_assignment` to a conservative value (e.g., `10GiB`) for the initial incremental sweep, then increasing it once anticompaction activity stabilises.
 . Monitoring `LiveDiskSpaceUsed` and compaction queue depth during the migration window.
 . Scheduling the initial incremental repair sweep during a low-traffic period.
 ====
@@ -315,7 +315,7 @@ The choice of compaction strategy affects the cost of incremental repair:
 | Compaction Strategy | Repair Interaction
 
 | SizeTieredCompactionStrategy (STCS)
-| Creates large SSTables that are more likely to span repair boundaries, increasing anti-compaction cost.
+| Creates large SSTables that are more likely to span repair boundaries, increasing anticompaction cost.
   Use small `bytes_per_assignment` to limit the number of SSTables included per session.
 
 | LeveledCompactionStrategy (LCS)
@@ -323,7 +323,7 @@ The choice of compaction strategy affects the cost of incremental repair:
   However, L0 accumulation between repairs increases cost; keep `min_repair_interval` short.
 
 | UnifiedCompactionStrategy (UCS)
-| Sharding configuration can align SSTable boundaries with repair token ranges, reducing anti-compaction cost.
+| Sharding configuration can align SSTable boundaries with repair token ranges, reducing anticompaction cost.
   See xref:operate/ucs.adoc#sharding[UCS sharding] for details.
 |===
 
@@ -382,7 +382,7 @@ At minimum, configure alerts for:
 . **Repair SLA breach**: No successful repair completion for a node within `gc_grace_seconds`.
   This is the condition that directly enables zombie data resurrection.
 . **Repair session failure rate**: `RepairsFailed` increasing faster than `RepairsStarted` — indicates systemic failures that retries alone cannot resolve.
-. **Compaction queue depth**: A sustained increase during active repair windows is a leading indicator of the anti-compaction spike pattern described above.
+. **Compaction queue depth**: A sustained increase during active repair windows is a leading indicator of the anticompaction spike pattern described above.
 
 === Observability for Reaper
 
@@ -393,7 +393,7 @@ Reaper's UI provides a per-cluster repair intensity gauge and segment completion
 
 * xref:operate/repair.adoc[Repair] — foundational concepts, repair types, and nodetool commands
 * xref:operate/auto_repair.adoc[Auto Repair] — full Auto Repair configuration reference (CEP-37)
-* xref:operate/compaction-overview.adoc[Compaction Overview] — compaction strategies and anti-compaction
+* xref:operate/compaction-overview.adoc[Compaction Overview] — compaction strategies and anticompaction
 * xref:operate/ucs.adoc[Unified Compaction Strategy] — UCS sharding and its effect on repair cost
 * xref:operate/tombstones.adoc[Tombstones] — `gc_grace_seconds` and `only_purge_repaired_tombstones`
 * xref:observe/metrics.adoc#_automated_repair_metrics[Automated Repair Metrics] — JMX metrics reference

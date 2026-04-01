@@ -26,6 +26,10 @@ by all replicas. Hints, like read-repair, are best effort and not an
 alternative to performing full repair, but they do help reduce the
 duration of inconsistency between replicas in practice.
 
+Hints are a recovery aid, not a durability guarantee. If a node remains
+down past `max_hint_window`, repair is what reconciles the missing data
+and prevents old values from reappearing after tombstones expire.
+
 == Hinted Handoff
 
 Hinted handoff is the process by which Cassandra applies hints to
@@ -39,7 +43,7 @@ replicas acknowledge the mutation the coordinator responds successfully
 to the client. If a replica node is unavailable, however, the
 coordinator stores a hint locally to the filesystem for later
 application. New hints will be retained for up to
-`max_hint_windowin_ms` of downtime (defaults to `3 h`). If the
+`max_hint_window` of downtime (defaults to `3 h`). If the
 unavailable replica does return to the cluster before the window
 expires, the coordinator applies any pending hinted mutations against
 the replica to ensure that eventual consistency is maintained.
@@ -50,7 +54,7 @@ image::hints.svg[Hinted Handoff in Action]
 to the three replicas. Unfortunately `replica_2` is restarting and
 cannot receive the mutation.
 * (`t1`): The client receives a quorum acknowledgement from the
-coordinator. At this point the client believe the write to be durable
+coordinator. At this point the client believes the write to be durable
 and visible to reads (which it is).
 * (`t2`): After the write timeout (default `2s`), the coordinator
 decides that `replica_2` is unavailable and stores a hint to its local

@@ -41,6 +41,11 @@ Its default value is 864000 seconds (ten days), after which a tombstone expires 
 Prior to the grace period expiring, {cassandra} will retain a tombstone through compaction events.
 Each table can have its own value for this property.
 
+Repair has to happen before `gc_grace_seconds` expires if you want to
+keep the tombstone safe across replicas. If a replica misses the tombstone
+and the cluster purges it too early, the old data can come back during a
+later repair or hint replay.
+
 The purpose of the grace period is to give unresponsive nodes time to recover and process tombstones normally. 
 If a client writes a new update to the tombstoned object during the grace period, {cassandra} overwrites the tombstone. 
 If a client sends a read for that object during the grace period, {cassandra} disregards the tombstone and retrieves the object from other replicas if possible.

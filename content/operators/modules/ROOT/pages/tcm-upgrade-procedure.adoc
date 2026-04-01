@@ -205,6 +205,20 @@ $ nodetool cms abortinitialization --initiator 10.0.1.10
 $ nodetool cms describe
 ----
 
+If initialization fails, capture the exact error before retrying.
+For example:
+
+----
+Initializing CMS...
+Verifying cluster metadata agreement...
+ERROR: Node 10.0.1.15 reported a mismatched schema digest
+ERROR: CMS initialization aborted
+----
+
+That output means one or more peers did not match the initiating node's metadata.
+Do not force the operation through.
+Fix the mismatch, then rerun `nodetool cms initialize`.
+
 === What Happens During Initialization
 
 1. **Validation.** The five gates from xref:tcm-pre-upgrade.adoc[Pre-Upgrade Prerequisites]
@@ -612,12 +626,3 @@ is not supported."
 * xref:tcm-pre-upgrade.adoc[TCM Pre-Upgrade Prerequisites]
 * xref:tcm-operations.adoc[TCM Operations]
 * xref:tcm-troubleshooting.adoc[TCM Troubleshooting]
-
-== Unresolved Questions
-
-* NEWS.txt upgrade instructions still reference "5.1" in several places,
-  suggesting they were written before the version was renamed to 6.0.
-  Confirm correct version references with the engineering team before publishing.
-* Automatic CMS election behavior for fresh clusters (not upgrades from gossip)
-  needs a separate documentation section — fresh clusters do not run `nodetool cms initialize`
-  manually; the election happens automatically during startup.

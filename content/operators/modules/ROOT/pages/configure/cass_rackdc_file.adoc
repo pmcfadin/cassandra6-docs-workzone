@@ -1,24 +1,45 @@
 = cassandra-rackdc.properties file
 
-Several `snitch` options use the `cassandra-rackdc.properties`
-configuration file to determine which `datacenters` and racks cluster
-nodes belong to. Information about the network topology allows requests
-to be routed efficiently and to distribute replicas evenly. The
-following snitches can be configured here:
+Several `snitch` options use `cassandra-rackdc.properties` to describe
+where a node belongs in the cluster topology. Cassandra uses that
+information to route requests and to place replicas across failure
+domains.
 
-* GossipingPropertyFileSnitch
-* AWS EC2 single-region snitch
-* AWS EC2 multi-region snitch
+If the datacenter or rack values are wrong, Cassandra may still start,
+but it can place replicas in the wrong failure domain or route reads to
+the wrong nodes.
 
-The GossipingPropertyFileSnitch is recommended for production. This
-snitch uses the datacenter and rack information configured in a local
-node's `cassandra-rackdc.properties` file and propagates the information
-to other nodes using `gossip`. It is the default snitch and the settings
-in this properties file are enabled.
+The usual choices are:
 
-The AWS EC2 snitches are configured for clusters in AWS. This snitch
-uses the `cassandra-rackdc.properties` options to designate one of two
-AWS EC2 datacenter and rack naming conventions:
+[cols="1,2,2",options="header"]
+|===
+|Deployment |Snitch |Use this when...
+
+|On-premises or mixed environments
+|GossipingPropertyFileSnitch
+|You want to set `dc` and `rack` locally and let gossip share the values.
+
+|Single-region AWS
+|Ec2Snitch
+|You want AWS metadata to supply the local availability zone mapping.
+
+|Multi-region AWS
+|Ec2MultiRegionSnitch
+|You need cross-region connectivity and public addresses for replica placement.
+
+|Custom layout or non-standard topology
+|PropertyFileSnitch
+|You want to define every node explicitly in `cassandra-topologies.properties`.
+|===
+
+The GossipingPropertyFileSnitch is recommended for production when you
+manage the topology file locally. It uses the datacenter and rack
+information configured in `cassandra-rackdc.properties` and propagates
+the values to other nodes using gossip.
+
+The AWS EC2 snitches are configured for clusters in AWS. They use the
+`cassandra-rackdc.properties` options to select one of two AWS EC2
+datacenter and rack naming conventions:
 
 * legacy: Datacenter name is the part of the availability zone name
 preceding the last "-" when the zone ends in -1 and includes the number

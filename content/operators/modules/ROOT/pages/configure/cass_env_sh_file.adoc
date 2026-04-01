@@ -1,73 +1,67 @@
 = cassandra-env.sh file
 
-The `cassandra-env.sh` bash script file can be used to pass additional
-options to the Java virtual machine (JVM), such as maximum and minimum
-heap size, rather than setting them in the environment. If the JVM
-settings are static and do not need to be computed from the node
-characteristics, the `cassandra-jvm-options` files should be used
-instead. For example, commonly computed values are the heap sizes, using
-the system values.
+Use `cassandra-env.sh` for JVM settings that depend on the host at
+startup, such as heap sizing or startup flags that you only want to set
+for one machine. If the setting is static, use the `jvm-*` files
+instead.
 
-For example, add
-`JVM_OPTS="$JVM_OPTS -Dcassandra.load_ring_state=false"` to the
-`cassandra_env.sh` file and run the command-line `cassandra` to start.
-The option is set from the `cassandra-env.sh` file, and is equivalent to
-starting Cassandra with the command-line option
-`cassandra -Dcassandra.load_ring_state=false`.
+The risk with this file is not syntax. It is startup behavior. A bad
+choice can keep a node out of the ring, change how bootstrap behaves,
+or make gossip state look cleaner than it really is.
 
-The `-D` option specifies the start-up parameters in both the command
-line and `cassandra-env.sh` file. The following options are available:
+The examples below are the ones operators usually need to think about.
 
 == `cassandra.auto_bootstrap=false`
 
-Facilitates setting auto_bootstrap to false on initial set-up of the
-cluster. The next time you start the cluster, you do not need to change
-the `cassandra.yaml` file on each node to revert to true, the default
-value.
+Use this only when you intentionally want a node to start without
+joining the ring yet. Leaving it disabled on a node that should join the
+cluster will prevent normal bootstrap.
 
 == `cassandra.available_processors=<number_of_processors>`
 
-In a multi-instance deployment, multiple Cassandra instances will
-independently assume that all CPU processors are available to it. This
-setting allows you to specify a smaller set of processors.
+In a multi-instance deployment, multiple Cassandra instances will each
+assume they can use all CPUs. Use this setting to cap the processors
+visible to one instance.
 
 == `cassandra.boot_without_jna=true`
 
-If JNA fails to initialize, Cassandra fails to boot. Use this command to
-boot Cassandra without JNA.
+If JNA fails to initialize, Cassandra can fail to boot. Use this only if
+you accept the reduced JNA-backed functionality.
 
 == `cassandra.config=<directory>`
 
-The directory location of the `cassandra.yaml file`. The default
-location depends on the type of installation.
+The directory location of the `cassandra.yaml` file. The default
+location depends on the installation type.
 
 == `cassandra.ignore_dynamic_snitch_severity=true|false`
 
 Setting this property to true causes the dynamic snitch to ignore the
-severity indicator from gossip when scoring nodes. Explore failure
-detection and recovery and dynamic snitching for more information.
+severity indicator from gossip when scoring nodes. Use it only if you
+understand the trade-off: it can make startup behavior more stable, but
+it also hides severity from replica selection.
 
 *Default:* false
 
 == `cassandra.initial_token=<token>`
 
-Use when virtual nodes (vnodes) are not used. Sets the initial
-partitioner token for a node the first time the node is started. Note:
-Vnodes are highly recommended as they automatically select tokens.
+Use this only when virtual nodes (vnodes) are not used. A bad initial
+token can skew the ring and shift too much data onto one node.
 
 *Default:* disabled
 
 == `cassandra.join_ring=true|false`
 
-Set to false to start Cassandra on a node but not have the node join the
-cluster. You can use `nodetool join` and a JMX call to join the ring
-afterwards.
+Set to false if you want to start Cassandra without joining the ring
+yet. This is useful during maintenance, but a node left in this state
+will not serve data until you join it manually.
 
 *Default:* true
 
 == `cassandra.load_ring_state=true|false`
 
-Set to false to clear all gossip state for the node on restart.
+Set to false if you want Cassandra to forget ring state on restart. That
+can help a node recover from stale gossip, but it also means the node
+must rebuild its view of the cluster.
 
 *Default:* true
 
@@ -147,11 +141,11 @@ Set the default location for the trigger JARs.
 
 == `cassandra.write_survey=true`
 
-For testing new compaction and compression strategies. It allows you to
-experiment with different strategies and benchmark write performance
-differences without affecting the production workload.
+Use this when you want to test new compaction or compression strategies
+without changing the rest of the cluster configuration.
 
 == `consistent.rangemovement=true|false`
 
-Set to true makes Cassandra perform bootstrap safely without violating
-consistency. False disables this.
+Set this to true when you want Cassandra to favor safe bootstrap
+behavior. Turning it off can speed up a bootstrap path, but it also
+removes a safety check that protects consistency during range movement.

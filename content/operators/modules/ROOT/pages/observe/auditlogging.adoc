@@ -260,7 +260,7 @@ In order to change ``roll_cycle`` on a node, you have to:
 
 The ``block`` option specifies whether audit logging should block writing or drop log records if the audit logging falls behind. Supported boolean values are ``true`` (default) or ``false``.
 
-For example: ``block: false`` to drop records (e.g. if audit is used for troobleshooting)
+For example: ``block: false`` to drop records (e.g. if audit is used for troubleshooting)
 
 For regulatory compliance purposes, it's a good practice to explicitly set ``block: true`` to prevent any regression in case of future default value change.
 

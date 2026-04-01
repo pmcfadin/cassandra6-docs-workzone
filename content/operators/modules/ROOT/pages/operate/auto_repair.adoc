@@ -65,7 +65,7 @@ a smaller set of data, so a shorter `min_repair_interval` such as `1h` is recomm
 One should be careful when enabling incremental repair on a cluster for the first time. While
 xref:#repair-token-range-splitter[RepairTokenRangeSplitter] includes a default configuration to attempt to gracefully
 migrate to incremental repair over time, failure to take proper precaution could overwhelm the cluster with
-xref:operate/compaction-overview.adoc#types-of-compaction[anticompactions].
+xref:operate/compaction-overview.adoc#types-of-compaction[anticompaction work].
 
 No matter how one goes about enabling and running incremental repair, it is recommended to run a cycle of full repairs
 for the entire cluster as pre-flight step to running incremental repair. This will put the cluster into a more
@@ -238,7 +238,7 @@ disturbances or failures. However, making the repairs too short can lead to over
 the main bottleneck.
 
 - *Minimize the impact on hosts*: Repairs should not heavily affect the host systems. For incremental repairs, this
-might involve anti-compaction work. In full repairs, streaming large amounts of data—especially with wide partitions
+  might involve anticompaction work. In full repairs, streaming large amounts of data—especially with wide partitions
 can lead to issues with disk usage and higher compaction costs.
 
 - *Reduce overstreaming*: The Merkle tree, which represents data within each partition and range, has a maximum size.

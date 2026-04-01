@@ -66,6 +66,19 @@ If we want that role to be able to log in, we would execute:
 CREATE GENERATED ROLE WITH GENERATED PASSWORD AND LOGIN = true;
 ----
 
+== Operational workflow
+
+A common provisioning flow is:
+
+. Enable `role_name_policy.generator_class_name` and
+  `CassandraRoleManager` before you create the service account.
+. Create the generated role and capture the returned role name and
+  password in your secret store.
+. Grant the permissions the service needs, then update the application
+  configuration to use the generated credentials.
+. Test the login path with the generated credentials before you route
+  production traffic to the account.
+
 It is also possible to specify custom prefix and suffix of a generated role name like this:
 
 ----

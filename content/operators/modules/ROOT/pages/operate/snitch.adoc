@@ -328,11 +328,9 @@ The following table maps legacy `endpoint_snitch` values to the equivalent Cassa
 
 [NOTE]
 ====
-*Open questions for technical review:*
-
-1. Whether `RackInferringSnitch` has a direct `InitialLocationProvider` equivalent should be verified against trunk source.
-2. Whether `GoogleCloudSnitch` and `CloudstackSnitch` are fully removed from trunk source or only deprecated should be confirmed before marking them as removed.
-3. Timeline for removal of `IEndpointSnitch` support is not yet documented; this affects how urgently migration guidance should be presented to operators.
+The `SnitchAdapter` bridge class is the compatibility layer that keeps
+legacy `endpoint_snitch` settings working while Cassandra 6 routes new
+deployments through the split topology settings.
 ====
 
 The correct YAML key for the address configuration setting is `addresses_config` (plural), as defined in `cassandra.yaml`.

@@ -343,6 +343,11 @@ No node should show `DN`, `UJ` (joining), or `UL` (leaving) after a completed re
 4. Check driver-side metrics for connection errors or timeout spikes in the minute after
    reconnection.
 
+Acceptable row-count variance is zero for a point-in-time restore that captured a quiescent
+cluster. If the source cluster was still accepting writes during the backup window, the only
+expected difference is the exact number of writes that landed after the snapshot cutover and
+before restore completion. Document that window before treating any mismatch as data loss.
+
 == Time Estimation
 
 Use this table as a planning guide.
