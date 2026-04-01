@@ -1,6 +1,6 @@
 # Developer Docs Newbie Review Closure Report
 
-Review source: `docs/developer-docs-newbie-review.md`  
+Review source: `docs/developer-docs-newbie-review.md`
 Closure date: `2026-04-01`
 
 ## Summary
