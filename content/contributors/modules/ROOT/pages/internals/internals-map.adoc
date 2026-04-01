@@ -328,6 +328,13 @@ Touches this subsystem: new CQL syntax, new built-in functions, query planning c
 Accord is an implementation of the Accord consensus protocol for ACID transactions.
 It provides linearizable multi-partition transactions that are consistent with CQL's eventual consistency model but with stronger guarantees.
 Accord is new in Cassandra 5.0 and central to Cassandra 6.
+A minimal CQL transaction looks like:
+
+----
+BEGIN TRANSACTION
+  UPDATE ks.tbl SET v = v + 1 WHERE k = 1;
+COMMIT TRANSACTION
+----
 
 Key packages::
 +

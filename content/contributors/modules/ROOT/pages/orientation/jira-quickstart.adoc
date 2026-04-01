@@ -1,0 +1,33 @@
+= JIRA Quickstart
+
+Apache Cassandra uses ASF JIRA for issue tracking and patch workflow.
+If you have not used JIRA before, this page covers the minimum you need to file a ticket and get a patch into review.
+
+== Before You Start
+
+. Create an ASF JIRA account at https://issues.apache.org/jira/.
+. Join the https://lists.apache.org/list.html?dev@cassandra.apache.org[dev mailing list] if you expect to discuss a feature or larger change.
+. Pick the right component and labels before you file the ticket.
+
+== Create a Ticket
+
+. Use a short title that names the user-visible change.
+. Describe the problem, the expected behavior, and how to reproduce it.
+. Set the component to the area you are changing.
+. Add labels such as `lhf`, `beginner`, `doc-impacting`, or `client-impacting` when they apply.
+
+== Work The Ticket
+
+. Assign the ticket to yourself when you start working.
+. Link your branch or pull request in a comment so reviewers can find it quickly.
+. Update the ticket as you make progress.
+
+== Patch Available
+
+When your code is ready for review, click **Submit Patch** on the ticket.
+That moves the issue to `Patch Available`, which tells reviewers the patch is ready to be looked at.
+
+== GitHub Pull Requests
+
+If you are using GitHub, link the pull request to the JIRA ticket.
+Use the PR as the main review thread unless the workflow specifically asks you to attach a patch file instead.

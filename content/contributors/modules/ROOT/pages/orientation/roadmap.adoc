@@ -18,6 +18,9 @@ Every contribution path shares two prerequisites:
 * A signed https://www.apache.org/licenses/contributor-agreements.html[Apache Individual Contributor License Agreement (ICLA)].
   The ICLA is required before any patch can be committed.
 
+Sign the ICLA before you spend serious time on code.
+You can still read, prototype, and run tests while it is processing, but you cannot merge patches until it is approved.
+
 The https://lists.apache.org/list.html?dev@cassandra.apache.org[dev mailing list] is the primary venue for design discussion and community questions.
 The https://the-asf.slack.com/archives/CK23JSY2K[#cassandra channel on ASF Slack] is useful for quick questions, but binding decisions happen on the dev list.
 
@@ -29,9 +32,10 @@ Bug fixes are the most common entry point for new contributors.
 The `lhf` and `beginner` JIRA labels identify tickets that are scoped to make a first patch tractable.
 
 . Set up your environment with xref:build-test/gettingstarted.adoc[Getting Started].
+. If you have not used JIRA before, start with xref:orientation/jira-quickstart.adoc[JIRA quickstart].
 . Find a JIRA ticket tagged `lhf` (low hanging fruit) or `beginner` on the https://issues.apache.org/jira/projects/CASSANDRA[Cassandra JIRA board].
 . Assign the ticket to yourself, or leave a comment stating you are working on it, to avoid duplicate effort.
-. Read xref:patch-review/patches.adoc[Contributing Code Changes] to understand the full patch workflow: branch naming, commit format, review request process, and the Github mirror used for patch review.
+. Read xref:patch-review/patches.adoc[Contributing Code Changes] to understand the full patch workflow: branch naming, commit format, review request process, and the GitHub mirror used for patch review.
 . Use xref:internals/internals-map.adoc[Cassandra Internals Map] to identify which subsystem your fix touches and who to ask for review.
 . Consult xref:orientation/contribution-ladder.adoc[Contribution Ladder] for stepped entry points if you want to build context before your first patch.
 
@@ -41,6 +45,7 @@ Feature contributions require more upfront alignment than bug fixes.
 The expected process depends on scope: a small, backward-compatible improvement may need only a JIRA ticket, while a change to the wire protocol or storage format requires a dev-list thread or a formal Cassandra Enhancement Proposal.
 
 . Read xref:develop/feature-playbook.adoc[Feature Development Playbook] to understand the process from idea to committed code.
+. If you have not used JIRA before, start with xref:orientation/jira-quickstart.adoc[JIRA quickstart].
 . Determine the right discussion venue: JIRA-only for small changes, dev-list discussion for medium-scope changes, or a Cassandra Enhancement Proposal (CEP) for major changes affecting compatibility or community direction.
 . Read xref:develop/patch-classification.adoc[Patch Classification Guide] to understand what reviewers expect for your patch class.
 . Work through xref:develop/compatibility-checklist.adoc[Compatibility and Upgrade Checklist] to assess your change's impact on rolling upgrades, wire protocol, and storage format.

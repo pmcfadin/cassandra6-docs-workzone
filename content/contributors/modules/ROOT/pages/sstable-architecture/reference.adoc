@@ -14,6 +14,7 @@ Use it as a lookup companion to the other SSTable Architecture pages — xref:ss
 
 Each Cassandra release series uses a specific on-disk format version.
 The version string is the prefix on every SSTable component filename (for example, `nb-1-big-Data.db`).
+The first letter identifies the broad family, and the second letter increments as that family's on-disk schema evolves.
 
 [cols="1,1,3", options="header"]
 |===

@@ -16,6 +16,7 @@ This is medium-difficulty work: it involves understanding one subsystem, writing
 
 Before writing any code, make sure the problem is real and not already fixed or intentional.
 
+. If you have not used JIRA before, start with xref:orientation/jira-quickstart.adoc[JIRA quickstart].
 . Go to https://issues.apache.org/jira/browse/CASSANDRA[JIRA] and search for existing tickets.
   Use terms like `getlogginglevels` or `logging levels order`.
   If no ticket exists, file one.
@@ -215,10 +216,3 @@ Walking through this one bug fix, you exercised the full contribution workflow:
 
 Every contribution you make after this one follows the same cycle.
 The subsystems change, the complexity varies, but the workflow is the same: understand the problem, reproduce it in a test, fix it minimally, scope the surrounding work, find the right reviewers, and see it through.
-
-== Unresolved Questions
-
-* Does `expert-discovery.adoc` include a nodetool / tools subsystem entry? If not, the Step 6 guidance is incomplete.
-* Confirm whether `patch-classification.adoc` exists at the xref path used above — update xref if the file is at a different path.
-* Confirm whether `test-selection-matrix.adoc` exists at the xref path used above — update xref if needed.
-* The test code sample uses `StorageService.instance.setLoggingLevel()` as a placeholder — verify the actual API for setting test logger levels in the nodetool unit test infrastructure before promoting this page past draft status.

@@ -6,6 +6,7 @@ It is grounded in the project's https://github.com/apache/cassandra/blob/trunk/T
 == Test Types
 
 Cassandra has three main categories of tests: unit tests, integration tests, and distributed tests (dtests).
+`dtest` is short for distributed test, and it usually means a Python `pytest` test that runs against a real multi-node cluster.
 
 === Unit Tests
 
@@ -47,6 +48,18 @@ For tests where multiple instances share storage, parameterize the keyspace/tabl
 
 Python/CCM tests that start local clusters and interact with them via the Python client.
 dtests are black-box tests for verifying cluster behavior and client-side interfaces.
+They live in a separate repository: https://github.com/apache/cassandra-dtest[apache/cassandra-dtest].
+`CCM` (Cassandra Cluster Manager) creates and manages those local clusters.
+
+Install CCM with:
+
+[source,bash]
+----
+pip install ccm
+----
+
+Install dtest dependencies from the cassandra-dtest repository before running a local failure repro.
+In that repository, install its Python requirements with `pip install -r requirements.txt` before you run a test.
 
 **What to test:**
 
@@ -74,6 +87,23 @@ ant test
 ant test -Dtest.name=org.apache.cassandra.utils.UUIDTest
 ----
 
+A single test class usually finishes in a minute or two on a laptop; the full unit suite can take much longer.
+
+A successful single-class run typically ends with:
+
+[source,text]
+----
+BUILD SUCCESSFUL
+Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+----
+
+For a package-wide run, use a wildcard pattern:
+
+[source,bash]
+----
+ant test -Dtest.name="org.apache.cassandra.io.*"
+----
+
 === With Docker (Recommended for CI Parity)
 
 The `.build/` scripts provide Docker-based test execution matching CI behavior:
@@ -93,6 +123,10 @@ The `.build/` scripts provide Docker-based test execution matching CI behavior:
 # With a specific JDK version
 .build/docker/run-tests.sh -a test -j 11
 ----
+
+Use the Docker path when you want CI parity or you are validating a failure that may be environment-sensitive.
+Local Ant runs are faster for iteration.
+Docker adds startup overhead, so expect a small test target to take a little longer than the equivalent Ant run.
 
 === Other Test Types
 
@@ -115,6 +149,10 @@ The `.build/` scripts provide Docker-based test execution matching CI behavior:
 .build/docker/run-tests.sh -a dtest-upgrade
 ----
 
+Most of these commands finish with `BUILD SUCCESSFUL` when the underlying target passes.
+If a command hangs, check whether the test is waiting for a cluster bootstrap, a debugger, or a known long-running integration test.
+For dtests, a successful run usually ends with a `pytest` summary such as `X passed`.
+
 === Repeating Tests
 
 Add the `-repeat` suffix to the test type:
@@ -136,12 +174,32 @@ Add the `-repeat` suffix to the test type:
 .build/run-python-dtests.sh dtest
 ----
 
+When you run dtests directly, point `CASSANDRA_DIR` at your local Cassandra checkout:
+
+[source,bash]
+----
+export CASSANDRA_DIR=/path/to/cassandra
+----
+
+Then use `cassandra-dtest` to reproduce the failure:
+
+[source,bash]
+----
+cd cassandra-dtest
+pytest test_file.py::TestClass::test_method -v -s --keep-test-dir
+----
+
+`--keep-test-dir` leaves the CCM cluster behind for inspection after a failure.
+Spinning up a dtest cluster usually takes several minutes, so wait for the cluster to finish bootstrapping before assuming a test is hung.
+
 === Debug Mode
 
 [source,bash]
 ----
 DEBUG=true .build/docker/run-tests.sh -a test
 ----
+
+Debug-mode runs are slower than normal test runs because they keep the JVM open for a debugger connection.
 
 == Writing Good Tests
 

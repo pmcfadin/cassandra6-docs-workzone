@@ -8,6 +8,7 @@
 Cassandra operates in distributed clusters and must support rolling upgrades where individual nodes are updated one at a time.
 A change that breaks compatibility can strand a node mid-upgrade, corrupt data, or break client applications without warning.
 Use this checklist to identify compatibility concerns before submitting a patch for review.
+Here, TCM version means the cluster-metadata version gate that lets a rollout flip behavior safely, and a guardrail is an operator-facing throttle or disable switch.
 
 == Protocol Compatibility
 

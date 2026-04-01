@@ -7,6 +7,13 @@ fluent in Consensus terminology. Familiarity with Accord protocol
 itself, or similar protocols such as EPaxos, TAPIR, Janus, or Tempo, can
 be useful.
 
+If you are not already comfortable with Cassandra's non-transactional model, read these first:
+
+* xref:architecture/dynamo.adoc[Dynamo] -- partitioning, replication, and last-write-wins background
+* xref:architecture/accord.adoc[Accord] -- what problem Accord solves and where it fits in Cassandra
+
+If you know Raft/Paxos basics but not Accord yet, the minimum concepts you need here are: coordinator, replica quorum, proposed execution timestamp, and durable recovery of in-flight transactions.
+
 Accord code is logically split into local and coordinator part.
 Coordination code contains code intended for coordination/invocation of
 the client query, driving it through the Accord state machine, and all
@@ -33,6 +40,8 @@ can be returned to the client.
 
 === Accord Protocol Basics
 
+At a high level, the coordinator is solving one problem: get a quorum of replicas to agree on what transaction is running, when it will execute, and what dependencies must be respected before commit.
+
 Coordinator allocates a globally unique transaction ID `TxnId` for the
 transaction, and begins coordination (see `CoordinateTransaction`).
 Here, coordinator perform initial rounds of `PreAccept` and `Accept`
@@ -55,9 +64,28 @@ shard, the one tasked with ensuring the transaction is finished. Home
 key is chosen arbitrarily: it is either a first key the coordinator
 owns, or it is picked completely at random.
 
+Basic round-trip shape:
+
+[source,text]
+----
+Coordinator                    Replicas
+    |                             |
+    |-- PreAccept(Txn, keys) ---->|
+    |<-- deps / fast-path vote ---|
+    |                             |
+    |-- Accept(executeAt, deps) -->|
+    |<-- accepted -----------------|
+    |                             |
+    |-- Commit(TxnResult) -------->|
+    |<-- durable / applied --------|
+----
+
 == Replica Side
 
 === CommandStore
+
+`CommandStore` exists to solve a practical replica-side problem: many Accord messages can target the same shard at once, but replica metadata must still advance in a deterministic order.
+The store is the shard-local execution lane for Accord metadata, dependencies, and durability bookkeeping.
 
 `Command` is a unit of Accord _metadata_ that relates to a specific
 operation, as opposed to `Message`, which is an _instruction_ sent by
@@ -73,6 +101,9 @@ execution, and executes commands sequentially. For command execution,
 `CommandStore` creates a `SafeCommandStore`, a version of `CommandStore`
 created for command execution, during which it has exclusive access to
 it.
+
+Think of `SafeCommandStore` as the transactionally mutable view of one shard's command state for a single operation.
+It lets the replica load what it needs, apply the current message, and publish the result atomically when the operation completes.
 
 Roughly speaking, you can think of relation between CommandStore and
 SafeCommandStore as:

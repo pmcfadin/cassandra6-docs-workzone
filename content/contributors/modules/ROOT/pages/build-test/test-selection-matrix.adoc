@@ -9,12 +9,14 @@ Running every test for every change is slow, unreliable, and counterproductive.
 This matrix maps change types to the minimum correct set of tests to run before submitting a patch.
 When in doubt, run more.
 When the change is small and local, run less.
+This preview page is meant to help contributors choose tests; verify package names and command syntax against the branch you are editing.
 
 Use this page alongside xref:build-test/testing.adoc[Testing] for background on the test types themselves.
 
 == How to Read This Matrix
 
 Each row describes a category of change and what testing is required for it.
+SSTable means Sorted String Table, Cassandra's on-disk data file format.
 
 * *Must pass* — these tests block review; a patch cannot land without them
 * *Should run* — strongly recommended; skip only with a documented reason in the JIRA
@@ -142,6 +144,9 @@ Run all tests in a package:
 ----
 ant test -Dtest.name="org.apache.cassandra.io.*"
 ----
+
+Use the package wildcard when the change touches multiple classes in one subsystem.
+The tests live under `test/unit/java/`, so the package name usually maps directly to the source tree.
 
 === Distributed Tests (dtests)
 

@@ -82,6 +82,25 @@ Key classes:
 When the flush trigger fires, `ColumnFamilyStore.switchMemtable()` atomically marks the current memtable as read-only and installs a new empty memtable.
 A background flush task then drains the old memtable to disk using `BigTableWriter`, producing the classic BIG format SSTable.
 
+Flush pipeline sketch:
+
+[source,text]
+----
+incoming writes ----> new memtable stays writable
+                       ^
+                       |
+old memtable --switch--+--> flush task
+                           |
+                           +--> Data.db
+                           +--> Index.db / Partitions.db
+                           +--> Summary.db / Rows.db
+                           +--> Filter.db
+                           +--> Statistics.db
+                           +--> CompressionInfo.db
+                           +--> Digest.crc32
+                           \--> TOC.txt
+----
+
 Steps in order:
 
 . `ColumnFamilyStore.switchMemtable()` — mark old memtable for flush, install new memtable to accept incoming writes.
@@ -147,6 +166,17 @@ This allows flushing tables with millions of partitions with minimal additional 
 ====
 . After all partitions are written: finalize the partition trie and write the `Partitions.db` footer (first key, last key, partition count, trie root pointer).
 . Write `Filter.db`, `Statistics.db`, `Digest.crc32`, and `TOC.txt` as in BIG format.
+
+Parallelism note:
+
+[source,text]
+----
+serialize partition bytes  -> required first
+build partition index      -> can advance as offsets become known
+accumulate stats           -> runs alongside serialization
+build bloom filter         -> runs alongside key iteration
+write TOC.txt              -> waits for everything else
+----
 
 A `TOC.txt` for a BTI format SSTable lists:
 

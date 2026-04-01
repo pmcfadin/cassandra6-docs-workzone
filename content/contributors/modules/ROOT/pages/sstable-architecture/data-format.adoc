@@ -24,6 +24,17 @@ A partition has four logical sections:
 . *Unfiltered sequence* — interleaved regular rows and range tombstone markers, in clustering key order
 . *End-of-partition marker* — a sentinel that terminates the sequence
 
+[source,text]
+----
+Partition in Data.db
+  + partition header
+  + static row (optional)
+  + row / tombstone marker
+  + row / tombstone marker
+  + row / tombstone marker
+  + end-of-partition marker
+----
+
 === Partition Header
 
 [cols="1,1,3", options="header"]
@@ -180,8 +191,23 @@ The remaining 7 bits of each byte contribute to the value, little-endian within 
 | 16,384 – 2,097,151
 | 3
 
-| and so on…
-|
+| 2,097,152 – 268,435,455
+| 4
+
+| 268,435,456 – 34,359,738,367
+| 5
+
+| 34,359,738,368 – 4,398,046,511,103
+| 6
+
+| 4,398,046,511,104 – 562,949,953,421,311
+| 7
+
+| 562,949,953,421,312 – 72,057,594,037,927,935
+| 8
+
+| 72,057,594,037,927,936 – 9,223,372,036,854,775,807
+| 9
 |===
 
 === ZigZag Encoding for Signed Values
@@ -291,6 +317,18 @@ Each cell has a *cell path* that identifies the element within the collection:
 * `list<T>` — cell path is a time UUID (write timestamp) that orders elements
 * `set<T>` — cell path is the serialized set element itself
 * `map<K,V>` — cell path is the serialized map key
+
+[source,text]
+----
+Frozen collection
+  one cell
+    -> value bytes contain the whole collection blob
+
+Non-frozen collection
+  cell(path=element_1, value=...)
+  cell(path=element_2, value=...)
+  cell(path=element_3, value=...)
+----
 
 This representation allows partial updates (append to list, delete one map entry) without rewriting the entire collection.
 It also means a large non-frozen collection can produce many cells and many Index.db entries.

@@ -30,16 +30,39 @@ apache/cassandra/
 
 == Local Preview
 
-To preview documentation changes locally, you need the https://github.com/apache/cassandra-website[cassandra-website] repository and Docker:
+Use the official two-repo flow when you want to validate Cassandra docs the same way the website build will consume them:
 
 [source,bash]
 ----
+# 1. Clone both repos
+git clone https://github.com/apache/cassandra.git
 git clone https://github.com/apache/cassandra-website.git
-cd cassandra-website
-# Follow the README for Docker-based local preview
+
+# 2. In apache/cassandra, make your doc edits and regenerate generated docs if needed
+cd cassandra
+ant gen-asciidoc
+
+# 3. In apache/cassandra-website, follow the website README/run.sh flow
+#    so the preview reads from your local Cassandra checkout
+cd ../cassandra-website
+
+# 4. Start the local preview
+./run.sh website preview
+
+# 5. Open the site and verify your page, nav, and xrefs
+#    http://localhost:5151
 ----
 
-See the https://github.com/apache/cassandra-website/blob/trunk/README.md[cassandra-website README] for detailed instructions.
+For quick draft-only checks in this workzone, you can also use:
+
+[source,bash]
+----
+./build.sh build
+./build.sh preview
+----
+
+That validates this draft site, but upstream-ready Cassandra doc validation still needs the `cassandra-website` preview flow.
+See the https://github.com/apache/cassandra-website/blob/trunk/README.md[cassandra-website README] for the exact website-side setup details.
 
 == Submitting Documentation Changes
 

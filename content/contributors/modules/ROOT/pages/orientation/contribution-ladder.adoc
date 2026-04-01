@@ -10,6 +10,9 @@ Most valuable contributions start small and local.
 The ladder below describes the natural progression from first contact with the codebase to complex cross-cutting feature work.
 You do not need to complete every rung — skip to the level that matches your familiarity and goals.
 
+Before you pick a rung, make sure you can build Cassandra locally and start the ICLA process.
+Use xref:build-test/gettingstarted.adoc[Getting Started] for the local setup and xref:orientation/roadmap.adoc[Contributor Roadmap] for the shared prerequisites.
+
 == Rung 1: Documentation or Test-Only Contribution
 
 The lowest-friction entry point.
@@ -20,6 +23,9 @@ These changes are small, self-contained, and reviewable by anyone — and they t
 
 *JIRA filter:*
 https://issues.apache.org/jira/issues/?jql=project%20%3D%20CASSANDRA%20AND%20(labels%20%3D%20documentation%20OR%20labels%20%3D%20test)%20AND%20status%20!%3D%20Resolved[`labels = documentation OR labels = test` in Cassandra JIRA]
+
+If you want the fastest path to a first patch, use this rung and filter for `documentation`, `test`, `lhf`, or `beginner` labels.
+If you have not used JIRA before, read xref:orientation/jira-quickstart.adoc[JIRA quickstart] first.
 
 *What you will learn:*
 

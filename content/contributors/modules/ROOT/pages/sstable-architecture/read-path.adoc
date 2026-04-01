@@ -186,6 +186,23 @@ Binary search flow:
 4. Read the Data.db offset     → seek and read partition
 ----
 
+With concrete numbers, the decision looks like:
+
+[source,text]
+----
+Need partition key K
+  |
+  +-- Bloom says "no"  -> stop, no disk IO
+  |
+  +-- Bloom says "maybe"
+         |
+         +-- Summary sample every 128 entries
+         +-- Binary search sample window
+         +-- Seek that Index.db slice
+         +-- Binary search exact entry
+         +-- Seek Data.db offset
+----
+
 The summary reduces worst-case Index.db IO from a full file scan to a bounded region scan proportional to the sample interval.
 
 === Token-Range Iteration
@@ -255,6 +272,17 @@ Byte-comparable encoding preserves the token ordering of the original keys, whic
 === Trie Walk (Partitions.db)
 
 A partition lookup walks the trie one byte at a time, matching each key byte to a trie branch:
+
+BTI trie shape, simplified:
+
+[source,text]
+----
+root
+ +- 0x61 ("a")
+ |   +- 0x62 ("b") -> child
+ |   \- 0x63 ("c") -> Data.db or Rows.db pointer
+ \- 0x7A ("z")     -> child
+----
 
 [source]
 ----

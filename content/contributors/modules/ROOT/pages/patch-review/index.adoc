@@ -19,10 +19,12 @@ For committers: the merge workflow across release branches, including submodule 
 == Quick Reference
 
 . Find or create a https://issues.apache.org/jira/browse/CASSANDRA/[JIRA ticket]
+. If you have not used ASF JIRA before, start with xref:orientation/jira-quickstart.adoc[the JIRA quickstart].
 . Fork https://github.com/apache/cassandra[apache/cassandra] and create a feature branch
 . Make your changes following the xref:patch-review/code_style.adoc[code style] guidelines
 . Write tests (see xref:build-test/testing.adoc[Testing])
-. Submit a pull request or attach a patch to the JIRA ticket
+. Submit a GitHub pull request, or attach a patch to the JIRA ticket if the workflow calls for it
+. In JIRA, click **Submit Patch** so the ticket moves to `Patch Available` and reviewers know the patch is ready
 . Address review feedback and iterate until the patch receives a `+1`
 
 See xref:patch-review/patches.adoc[Contributing Code Changes] for the full workflow.

@@ -8,6 +8,17 @@
 Apache Cassandra is an open-source project that welcomes contributions of all kinds: code, documentation, tests, bug reports, and tooling improvements.
 Whether you are fixing your first bug or implementing a major feature, this section provides everything you need to contribute effectively.
 
+[IMPORTANT]
+====
+Do this first
+
+* Clone the repo and build it locally: xref:build-test/gettingstarted.adoc[Getting Started]
+* Sign the https://www.apache.org/licenses/contributor-agreements.html[Apache Individual Contributor License Agreement (ICLA)]
+* Join the https://lists.apache.org/list.html?dev@cassandra.apache.org[dev mailing list]
+====
+
+You can read and run tests while the ICLA is processing, but you cannot merge patches until it is approved.
+
 == Find Your Path
 
 Not sure where to start?

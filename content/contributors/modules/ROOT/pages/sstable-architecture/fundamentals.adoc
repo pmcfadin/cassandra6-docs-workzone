@@ -45,6 +45,33 @@ An SSTable is not a single file — it is a family of files that together repres
 Each component has a specific role and a defined lifecycle.
 The canonical list of components for a given SSTable is recorded in `TOC.txt` (see xref:sstable-architecture/fundamentals.adoc#toc-barrier[The TOC.txt Publication Barrier]).
 
+Component dependency sketch:
+
+[source,text]
+----
+                 +----------------+
+                 |  Statistics.db |
+                 +--------+-------+
+                          |
+                          v
++-----------+    +--------+-------+    +-------------+
+| Filter.db |--->|   Data.db      |<---| Index.db /  |
++-----------+    | primary bytes  |    | Partitions  |
+                 +--------+-------+    +------+------+
+                          |                   |
+                          v                   v
+                 +--------+-------+    +------+------+
+                 | CompressionInfo |    | Summary.db /|
+                 | and Digest      |    | Rows.db     |
+                 +--------+-------+    +------+------+
+                          \               /
+                           \             /
+                            v           v
+                             +----------+
+                             | TOC.txt  |
+                             +----------+
+----
+
 === Component Reference
 
 `Data.db`::
@@ -198,6 +225,8 @@ The flush sequence enforces this dependency chain:
 6. Digest.crc32         (integrity digest; computed over finalized Data.db)
 7. TOC.txt              (manifest; written and fsync'd last)
 ----
+
+Indexes depend on final `Data.db` offsets, summaries depend on final indexes, and `TOC.txt` depends on every earlier component being complete.
 
 All component files are fsync'd to durable storage before `TOC.txt` is written.
 `TOC.txt` itself is fsync'd after writing.

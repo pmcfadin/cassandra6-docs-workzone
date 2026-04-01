@@ -21,6 +21,9 @@ See the https://github.com/apache/cassandra/blob/trunk/.build/README.md[`.build/
 .build/docker/check-code.sh 11
 ----
 
+Use the Docker form for final verification and CI parity.
+Use the non-Docker form when you want a faster local iteration loop on a machine that already has the required build tools installed.
+
 === Building Artifacts
 
 [source,bash]

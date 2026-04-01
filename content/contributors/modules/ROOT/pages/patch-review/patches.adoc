@@ -19,6 +19,7 @@ TIP: Looking for a first contribution? Browse issues tagged https://issues.apach
 == Before You Start Coding
 
 . **Search JIRA** for existing issues at https://issues.apache.org/jira/browse/CASSANDRA[issues.apache.org/jira/browse/CASSANDRA] to avoid redundant work
+. If you have not used ASF JIRA before, read xref:orientation/jira-quickstart.adoc[JIRA quickstart] first.
 . **Create a JIRA ticket** early describing what you plan to do -- not just after finishing
 . **Get feedback** on the dev mailing list or JIRA, especially for features or major changes
 . **Link related JIRA issues** to provide context
@@ -56,7 +57,7 @@ git submodule update --init --recursive
 ----
 +
 . Build, test, and self-review your changes
-. Submit: create a GitHub pull request, attach a patch to your JIRA, or post a link to your branch
+. Submit: prefer a GitHub pull request for active review; attach a patch to JIRA only when the workflow or reviewer asks for it
 
 == Working with Submodules
 
@@ -114,7 +115,20 @@ New features should target `trunk` unless there is a specific reason to target a
 . Ensure tests pass (see xref:build-test/testing.adoc[Testing])
 . Walk through the xref:patch-review/how_to_review.adoc[review checklist] for your own code
 . Squash commits into a clean history -- multiple commits are fine during review, but squash before final merge
+. If you need to combine local commits before sending a patch, use `git rebase -i HEAD~N` and keep the final history reviewable.
 . Include a `CHANGES.txt` entry at the top of the list
+. Put the entry in the unreleased section at the top of `CHANGES.txt` and write it from the user's perspective.
++
+[source,text]
+----
+# Good CHANGES.txt entries
+- nodetool getlogginglevels output is sorted alphabetically (CASSANDRA-12345)
+- Accord migration now preserves read availability during phase changes (CASSANDRA-67890)
+
+# Bad CHANGES.txt entries
+- Replaced HashMap with TreeMap in GetLoggingLevels.java (CASSANDRA-12345)
+- Fixed some internals
+----
 . Format commit messages as:
 +
 ----
@@ -123,8 +137,8 @@ New features should target `trunk` unless there is a specific reason to target a
 patch by <Author>; reviewed by <Reviewer> for CASSANDRA-#####
 ----
 +
-. Submit via GitHub pull request or attach a patch file to JIRA
-. Click **Submit Patch** on the JIRA ticket to move it to "Patch Available"
+. Submit via GitHub pull request or attach a patch file to JIRA, depending on the review path you are using
+. Click **Submit Patch** on the JIRA ticket to move it to `Patch Available`, which tells reviewers the patch is ready
 . Wait for review and a `+1` -- iterate on feedback as needed
 
 NOTE: Do not delete your branches immediately after they are committed.

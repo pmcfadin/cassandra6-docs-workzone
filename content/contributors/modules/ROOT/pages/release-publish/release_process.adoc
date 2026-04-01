@@ -12,6 +12,12 @@ A Cassandra release involves:
 . The release is voted on by the PMC via the dev mailing list
 . After a successful vote, artifacts are published to Apache mirrors
 
+== Release Cadence
+
+Release cadence is branch-driven rather than calendar-driven.
+The PMC cuts a release when a branch is ready, and point releases are scheduled when urgent fixes, regressions, or security issues justify one.
+As a contributor, assume release timing is decided by committers and the PMC, not by the presence of a single merged patch.
+
 == Release Branches
 
 Each major and minor version has a corresponding branch:

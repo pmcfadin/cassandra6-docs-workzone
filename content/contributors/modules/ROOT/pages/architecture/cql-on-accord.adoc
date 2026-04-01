@@ -319,6 +319,25 @@ interoperability with non-Accord reads and writes.
 
 == Live migration
 
+Migration phases at a glance:
+
+[source,text]
+----
+[Paxos only]
+    |
+    | phase 1 begins: Accord handles non-SERIAL writes, Paxos still handles SERIAL reads/writes
+    v
+[Phase 1: dual system, Paxos reads]
+    |
+    | full/data repair completes and Paxos key barriers make reads safe
+    v
+[Phase 2: Accord reads, key barrier active]
+    |
+    | remaining Paxos-owned reads/writes drained, Accord takes full ownership
+    v
+[Accord only]
+----
+
 === Core challenges
 
 Accord and Paxos operate fundamentally different in terms of what they

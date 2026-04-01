@@ -1,7 +1,16 @@
 = Accord
 
-Accord is one of the transaction protocols supported by Apache Cassandra. Accord is a separate sub-project that
-is implemented as a library that is Cassandra agnostic.
+Accord is Cassandra's protocol for linearizable, multi-partition transactions.
+It exists because Cassandra's classic Dynamo-style model is designed for highly available, last-write-wins replication, not ACID transactions spanning multiple partitions or read-modify-write workflows.
+Before Accord, Cassandra's Paxos-backed lightweight transactions were limited to a much narrower set of conditional operations.
 
-* xref:architecture/accord-architecture.adoc[]
-* xref:architecture/cql-on-accord.adoc[]
+Accord does not replace the rest of Cassandra's consistency model.
+Most reads and writes still use the familiar Dynamo-inspired path described in xref:architecture/dynamo.adoc[Dynamo].
+Accord adds a separate consensus layer for the subset of operations that need transactional guarantees, and Cassandra integrates that layer with CQL, storage, messaging, and recovery.
+
+In Cassandra 5 and 6, Accord is the foundation for explicit transaction blocks and for the longer-term migration away from Paxos-only transactional behavior.
+If you only need the "why" and "where does this fit" view, stop here.
+If you are changing protocol logic, continue to the deeper pages:
+
+* xref:architecture/accord-architecture.adoc[Accord Architecture]
+* xref:architecture/cql-on-accord.adoc[CQL on Accord]

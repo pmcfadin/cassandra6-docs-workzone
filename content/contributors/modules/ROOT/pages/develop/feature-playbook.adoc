@@ -71,12 +71,12 @@ NOTE: Reaching out on the dev list or JIRA before submitting a patch is not requ
 === Choosing the Right Branch
 
 * **Bug fixes**: target the earliest affected release branch (e.g., `cassandra-4.1` if the bug exists there).
-  Fixes merge forward through newer branches to `trunk`.
+  Fixes merge forward through newer branches to `trunk`; committers handle those forward-merges after the patch lands, not contributors.
 * **New features**: target `trunk`, which tracks the next major version.
 * **Backports**: only after the feature is stable on `trunk`, and require explicit PMC approval.
   Do not assume a feature will be backported.
 
-The merge order is always from older to newer:
+The merge order is always from older to newer, and committers apply the forward-merges in this order:
 
 ----
 cassandra-4.1 -> cassandra-5.0 -> trunk
@@ -163,6 +163,7 @@ ant test -Dtest.name="org.apache.cassandra.mypackage.*"
 
 === Distributed Tests (dtests)
 
+Distributed tests (dtests) run against real multi-node clusters in the separate `apache/cassandra-dtest` repository.
 Run dtests for any change that touches:
 
 * Replication or coordinator logic
@@ -174,6 +175,10 @@ Run dtests for any change that touches:
 [source,bash]
 ----
 # From the cassandra-dtest repo
+# One-time setup:
+# git clone https://github.com/apache/cassandra-dtest.git
+# python3 -m venv .venv && source .venv/bin/activate
+# pip install -r requirements.txt
 pytest test_my_feature.py -v
 ----
 

@@ -42,6 +42,7 @@ git commit --amend
 ----
 
 The `--amend` squashes the applied patch into the forward-merge commit.
+`git merge cassandra-5.0 -s ours` records the branch relationship without bringing in the older branch's tree, so trunk stays on its own code while history stays connected.
 
 === Push all branches atomically
 
@@ -50,6 +51,12 @@ The `--amend` squashes the applied patch into the forward-merge commit.
 git push origin cassandra-5.0 trunk --atomic -n   # dry run
 git push origin cassandra-5.0 trunk --atomic
 ----
+
+If the atomic push fails:
+
+. Re-check CI and make sure the branches still pass locally.
+. If upstream moved, rebase or refresh the affected branch before retrying.
+. If the failure is an auth or permissions problem, stop and contact the PMC or repo admins instead of retrying blindly.
 
 == Branch-Based Contributions
 
@@ -81,6 +88,8 @@ git commit --amend
 git push origin cassandra-5.0 trunk --atomic -n   # dry run
 git push origin cassandra-5.0 trunk --atomic
 ----
+
+If the atomic push fails, use the same recovery steps as above before trying again.
 
 == Contributions for Older Branches Only
 

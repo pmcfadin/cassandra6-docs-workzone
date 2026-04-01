@@ -83,24 +83,20 @@ token 2 (grange(t1, t2]) are stored on nodes 2, 3 and 4.
 
 === Multiple Tokens per Physical Node (vnodes)
 
-Simple single-token consistent hashing works well if you have many
-physical nodes to spread data over, but with evenly spaced tokens and a
-small number of physical nodes, incremental scaling (adding just a few
-nodes of capacity) is difficult because there are no token selections
-for new nodes that can leave the ring balanced. Cassandra seeks to avoid
-token imbalance because uneven token ranges lead to uneven request load.
-For example, in the previous example there is no way to add a ninth
-token without causing imbalance; instead we would have to insert `8`
-tokens in the midpoints of the existing ranges.
+Simple single-token consistent hashing creates a balancing problem in
+small clusters: each node owns one large token range, so adding a new
+node forces a few large ranges to be split unevenly.
+Cassandra seeks to avoid that imbalance because uneven token ranges lead
+directly to uneven request load and uneven disk usage.
+In the eight-node example above, there is no clean way to add a ninth
+single token and keep the ring balanced.
 
-The Dynamo paper advocates for the use of "virtual nodes" to solve this
-imbalance problem. Virtual nodes solve the problem by assigning multiple
-tokens in the token ring to each physical node. By allowing a single
-physical node to take multiple positions in the ring, we can make small
-clusters look larger and therefore even with a single physical node
-addition we can make it look like we added many more nodes, effectively
-taking many smaller pieces of data from more ring neighbors when we add
-even a single node.
+The Dynamo paper's solution is to use "virtual nodes".
+Virtual nodes assign multiple tokens to each physical node, so one new
+machine can take many small slices from many neighbors instead of one
+large slice from one neighbor.
+That makes incremental scale-out much smoother and keeps ownership more
+evenly distributed.
 
 Cassandra introduces some nomenclature to handle these concepts:
 

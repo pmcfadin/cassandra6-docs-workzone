@@ -14,10 +14,11 @@ Use it as a starting point — not a complete authority — because contributor 
 
 Apache Cassandra follows the standard Apache Software Foundation contribution model:
 
-* All code changes are tracked through a https://issues.apache.org/jira/browse/CASSANDRA[JIRA ticket]. Each change should have a ticket before work begins.
+* All code changes are tracked through a https://issues.apache.org/jira/browse/CASSANDRA[JIRA ticket]. If you have not used ASF JIRA before, start with xref:orientation/jira-quickstart.adoc[JIRA quickstart]. Each change should have a ticket before work begins.
 * Contributors submit patches via GitHub pull requests or as patch files attached to JIRA. The JIRA ticket is the canonical record.
 * **Committers** review patches and merge them after one or more reviews. You need at least one committer +1 to proceed.
 * **PMC members** have binding votes on releases and project governance decisions. For major architectural changes, broader PMC awareness is appropriate.
+* A PMC member may also review code, but PMC membership does not replace the committer +1 needed to merge a patch.
 * Review expectations are high, especially for storage engine, protocol, and consensus-related changes. Expect requests for performance validation, additional tests, and multiple review rounds.
 * There is no formal CODEOWNERS file. Instead, there are recognized experts per subsystem, discoverable through JIRA and git history.
 
@@ -87,6 +88,7 @@ Run through this checklist before tagging anyone:
 * The patch includes tests appropriate to the risk level of the change
 * You have run the relevant test suite locally and it passes
 * The commit message follows the project format: one-line description, then `patch by <Author>; reviewed by <Reviewer> for CASSANDRA-#####`
+  The contributor writes the `patch by` line; the reviewer name is added when the patch is approved.
 * You have added a `CHANGES.txt` entry if the change is user-visible
 * You have reviewed the xref:patch-review/how_to_review.adoc[Review Checklist] for your own code
 * If the change affects `cassandra.yaml`, configuration docs are updated
@@ -150,6 +152,7 @@ Has merge access to the Apache Cassandra repositories.
 Committer status is earned through sustained, high-quality contributions over time and is formally granted by a PMC vote.
 Committers are the primary reviewers of patches.
 When you need a +1, you need it from a committer.
+PMC membership is separate from code-review authority.
 The current list of committers is available on the https://cassandra.apache.org/community/[Cassandra community page].
 
 **PMC Member**::

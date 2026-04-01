@@ -63,6 +63,30 @@ org.slf4j
 everything else alphabetically
 ----
 
+Good:
+
+[source,java]
+----
+import java.io.IOException;
+import java.util.List;
+
+import com.google.common.collect.ImmutableList;
+import org.junit.Test;
+import org.slf4j.Logger;
+
+import org.apache.cassandra.utils.FBUtilities;
+----
+
+Bad:
+
+[source,java]
+----
+import org.apache.cassandra.utils.FBUtilities;
+import java.io.IOException;
+import org.slf4j.Logger;
+import com.google.common.collect.ImmutableList;
+----
+
 == IDE Format Files
 
 Code style files are available for both major IDEs:
@@ -74,6 +98,30 @@ Code style files are available for both major IDEs:
 
 All source files must include the Apache License header.
 The project enforces this using the Apache RAT (Release Audit Tool).
+
+Use this Java header template:
+
+[source,java]
+----
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+----
 
 RAT checks the following file types: `.bat`, `.btm`, `.cql`, `.css`, `.g`, `.html`, `.iml`, `.java`, `.jflex`, `.jks`, `.md`, `.mod`, `.name`, `.pom`, `.py`, `.sh`, `.spec`, `.textile`, `.yml`, `.yaml`, `.xml`.
 

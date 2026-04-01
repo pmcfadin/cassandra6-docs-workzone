@@ -43,7 +43,8 @@ Before submitting, answer:
 Checklist:
 
 * [ ] Startup sequence changes are documented in the commit message
-* [ ] Startup time impact is estimated (new I/O, schema loading, etc.)
+* [ ] Startup time impact is estimated with a before/after measurement on the same machine and the delta is recorded in the JIRA ticket
+* [ ] If startup gets slower by more than 100 ms, the change calls that out explicitly
 * [ ] Partial-startup failure behavior is tested or documented
 
 == Does This Change Repair, Streaming, or Compaction?
@@ -150,7 +151,8 @@ Before submitting your patch, check:
 *Startup and shutdown*
 
 * [ ] Startup sequence changes are documented in the commit message
-* [ ] Startup time impact is estimated (new I/O, schema loading, etc.)
+* [ ] Startup time impact is estimated with a before/after measurement on the same machine and the delta is recorded in the JIRA ticket
+* [ ] If startup gets slower by more than 100 ms, the change calls that out explicitly
 * [ ] Partial-startup failure behavior is tested or documented
 
 *Repair, streaming, and compaction*

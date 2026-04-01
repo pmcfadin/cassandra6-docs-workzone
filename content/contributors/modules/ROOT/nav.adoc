@@ -2,6 +2,7 @@
 * xref:index.adoc[Contributors]
 * Orientation
 ** xref:orientation/roadmap.adoc[Contributor Roadmap]
+** xref:orientation/jira-quickstart.adoc[JIRA Quickstart]
 ** xref:orientation/expert-discovery.adoc[Expert Discovery]
 ** xref:orientation/contribution-ladder.adoc[Contribution Ladder]
 ** xref:orientation/first-deep-contribution.adoc[First Deep Contribution]

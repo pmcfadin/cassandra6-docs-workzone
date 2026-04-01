@@ -7,6 +7,7 @@
 
 Debugging Cassandra locally requires a few techniques that differ from typical application debugging.
 This page covers the most common debugging workflows for contributor work: attaching a debugger to unit tests, debugging dtest failures, tracing a query path, and reproducing CI failures locally.
+This preview page tracks the current contributor workflow; if your branch changes test tooling, confirm the commands against the branch you are working on.
 
 == Debugging Unit Tests
 
@@ -57,13 +58,19 @@ pytest test_file.py::TestClass::test_method -v -s \
 
 === Reproducing a dtest Failure Locally
 
+Install the dtest prerequisites before reproducing a failure:
+
 [source,bash]
 ----
+pip install ccm
 cd cassandra-dtest
-
-# Install test dependencies
 pip install -r requirements.txt
+----
 
+The `--keep-test-dir` flag prevents CCM from tearing down the cluster on failure, which lets you inspect logs and connect CQL shells to nodes afterward.
+
+[source,bash]
+----
 # Run a specific failing test
 pytest test_file.py::TestClass::test_method -v -s
 
@@ -71,7 +78,8 @@ pytest test_file.py::TestClass::test_method -v -s
 pytest test_file.py::TestClass::test_method -v -s --keep-test-dir
 ----
 
-The `--keep-test-dir` flag prevents CCM from tearing down the cluster on failure, which lets you inspect logs and connect CQL shells to nodes afterward.
+Expect cluster startup to take a few minutes on the first run.
+A successful repro ends with a normal `pytest` summary such as `1 passed`; a failure ends with the traceback plus the preserved CCM directory if you used `--keep-test-dir`.
 
 === Inspecting a Live CCM Cluster
 
@@ -92,6 +100,7 @@ tail -f ~/.ccm/<cluster-name>/node1/logs/system.log
 
 WARNING: CCM clusters from failed dtest runs persist until explicitly removed.
 Run `ccm remove <cluster-name>` to clean up, or `ccm remove` to remove the current active cluster.
+If `ccm` is not on your `PATH`, install it with `pip install ccm` and restart your shell.
 
 == Tracing a Query Path
 

@@ -10,6 +10,35 @@ A test that passes is not proof that a read path change did not regress latency 
 This page covers the profiling and performance validation workflow for contributors working on hot-path code changes.
 Before you open a patch that touches a latency-critical code path, understand what data reviewers will expect to see.
 
+This preview page reflects the contributor workflow in the current branch. If the branch you are working on changes profiling tooling, confirm the commands against that branch's README or build scripts.
+
+== Getting the Tools
+
+=== async-profiler
+
+Clone https://github.com/async-profiler/async-profiler[async-profiler] and build it from the repository root:
+
+[source,bash]
+----
+git clone https://github.com/async-profiler/async-profiler.git
+cd async-profiler
+make
+----
+
+The build produces the `build/bin/asprof` launcher. In Cassandra examples, `profiler.sh` is the wrapper that invokes the bundled async-profiler binary.
+
+=== cassandra-harry
+
+Clone https://github.com/apache/cassandra-harry[cassandra-harry] and follow its README to build the runner jar used by the examples on this page.
+Once built, the usage looks like:
+
+[source,bash]
+----
+java -jar harry-runner.jar run --conf conf/default.yaml
+----
+
+The key requirement is that you have a runnable `harry-runner.jar` and a config file that matches the cluster you are benchmarking.
+
 == When Performance Validation Is Required
 
 Performance validation is *expected (not optional)* when a change:
@@ -47,6 +76,9 @@ Attach to a running Cassandra process for 30 seconds and generate an interactive
 ./profiler.sh -d 30 -f flamegraph.html $(jps -l | grep CassandraDaemon | awk '{print $1}')
 ----
 
+This command usually runs for the requested duration plus a few seconds of profiler startup and file-write time.
+Success means `flamegraph.html` is created and opens in a browser; if the file is missing, the profiler did not attach cleanly.
+
 === Profiling During a Specific Benchmark
 
 Use start/stop mode to bracket a controlled workload window:
@@ -61,6 +93,8 @@ Use start/stop mode to bracket a controlled workload window:
 # Stop and dump flamegraph
 ./profiler.sh stop -f flamegraph.html $(jps -l | grep CassandraDaemon | awk '{print $1}')
 ----
+
+On success, the stop command emits the output path and leaves a readable HTML flamegraph on disk.
 
 Open `flamegraph.html` in a browser and compare frame widths against a baseline (unmodified) profile.
 Unexpectedly wide frames in your modified build indicate new CPU cost that should be explained or eliminated.

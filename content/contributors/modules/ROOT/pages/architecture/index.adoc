@@ -1,6 +1,13 @@
 = Architecture
 
 This section describes the general architecture of Apache Cassandra.
+If you are new to Cassandra internals, read the pages in this order:
+
+. Start with xref:Cassandra:cassandra:architecture/overview.adoc[Overview] for the high-level system model.
+. Read xref:architecture/dynamo.adoc[Dynamo] next to understand partitioning, replication, and eventual consistency.
+. Read xref:architecture/accord.adoc[Accord] only after that, because Accord adds transactional guarantees on top of the base Dynamo-style model.
+
+Use the deeper Accord pages when you are actively working on transactions or migration behavior.
 
 * xref:Cassandra:cassandra:architecture/overview.adoc[Overview]
 * xref:architecture/dynamo.adoc[Dynamo]

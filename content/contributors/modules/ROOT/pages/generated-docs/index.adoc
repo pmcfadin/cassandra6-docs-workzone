@@ -32,6 +32,38 @@ The scripts live in `doc/scripts/` in the Cassandra repository:
 * **`gen-nodetool-docs.py`** -- Introspects picocli-annotated nodetool command classes to generate per-command reference pages
 * **`process-native-protocol-specs-in-docker.sh`** -- Processes the native protocol specification files in a Docker container to produce the protocol reference page
 
+== How to Regenerate
+
+Run the full generated-doc pass from the Cassandra repo root:
+
+[source,bash]
+----
+ant gen-asciidoc
+----
+
+Or from `doc/`:
+
+[source,bash]
+----
+make gen-asciidoc
+----
+
+If you need to run the individual generators directly:
+
+[source,bash]
+----
+# Regenerate cassandra.yaml reference
+python3 doc/scripts/convert_yaml_to_adoc.py conf/cassandra.yaml doc/modules/cassandra/pages/managing/configuration/cass_yaml_file.adoc
+
+# Regenerate nodetool reference pages
+(cd doc && python3 scripts/gen-nodetool-docs.py)
+
+# Regenerate native protocol reference
+(cd doc && ./scripts/process-native-protocol-specs-in-docker.sh)
+----
+
+If the nodetool generator fails, build Cassandra first with `ant jar` so `bin/nodetool` is available to the script.
+
 == When to Regenerate
 
 Regenerate generated docs when:

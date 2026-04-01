@@ -12,6 +12,14 @@ You need the following installed before building Cassandra:
 * **Git** -- https://git-scm.com/[git-scm.com]
 * **Python 3** -- Required for running distributed tests (dtests) and cqlsh.
 
+Verify your Java toolchain before you build:
+
+[source,bash]
+----
+java -version
+javac -version
+----
+
 == Clone the Repository
 
 Fork the https://github.com/apache/cassandra[Apache Cassandra repository] on GitHub, then clone your fork:
@@ -52,13 +60,28 @@ ant
 ----
 
 This compiles the source, downloads dependencies, and produces build artifacts.
-The first build takes longer as it fetches dependencies.
+The first build usually takes about 5-10 minutes on a laptop; later builds are often 1-2 minutes.
+
+Expected success output ends with something like:
+
+[source,text]
+----
+BUILD SUCCESSFUL
+----
 
 To verify everything compiled correctly:
 
 [source,bash]
 ----
 ant jar build-test
+----
+
+Expected success output:
+
+[source,text]
+----
+BUILD SUCCESSFUL
+Total time: ...
 ----
 
 == Run a Smoke Test
@@ -70,12 +93,22 @@ Run a single unit test to verify your build:
 ant test -Dtest.name=org.apache.cassandra.utils.UUIDTest
 ----
 
+For a single test class, a successful run typically ends with:
+
+[source,text]
+----
+BUILD SUCCESSFUL
+Tests run: 1, Failures: 0, Errors: 0, Skipped: 0
+----
+
 Or run the full unit test suite:
 
 [source,bash]
 ----
 ant test
 ----
+
+The full unit suite takes much longer than a smoke test; use it when you are validating a wider change, not for every edit.
 
 See xref:build-test/testing.adoc[Testing] for comprehensive guidance on all test types.
 
