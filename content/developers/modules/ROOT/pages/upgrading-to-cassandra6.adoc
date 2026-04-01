@@ -152,7 +152,11 @@ Treat this as a backlog of simplifications to schedule alongside feature work.
 
 Work through this checklist before pointing your application at a Cassandra 6 cluster.
 
-* [ ] Verify your driver version supports Cassandra 6 — see xref:drivers.adoc[Choose a Driver]
+* [ ] Verify your driver version before the server upgrade:
+** Java: this workzone's quickstart pins Apache Cassandra Java Driver `4.18.1`
+** Python: this workzone's quickstart uses `cassandra-driver 3.29.3`
+** Node.js: this workzone's quickstart uses `cassandra-driver 4.8.0`
+** Go: this workzone does not pin `gocql`, so verify the exact module version in `go.mod` before rollout
 * [ ] Deploy a Cassandra 6 cluster in dev or staging and run your full test suite against it
 * [ ] Review prepared statement usage — verify statement IDs are being re-prepared on reconnect
 * [ ] Check for deprecated API usage in your current driver version's release notes
@@ -162,7 +166,7 @@ Work through this checklist before pointing your application at a Cassandra 6 cl
 * [ ] Plan driver upgrades as a separate deployment step from the server upgrade where possible
 
 IMPORTANT: Driver compatibility is the most common source of upgrade friction.
-Confirm your driver version before upgrading the server.
+Upgrade the driver first if you are behind the maintained release line for your language.
 
 == Recommended Adoption Order
 

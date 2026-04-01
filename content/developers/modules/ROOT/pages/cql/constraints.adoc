@@ -342,7 +342,7 @@ constraint as it is not a valid JSON."
 
 === REGEXP constraint
 
-Defines a constraint which checks text-like values againt a regular expression.
+Defines a constraint which checks text-like values against a regular expression.
 
 ----
 CREATE TABLE ks.tb (

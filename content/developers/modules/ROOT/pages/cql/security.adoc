@@ -1,4 +1,3 @@
-// role_name ::= identifier | string= Security
 [[cql-roles]]
 = Database Roles
 

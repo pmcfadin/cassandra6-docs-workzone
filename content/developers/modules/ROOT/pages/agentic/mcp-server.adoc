@@ -25,8 +25,9 @@ MCP is supported by Claude Code, Cursor, Windsurf, and other AI development tool
 
 == Setting Up a Cassandra MCP Server
 
-Several Cassandra MCP server implementations exist as open-source projects.
-Search for "cassandra mcp server" to find current options, as this ecosystem is evolving rapidly.
+Start from a concrete implementation rather than a generic search.
+Two examples at the time of writing are the https://awslabs.github.io/mcp/servers/amazon-keyspaces-mcp-server[Amazon Keyspaces MCP Server] for Amazon Keyspaces workloads and the https://github.com/sahil1115/mcp-cassandra-server[`mcp-cassandra-server`] open-source project for local Cassandra workflows.
+Because the ecosystem is changing quickly, prefer the official documentation for the specific server you plan to run rather than relying on generic setup steps alone.
 
 === Basic Setup Steps
 

@@ -258,7 +258,7 @@ See xref:vector-search/index.adoc[Vector Search] for a full overview.
 CREATE TABLE IF NOT EXISTS examples.documents (
   id        uuid PRIMARY KEY,
   content   text,
-  embedding vector<float, 3>    -- dimension must match your embedding model
+  embedding vector<float, 1536>    -- text-embedding-3-small output size
 );
 
 CREATE CUSTOM INDEX ON examples.documents (embedding)
@@ -266,18 +266,21 @@ CREATE CUSTOM INDEX ON examples.documents (embedding)
   WITH OPTIONS = {'similarity_function': 'cosine'};
 ----
 
-NOTE: The vector dimension (`3` in this example) is fixed at table creation and must match the output dimension of your embedding model.
-Production embeddings are typically 768, 1024, or 1536 dimensions.
+NOTE: The vector dimension (`1536` in this example) is fixed at table creation and must match the output dimension of your embedding model.
+For example, `text-embedding-3-small` produces 1536-dimensional vectors and Cohere `embed-english-v3.0` produces 1024-dimensional vectors.
 
 === Insert a Document with Embedding
 
-==== CQL
+==== Driver Statement Template
 
 [source,sql]
 ----
 INSERT INTO examples.documents (id, content, embedding)
-  VALUES (uuid(), 'Sample document', [0.1, 0.2, 0.3]);
+  VALUES (?, ?, ?);
 ----
+
+This is a driver-side statement template, not a `cqlsh` command.
+In practice the `embedding` value should come from an embedding API call or a local model, not from a hand-written vector literal.
 
 ==== Java
 
@@ -288,7 +291,7 @@ import com.datastax.oss.driver.api.core.data.CqlVector;
 PreparedStatement ps = session.prepare(
     "INSERT INTO examples.documents (id, content, embedding) VALUES (?, ?, ?)");
 
-CqlVector<Float> embedding = CqlVector.newInstance(0.1f, 0.2f, 0.3f);
+CqlVector<Float> embedding = ...; // build from the 1536-float embedding returned by your model
 session.execute(ps.bind(UUID.randomUUID(), "Sample document", embedding));
 ----
 
@@ -296,25 +299,36 @@ session.execute(ps.bind(UUID.randomUUID(), "Sample document", embedding));
 
 [source,python]
 ----
+from openai import OpenAI
+
 ps = session.prepare(
     "INSERT INTO examples.documents (id, content, embedding) VALUES (?, ?, ?)")
 
-session.execute(ps, [uuid.uuid4(), "Sample document", [0.1, 0.2, 0.3]])
+client = OpenAI()
+embedding_1536 = client.embeddings.create(
+    model="text-embedding-3-small",
+    input="Sample document",
+).data[0].embedding
+
+session.execute(ps, [uuid.uuid4(), "Sample document", embedding_1536])
 ----
 
 === ANN Query (Approximate Nearest Neighbor)
 
 Retrieve the five documents most similar to a query vector.
 
-==== CQL
+==== Driver Statement Template
 
 [source,sql]
 ----
-SELECT content, similarity_cosine(embedding, [0.15, 0.25, 0.35]) AS score
+SELECT content, similarity_cosine(embedding, ?) AS score
   FROM examples.documents
-  ORDER BY embedding ANN OF [0.15, 0.25, 0.35]
+  ORDER BY embedding ANN OF ?
   LIMIT 5;
 ----
+
+This query shape is typically executed through a driver with bound vectors.
+For production-sized embeddings, raw `cqlsh` examples are not practical because the vector literal can contain hundreds or thousands of float values.
 
 ==== Java
 
@@ -326,7 +340,7 @@ PreparedStatement ps = session.prepare(
     "ORDER BY embedding ANN OF ? " +
     "LIMIT 5");
 
-CqlVector<Float> queryVec = CqlVector.newInstance(0.15f, 0.25f, 0.35f);
+CqlVector<Float> queryVec = ...; // query embedding produced by the same model
 ResultSet rs = session.execute(ps.bind(queryVec, queryVec));
 
 for (Row row : rs) {
@@ -340,15 +354,19 @@ for (Row row : rs) {
 
 [source,python]
 ----
+query_embedding = client.embeddings.create(
+    model="text-embedding-3-small",
+    input="find documents similar to this question",
+).data[0].embedding
+
 ps = session.prepare(
     "SELECT content, similarity_cosine(embedding, ?) AS score "
     "FROM examples.documents "
     "ORDER BY embedding ANN OF ? "
-    "LIMIT 5")
+    "LIMIT 5"
+)
 
-query_vec = [0.15, 0.25, 0.35]
-rows = session.execute(ps, [query_vec, query_vec])
-
+rows = session.execute(ps, [query_embedding, query_embedding])
 for row in rows:
     print(f"{row.score:.4f}  {row.content}")
 ----

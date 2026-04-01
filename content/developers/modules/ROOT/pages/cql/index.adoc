@@ -9,6 +9,17 @@ CQL offers a model similar to SQL.
 The data is stored in *tables* containing *rows* of *columns*.
 For that reason, when used in this document, these terms (tables, rows and columns) have the same definition that they have in SQL.
 
+[IMPORTANT]
+====
+SQL developers should read these Cassandra-specific differences first:
+
+* `INSERT` is an upsert: it creates a row if it does not exist and overwrites it if the primary key already exists.
+* CQL does not support joins or arbitrary sub-queries.
+* Most queries must specify the partition key. When they do not, `ALLOW FILTERING` may be required and can be expensive.
+* The primary key controls both data distribution and row order, so table design starts from the query pattern.
+* There is no general-purpose full table scan path that behaves like SQL by default.
+====
+
 * xref:cql/definitions.adoc[Definitions]
 * xref:cql/types.adoc[Data types]
 * xref:cql/ddl.adoc[Data definition language]

@@ -29,6 +29,7 @@ Start a single-node Cassandra instance with Docker, exposing the native transpor
 
 [source,bash]
 ----
+docker pull cassandra:latest
 docker run --name cassandra -d -p 9042:9042 cassandra:latest
 ----
 
@@ -114,6 +115,7 @@ session.execute(
 
 NOTE: `SimpleStrategy` with a replication factor of 1 is suitable for a single-node development cluster only.
 Production clusters use `NetworkTopologyStrategy` with a replication factor matched to your datacenter topology.
+The examples use random UUIDs because the row ID is only a lookup key for later updates and deletes.
 
 == Insert Data
 
@@ -272,6 +274,8 @@ Users after insert:
 Users after update and delete:
   <uuid>  Alice  alice@newdomain.com
 ----
+
+NOTE: This quickstart also works with Cassandra 6. When you are ready to go beyond basic CRUD, see xref:cql/txn-reference.adoc[ACID Transactions] for `BEGIN TRANSACTION` and xref:cql/constraints.adoc[Constraints] for schema validation.
 
 == What's Next
 

@@ -191,7 +191,7 @@ Because both requests may reach the cluster, speculative execution is only safe 
 datastax-java-driver {
   advanced.speculative-execution-policy {
     class = ConstantSpeculativeExecutionPolicy
-    max-executions = 2         // 1 original + 2 speculative = 3 total max
+    max-executions = 2         // 1 original execution + 1 speculative execution
     delay = 500 milliseconds   // trigger speculative attempt after 500ms
   }
 }

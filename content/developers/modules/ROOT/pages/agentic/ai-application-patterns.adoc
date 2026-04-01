@@ -14,25 +14,22 @@ For the foundational vector search reference — the `VECTOR` type, SAI index cr
 
 == Cassandra as a Vector Store
 
-=== Why Cassandra for Vectors
+=== When Cassandra Is the Right Vector Store
 
-Purpose-built vector databases are optimized for one thing: similarity search over large embedding collections.
-Cassandra does not out-perform them on billion-scale pure similarity workloads.
-What it offers instead is a different set of tradeoffs that matter for production applications:
+Purpose-built vector databases are optimized for pure similarity search over large embedding collections.
+Cassandra is a better fit when vector search is one part of a broader application, not the only workload.
+
+Choose Cassandra when:
 
 * *Single database for vectors and application data.* Most AI applications need more than embeddings — they need the source documents, user records, session state, and audit logs that live alongside the vectors. Keeping everything in Cassandra eliminates the operational cost of synchronizing two stores.
 * *Operational maturity.* Multi-DC replication, tunable consistency, zero-downtime schema changes, and streaming-compatible index files work the same for vector columns as for any other column.
 * *Query model integration.* ANN queries compose with CQL scalar filters in a single statement. There is no application-layer join between a vector store and a relational database.
 
-=== Best Fit
+Choose a dedicated vector database when:
 
-Cassandra is the right vector store when:
-
-* Vectors augment records that already live in Cassandra (documents, products, user profiles, events).
-* You need scalar filtering alongside similarity ranking in a single query.
-* Operational requirements — replication, availability, schema evolution — are as important as recall performance.
-
-It is a weaker fit for pure similarity search workloads with hundreds of millions of vectors and no scalar data, where a specialized approximate nearest neighbor engine may give better recall at scale.
+* similarity search is the primary workload and the rest of the application data lives elsewhere
+* you need engine-specific ANN tuning as the main optimization surface
+* you do not need Cassandra's replication, data-modeling, or mixed-workload strengths
 
 [NOTE]
 ====
@@ -337,6 +334,13 @@ Use a consistent TTL policy in your application layer to avoid partial row expir
 
 LangChain provides a `CassandraVectorStore` class that wraps Cassandra's ANN capabilities behind the standard LangChain `VectorStore` interface.
 
+Install the integration packages first:
+
+[source,bash]
+----
+pip install cassio langchain-community langchain-openai
+----
+
 [source,python]
 ----
 from langchain_community.vectorstores import Cassandra
@@ -365,8 +369,10 @@ results = vectorstore.similarity_search("my query", k=5)
 
 [NOTE]
 ====
-The example above uses `cassio`, Cassandra's Python integration library for AI frameworks, as the connection layer.
-Refer to the https://docs.langchain.com/docs/integrations/vectorstores/cassandra[LangChain Cassandra documentation] for the current API and configuration options.
+`cassio` is a separate Python package you install with `pip install cassio`.
+It initializes the Cassandra session used by the LangChain and LlamaIndex Cassandra integrations shown below, and it is not part of the core `cassandra-driver` package.
+PyPI currently labels it as an alpha-stage package, so review its release notes before depending on it in production.
+Framework APIs change quickly, so verify the current constructor arguments in the framework docs before adopting these examples in production.
 ====
 
 === LlamaIndex
@@ -378,6 +384,8 @@ LlamaIndex provides a `CassandraVectorStore` index that integrates with its retr
 from llama_index.vector_stores.cassandra import CassandraVectorStore
 from llama_index.core import VectorStoreIndex, StorageContext
 import cassio
+
+# pip install cassio llama-index llama-index-vector-stores-cassandra
 
 cassio.init(contact_points=["127.0.0.1"], keyspace="my_keyspace")
 

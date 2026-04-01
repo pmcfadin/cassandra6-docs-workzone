@@ -29,18 +29,17 @@ Start a single-node Cassandra instance in Docker:
 [source,bash]
 ----
 docker pull cassandra:latest
-docker run --name cassandra-go -d -p 9042:9042 cassandra:latest
+docker run --name cassandra -d -p 9042:9042 cassandra:latest
 ----
 
-Wait about 30 seconds for the node to initialize before connecting.
-You can confirm it is ready by running:
+Wait 30-60 seconds for the node to initialize, then verify readiness:
 
 [source,bash]
 ----
-docker exec -it cassandra-go nodetool status
+docker exec cassandra cqlsh -e "DESCRIBE KEYSPACES"
 ----
 
-When the node shows status `UN` (Up/Normal), it is ready to accept connections.
+Repeat the command until it returns a list of system keyspaces without an error.
 
 == Initialize Your Project
 
@@ -136,6 +135,8 @@ setupSchema(session)
 == Insert Data
 
 Insert a row using a time-based UUID:
+
+This quickstart uses `gocql.TimeUUID()` so the IDs are time-ordered when you print them. The Java, Python, and Node.js quickstarts use random UUIDs because their examples only need opaque row IDs for later updates and deletes.
 
 [source,go]
 ----
@@ -357,6 +358,8 @@ go run main.go
 ----
 
 You should see output showing the inserts, the full user list, the updated email, and the final list after deletion.
+
+NOTE: This quickstart also works with Cassandra 6. When you are ready to go beyond basic CRUD, see xref:cql/txn-reference.adoc[ACID Transactions] for `BEGIN TRANSACTION` and xref:cql/constraints.adoc[Constraints] for schema validation.
 
 == What's Next
 

@@ -31,6 +31,30 @@ CREATE TABLE documents (
 The dimension (`1536` in this example) must match the output dimension of your embedding model and cannot be changed after the table is created.
 See xref:cql/types.adoc[Data Types] for the full `VECTOR` type specification.
 
+[cols="1,1,2", options="header"]
+|===
+| Example model | Typical dimension | When to use it
+
+| `text-embedding-3-small`
+| 1536
+| Good default for text search and RAG when you want a widely used hosted embedding model.
+
+| `embed-english-v3.0`
+| 1024
+| Good fit when you want a smaller hosted vector with strong retrieval quality.
+
+| `all-MiniLM-L6-v2`
+| 384
+| Good fit for local or on-premises deployments where smaller vectors matter.
+|===
+
+[WARNING]
+====
+Pick the embedding model before you create the table.
+If the model outputs 1536 floats, the schema must use `vector<float, 1536>`.
+If the dimensions do not match, writes and ANN queries will fail.
+====
+
 === SAI as the Index Engine
 
 SAI (Storage-Attached Indexing) powers vector search in Cassandra.
@@ -83,6 +107,53 @@ LIMIT 10;
 
 For the scalar columns (`category`, `published_year`) to filter efficiently, they should have their own SAI indexes.
 Without indexes, Cassandra will scan all rows that pass the partition filter before applying the ANN ranking.
+
+== End-to-End Embedding Flow
+
+Hardcoded vectors such as `[0.1, 0.2, 0.3]` are useful only for explaining the query shape.
+In a real application, the vector comes from an embedding model first, then Cassandra stores and queries that returned array.
+
+.Example: generate an embedding, store it, then query with another embedding
+[source,python]
+----
+from openai import OpenAI
+from cassandra.cluster import Cluster
+import uuid
+
+client = OpenAI()
+session = Cluster(["127.0.0.1"]).connect("app")
+
+doc_embedding = client.embeddings.create(
+    model="text-embedding-3-small",
+    input="Cassandra stores vector search data next to operational data.",
+).data[0].embedding
+
+insert_stmt = session.prepare(
+    "INSERT INTO documents (doc_id, title, body, embedding) VALUES (?, ?, ?, ?)"
+)
+session.execute(
+    insert_stmt,
+    [uuid.uuid4(), "Vector search", "Example document", doc_embedding],
+)
+
+query_embedding = client.embeddings.create(
+    model="text-embedding-3-small",
+    input="How do I use Cassandra for semantic search?",
+).data[0].embedding
+
+ann_stmt = session.prepare(
+    "SELECT doc_id, title "
+    "FROM documents "
+    "ORDER BY embedding ANN OF ? "
+    "LIMIT 5"
+)
+
+for row in session.execute(ann_stmt, [query_embedding]):
+    print(row.doc_id, row.title)
+----
+
+Use the same embedding model for ingestion and retrieval.
+If you change models later, create a new vector column or a new table and re-embed the stored data.
 
 == Upstream Vector Search Documentation
 

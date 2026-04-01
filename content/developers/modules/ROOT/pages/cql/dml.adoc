@@ -145,8 +145,8 @@ include::Cassandra:cassandra:example$CQL/where_group_cluster_columns.cql[]
 ----
 
 This query will return all rows that sort after the one having “John's Blog” as
-`blog_tile` and '2012-01-01' for `posted_at` in the clustering order. In
-particular, rows having a `post_at <= '2012-01-01'` will be returned, as
+`blog_title` and '2012-01-01' for `posted_at` in the clustering order. In
+particular, rows having a `posted_at <= '2012-01-01'` will be returned, as
 long as their `blog_title > 'John''s Blog'`.
 
 That would not be the case for this example:
@@ -349,6 +349,12 @@ If all partitions are scanned, then returning the results may experience a signi
 amount of data in the table. The `ALLOW FILTERING` option explicitly executes a full scan. Thus, the performance of
 the query can be unpredictable.
 
+[WARNING]
+====
+`ALLOW FILTERING` can force Cassandra to scan every partition it needs to inspect. On large tables this can drive high coordinator load, long latency, and timeouts.
+Use it only when the data set is known to be small or when no key design or index can express the query.
+====
+
 For example, consider the following table of user profiles with birth year and country of residence.
 The birth year has a secondary index defined.
 
@@ -378,9 +384,8 @@ The following query will be rejected:
 include::Cassandra:cassandra:example$CQL/query_fail_allow_filtering.cql[]
 ----
 
-Cassandra cannot guarantee that large amounts of data won't have to scanned amount of data, even if the result is small.
-If you know that the dataset is small, and the performance will be reasonable, add `ALLOW FILTERING` to allow the query to
-execute:
+Cassandra cannot guarantee that the scan will stay cheap just because the result set is small.
+If you know that the dataset is small, and the performance will be reasonable, add `ALLOW FILTERING` to allow the query to execute:
 
 [source,sql]
 ----
@@ -434,9 +439,11 @@ When using the `JSON` syntax, `VALUES` are optional.
 See the section on xref:Cassandra:cassandra:developing/cql/json.adoc[JSON support] for more detail.
 All updates for an `INSERT` are applied atomically and in isolation.
 
-Unlike in SQL, `INSERT` does not check the prior existence of the row by default.
-The row is created if none existed before, and updated otherwise.
-Furthermore, there is no means of knowing which action occurred.
+[WARNING]
+====
+Unlike in SQL, `INSERT` is an upsert. If the primary key does not exist, Cassandra creates the row; if the same primary key already exists, Cassandra overwrites it.
+There is no built-in signal telling you which of those two outcomes happened.
+====
 
 The `IF NOT EXISTS` condition can restrict the insertion if the row does not exist.
 However, note that using `IF NOT EXISTS` will incur a non-negligible performance cost, because Paxos is used,

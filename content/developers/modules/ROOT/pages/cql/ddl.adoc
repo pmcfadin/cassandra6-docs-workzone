@@ -33,7 +33,7 @@ equivalent to `mytable`) but case sensitivity can be forced by using
 double-quotes (`"myTable"` is different from `mytable`).
 
 Further, a table is always part of a keyspace and a table name can be
-provided fully-qualified by the keyspace it is part of. If is is not
+provided fully-qualified by the keyspace it is part of. If it is not
 fully-qualified, the table is assumed to be in the _current_ keyspace
 (see xref:cql/ddl.adoc#use-statement[USE] statement).
 
@@ -337,6 +337,25 @@ that column in the table definition.
 The order of the columns in the primary key definition defines the partition key and
 clustering columns.
 
+[cols="1,2",options="header"]
+|===
+|Primary key form |Meaning
+
+|`PRIMARY KEY (a)`
+|`a` is the partition key. Every partition contains one row.
+
+|`PRIMARY KEY (a, b, c)`
+|`a` is the partition key. `b` and `c` are clustering columns that order rows inside the partition.
+
+|`PRIMARY KEY ((a, b), c)`
+|`a` and `b` form the composite partition key. `c` orders rows inside the partition.
+|===
+
+----
+partition = hash(a, b)
+rows within the partition = ordered by c
+----
+
 A CQL primary key is composed of two parts:
 
 xref:cql/ddl.adoc#partition-key[partition key]::
@@ -360,9 +379,8 @@ Some examples of primary key definition are:
 
 [IMPORTANT]
 ====
-The primary key uniquely identifies a row in the table, as described above.
-A consequence of this uniqueness is that if another row is inserted using the same primary key,
-then an `UPSERT` occurs and an existing row with the same primary key is replaced.
+The primary key uniquely identifies a row in the table.
+If another row is inserted using the same primary key, Cassandra performs an upsert and replaces the existing row.
 Columns that are not part of the primary key cannot define uniqueness.
 ====
 
@@ -718,82 +736,19 @@ single row by specifying the clustering column in a SELECT statement.
 * Adding new columns (see `ALTER TABLE` below) is a constant time
 operation. Thus, there is no need to anticipate future usage while initially creating a table.
 
-[[alter-table-statement]]
-== ALTER TABLE
-
-Altering an existing table uses the `ALTER TABLE` statement:
-
-[source,bnf]
-----
-include::Cassandra:cassandra:example$BNF/alter_table.bnf[]
-----
-If the table does not exist, the statement will return an error, unless `IF EXISTS` is used in which case the operation is a no-op.
-
-For example:
-
-[source,sql]
-----
-include::Cassandra:cassandra:example$CQL/alter_table_add_column.cql[]
-include::Cassandra:cassandra:example$CQL/alter_table_with_comment.cql[]
-----
-
-The `ALTER TABLE` statement can:
-
-* `ADD` a new column to a table. The primary key of a table cannot ever be altered.
-A new column, thus, cannot be part of the primary key.
-Adding a column is a constant-time operation based on the amount of data in the table.
-If the new column already exists, the statement will return an error, unless `IF NOT EXISTS` is used in which case the operation is a no-op.
-* `DROP` a column from a table. This command drops both the column and all
-its content. Be aware that, while the column becomes immediately
-unavailable, its content are removed lazily during compaction. Because of this lazy removal,
-the command is a constant-time operation based on the amount of data in the table.
-Also, it is important to know that once a column is dropped, a column with the same name can be re-added,
-unless the dropped column was a non-frozen column like a collection.
-If the dropped column does not already exist, the statement will return an error, unless `IF EXISTS` is used in which case the operation is a no-op.
-
-[WARNING]
-.Warning
-====
-Dropping a column assumes that the timestamps used for the value of this
-column are "real" timestamp in microseconds. Using "real" timestamps in
-microseconds is the default is and is *strongly* recommended but as
-Cassandra allows the client to provide any timestamp on any table, it is
-theoretically possible to use another convention. Please be aware that
-if you do so, dropping a column will not correctly execute.
-====
-
-* `RENAME` a primary key column of a table. Non primary key columns cannot be renamed.
-Furthermore, renaming a column to another name which already exists isn't allowed.
-It's important to keep in mind that renamed columns shouldn't have dependent seconday indexes.
-If the renamed column does not already exist, the statement will return an error, unless `IF EXISTS` is used in which case the operation is a no-op.
-
-* Use `WITH` to change a table option. The xref:cql/ddl.adoc#create-table-options[supported options]
-are the same as those used when creating a table, with the exception of `CLUSTERING ORDER`.
-However, setting any `compaction` sub-options will erase *ALL* previous `compaction` options, so you need to re-specify
-all the sub-options you wish to keep. The same is true for `compression` sub-options.
-
-[[drop-table-statement]]
-== DROP TABLE
-
-Dropping a table uses the `DROP TABLE` statement:
-
-[source,bnf]
-----
-include::Cassandra:cassandra:example$BNF/drop_table.bnf[]
-----
-
-Dropping a table results in the immediate, irreversible removal of the
-table, including all data it contains.
-
-If the table does not exist, the statement will return an error, unless
-`IF EXISTS` is used, when the operation is a no-op.
-
 [[create-table-like-statement]]
 == CREATE TABLE LIKE
 
 _Added in Cassandra 6.0 (CEP-43, CASSANDRA-19964, CASSANDRA-19965, CASSANDRA-20943)._
 
 `CREATE TABLE LIKE` creates a new, empty table by copying the schema of an existing table.
+
+[IMPORTANT]
+====
+`CREATE TABLE LIKE` copies schema and selected table metadata only. It does not copy data.
+Use `WITH INDEXES`, `WITH COMMENTS`, and `WITH SECURITY LABELS` if you want those pieces of metadata copied too.
+Custom indexes are not copied.
+====
 
 [source,bnf]
 ----
@@ -864,7 +819,7 @@ CREATE TABLE orders_copy LIKE orders
 * Dropped column metadata
 * Triggers
 * Materialized views
-* Custom indexes; if the source table has custom indexes and `WITH INDEXES` is specified, a client warning is emitted for each custom index that could not be copied
+* Custom indexes
 
 === Cross-keyspace behavior
 
@@ -900,6 +855,76 @@ This feature is available in Cassandra 6.0 and later.
 Audit logging records `CREATE TABLE LIKE` operations using the `CREATE_TABLE_LIKE` entry type
 in the `DDL` audit category.
 ====
+
+[[alter-table-statement]]
+== ALTER TABLE
+
+Altering an existing table uses the `ALTER TABLE` statement:
+
+[source,bnf]
+----
+include::Cassandra:cassandra:example$BNF/alter_table.bnf[]
+----
+If the table does not exist, the statement will return an error, unless `IF EXISTS` is used in which case the operation is a no-op.
+
+For example:
+
+[source,sql]
+----
+include::Cassandra:cassandra:example$CQL/alter_table_add_column.cql[]
+include::Cassandra:cassandra:example$CQL/alter_table_with_comment.cql[]
+----
+
+The `ALTER TABLE` statement can:
+
+* `ADD` a new column to a table. The primary key of a table cannot ever be altered.
+A new column, thus, cannot be part of the primary key.
+Adding a column is a constant-time operation based on the amount of data in the table.
+If the new column already exists, the statement will return an error, unless `IF NOT EXISTS` is used in which case the operation is a no-op.
+* `DROP` a column from a table. This command drops both the column and all
+its content. Be aware that, while the column becomes immediately
+unavailable, its content are removed lazily during compaction. Because of this lazy removal,
+the command is a constant-time operation based on the amount of data in the table.
+Also, it is important to know that once a column is dropped, a column with the same name can be re-added,
+unless the dropped column was a non-frozen column like a collection.
+If the dropped column does not already exist, the statement will return an error, unless `IF EXISTS` is used in which case the operation is a no-op.
+
+[WARNING]
+.Warning
+====
+Dropping a column assumes that the timestamps used for the value of this
+column are "real" timestamp in microseconds. Using "real" timestamps in
+microseconds is the default is and is *strongly* recommended but as
+Cassandra allows the client to provide any timestamp on any table, it is
+theoretically possible to use another convention. Please be aware that
+if you do so, dropping a column will not correctly execute.
+====
+
+* `RENAME` a primary key column of a table. Non primary key columns cannot be renamed.
+Furthermore, renaming a column to another name which already exists isn't allowed.
+It's important to keep in mind that renamed columns shouldn't have dependent secondary indexes.
+If the renamed column does not already exist, the statement will return an error, unless `IF EXISTS` is used in which case the operation is a no-op.
+
+* Use `WITH` to change a table option. The xref:cql/ddl.adoc#create-table-options[supported options]
+are the same as those used when creating a table, with the exception of `CLUSTERING ORDER`.
+However, setting any `compaction` sub-options will erase *ALL* previous `compaction` options, so you need to re-specify
+all the sub-options you wish to keep. The same is true for `compression` sub-options.
+
+[[drop-table-statement]]
+== DROP TABLE
+
+Dropping a table uses the `DROP TABLE` statement:
+
+[source,bnf]
+----
+include::Cassandra:cassandra:example$BNF/drop_table.bnf[]
+----
+
+Dropping a table results in the immediate, irreversible removal of the
+table, including all data it contains.
+
+If the table does not exist, the statement will return an error, unless
+`IF EXISTS` is used, when the operation is a no-op.
 
 [[truncate-statement]]
 == TRUNCATE TABLE

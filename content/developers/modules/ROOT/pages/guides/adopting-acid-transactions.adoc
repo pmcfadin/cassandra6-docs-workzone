@@ -4,6 +4,8 @@
 [IMPORTANT]
 ====
 *Preview | Unofficial | For review only*
+
+This guide documents preview transaction behavior. Treat the examples and limits as draft guidance.
 ====
 
 Cassandra 6 introduces multi-partition ACID transactions powered by the Accord consensus protocol (CEP-15).
@@ -224,15 +226,9 @@ Bind variables (`?`) work inside transaction bodies following the same rules as 
 
 === Prepared statements
 
-`BEGIN TRANSACTION` statements are not cached in the server-side prepared statement cache (`eligibleAsPreparedStatement()` returns `false` in the server).
-Driver-level `session.prepare(...)` calls do function in practice for transactions, but the prepared statement is not reused from the server cache the way a regular `SELECT` or `INSERT` would be.
-
-[NOTE]
-====
-The exact prepared-statement interaction between the driver and server for transactions is an open question pending verification.
-Until this is clarified, prefer sending transactions as `SimpleStatement` rather than relying on `PreparedStatement` caching behavior.
-Source: `TransactionStatement.java` `eligibleAsPreparedStatement()`, `PreparedStatementsTest.java` lines 796-810.
-====
+Do not use prepared statements for `BEGIN TRANSACTION` blocks.
+Send the full transaction body as a plain request string through your driver's normal execution API.
+Source: `TransactionStatement.java` `eligibleAsPreparedStatement()` returns `false`.
 
 === Error handling
 

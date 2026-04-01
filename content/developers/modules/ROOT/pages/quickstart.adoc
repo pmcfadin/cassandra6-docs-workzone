@@ -5,7 +5,8 @@ Choose your path: explore CQL interactively or build your first application in y
 
 == Start Cassandra
 
-The fastest way to get a development instance running:
+The fastest way to get a development instance running is with Docker.
+You need Docker installed before you start.
 
 [source,bash]
 ----
@@ -13,8 +14,8 @@ docker pull cassandra:latest
 docker run --name cassandra -d -p 9042:9042 cassandra:latest
 ----
 
-Wait about 30 seconds for the node to initialize.
-Verify it's ready:
+Wait 30-60 seconds for the node to initialize, then verify it is ready.
+If the check fails, wait another 30 seconds and try again:
 
 [source,bash]
 ----
@@ -45,7 +46,30 @@ If you prefer to learn the query language before writing application code, conne
 docker exec -it cassandra cqlsh
 ----
 
+Think of Cassandra data in this order:
+
+[cols="1,2"]
+|===
+| Level | What it means
+
+| Keyspace
+| A top-level namespace for related tables.
+
+| Table
+| A group of rows for one query pattern.
+
+| Partition
+| The chunk of data Cassandra stores and reads together.
+
+| Row
+| One record inside a partition.
+|===
+
+The partition key chooses which partition a row belongs to, and clustering columns control the order of rows inside that partition.
+
 ==== Create a Keyspace
+
+WARNING: `replication_factor = 1` gives you no fault tolerance. Use it only for local development.
 
 [source,sql]
 ----
@@ -77,6 +101,10 @@ INSERT INTO users (user_id, name, email, created_at)
 INSERT INTO users (user_id, name, email, created_at)
   VALUES (uuid(), 'Bob', 'bob@example.com', toTimestamp(now()));
 ----
+
+`uuid()` generates a new unique identifier for each row.
+This quickstart uses UUIDs instead of integer IDs so the examples can create rows without coordinating a shared counter first.
+`toTimestamp(now())` stores the current write time as a timestamp.
 
 ==== Query Data
 

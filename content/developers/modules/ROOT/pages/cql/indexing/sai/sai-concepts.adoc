@@ -5,7 +5,10 @@
 Storage-Attached Indexing (SAI) is a highly-scalable, globally-distributed index for 
 {cassandra} databases.
 
-The main advantage of SAI over existing indexes for {product} are:
+Compared with legacy secondary indexes (2i), SAI can combine multiple column indexes in a single query, uses less disk for large indexes, and scales better for mixed read/write workloads.
+Use SAI when you need flexible filtering on indexed columns; use 2i only when the query pattern is simple and single-index access is enough.
+
+The main advantages of SAI for {product} are:
 
 * enables vector search for AI applications
 * shares common index data across multiple indexes on same table
@@ -30,6 +33,12 @@ SAI enables queries that filter based on:
 * row-aware query path
 * case sensitivity (optional)
 * unicode normalization (optional)
+
+[WARNING]
+====
+When a query uses multiple indexed predicates joined with `AND`, SAI can combine the indexes, but queries that involve more than two SAI indexes may fall back to post-filtering on the remaining clauses.
+Plan those queries carefully, especially on wide tables and low-cardinality columns.
+====
 
 == Advantages
 

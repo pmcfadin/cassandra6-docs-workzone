@@ -30,6 +30,17 @@ CREATE TABLE sensor_readings (
 The compound partition key `(sensor_id, day)` keeps all readings for one sensor on one calendar day co-located on the same set of replicas, while bounding partition size.
 The clustering column `reading_time DESC` orders rows so that the most recent reading is returned first without a sort step.
 
+.Partition layout for one sensor and one day
+----
+Partition key: (sensor_id='dev-001', day='2024-03-15')
+Clustering order: reading_time DESC
+
+Rows in storage:
+  [14:30] -> [14:25] -> [14:20] -> [14:15]
+----
+
+This is the shape the query engine reads for "latest N readings" and bounded time-range queries.
+
 [TIP]
 ====
 `CLUSTERING ORDER BY (reading_time DESC)` is the right default for "latest N readings" queries.
@@ -233,6 +244,7 @@ WHERE device_id = 'dev-001'
 ----
 
 Cassandra executes this as a single partition scan — efficient regardless of partition size.
+Because `event_time` is a `timestamp` column, the quoted values are parsed as CQL timestamp literals, not plain text strings.
 
 === Cross-Bucket Queries (Application Fan-Out)
 

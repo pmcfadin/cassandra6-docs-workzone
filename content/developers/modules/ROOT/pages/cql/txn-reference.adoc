@@ -4,6 +4,8 @@
 [IMPORTANT]
 ====
 *Preview | Unofficial | For review only*
+
+This page documents preview transaction syntax and behavior. Treat it as draft reference material.
 ====
 
 This page documents the `BEGIN TRANSACTION` CQL statement introduced in Apache Cassandra 6 as part of the Accord distributed transaction system (CEP-15, xref:contributors::architecture/accord.adoc[Accord]).
@@ -15,6 +17,12 @@ For the CQL-to-Accord implementation internals, see xref:contributors::architect
 
 NOTE: `BEGIN TRANSACTION` requires Accord to be enabled (`accord.enabled: true` in `cassandra.yaml`) and the target tables to have `transactional_mode = 'full'` or `transactional_mode = 'mixed_reads'`.
 See xref:operators::upgrade/onboarding-to-accord.adoc[Onboarding to Accord] for enablement steps.
+
+[IMPORTANT]
+====
+Do not use prepared statements for `BEGIN TRANSACTION` blocks.
+Submit the full transaction as a plain CQL request instead.
+====
 
 == Prerequisites
 
@@ -31,6 +39,8 @@ Before using `BEGIN TRANSACTION`:
 
 A `BEGIN TRANSACTION` block is an atomic, isolated CQL transaction coordinated by the Accord protocol.
 It can span multiple partitions and multiple tables.
+Outside a transaction, Cassandra follows its normal eventually consistent replica coordination model for regular CQL statements.
+Inside a transaction, Accord provides serializable isolation for the reads and writes in the block.
 
 Three patterns are supported:
 
@@ -124,6 +134,10 @@ Rules derived from https://github.com/apache/cassandra/blob/trunk/src/java/org/a
 * Aggregation functions are not allowed.
 * Counter columns are not allowed.
 * When the partition key is an `IN` clause, `LIMIT` must not be present.
+
+These restrictions keep each `LET` read bounded and deterministic for Accord.
+If you need a wider read, do it outside the transaction and pass the resulting values back in as bind variables.
+If you need multiple rows, split the workflow into separate reads or redesign the request around a single partition-key lookup.
 
 === Returning SELECT
 
@@ -258,7 +272,8 @@ Inserts a row only if it does not already exist.
 
 == Consistency Semantics
 
-Accord transactions provide **serializable isolation**.
+Outside a transaction, Cassandra's consistency behavior is governed by the statement's consistency level and normal replica coordination rules.
+Inside a `BEGIN TRANSACTION` block, Accord provides **serializable isolation**.
 All reads within a transaction observe a consistent snapshot as of the transaction's `executeAt` timestamp, and all writes are committed atomically.
 
 === Supported Consistency Levels
@@ -409,16 +424,9 @@ Source: https://github.com/apache/cassandra/blob/trunk/src/java/org/apache/cassa
 
 == Prepared Statements
 
-`BEGIN TRANSACTION` statements cannot be used as traditional CQL prepared statements (the `PREPARE` command will succeed but the statement is not cached in the usual way).
+Do not use prepared statements for `BEGIN TRANSACTION` blocks.
+The server marks them as not eligible for prepared-statement caching, so this reference treats them as plain request text only.
 Source: `TransactionStatement.java` `eligibleAsPreparedStatement()` returns `false`.
-
-[NOTE]
-====
-Driver-level prepared statement APIs (Java driver `session.prepare(...)`) do work for transactions in practice, as shown in
-https://github.com/apache/cassandra/blob/trunk/test/unit/org/apache/cassandra/cql3/PreparedStatementsTest.java[`PreparedStatementsTest.java`] lines 796-810.
-The server-side behavior of `eligibleAsPreparedStatement()` returning `false` means the statement is not eligible for the server-side prepared statement cache.
-The exact driver interaction semantics should be confirmed before publication.
-====
 
 == Bind Variables
 
@@ -450,8 +458,6 @@ Source: `TransactionStatement.java` `authorize(ClientState state)`.
 == Unresolved Questions
 
 The following items require verification or additional research before this page can be promoted from draft status:
-
-. *Prepared statement behavior*: The interaction between `eligibleAsPreparedStatement() = false` and driver-level `PREPARE` needs clarification. The server-side vs. driver-side semantics are not fully documented in trunk sources.
 
 . *Paging semantics*: Whether each page of a paged result constitutes a separate transaction is inferred but not explicitly documented in the grammar or TransactionStatement. Confirm with a contributor.
 

@@ -28,15 +28,14 @@ docker pull cassandra:latest
 docker run --name cassandra -d -p 9042:9042 cassandra:latest
 ----
 
-Wait about 30 seconds for the node to initialize.
-Confirm it is ready:
+Wait 30-60 seconds for the node to initialize, then verify readiness:
 
 [source,bash]
 ----
-docker exec -it cassandra cqlsh -e "SHOW VERSION"
+docker exec cassandra cqlsh -e "DESCRIBE KEYSPACES"
 ----
 
-When you see a `[cqlsh ...]` version line the node is ready.
+Repeat the command until it returns a list of system keyspaces without an error.
 
 NOTE: The Node.js driver handles connection pooling and reconnection automatically, so you do not need to manage socket lifecycle in application code.
 
@@ -83,7 +82,7 @@ node app.js
 You should see `Connected to Cassandra!` printed to the console.
 
 `contactPoints` lists one or more seed addresses.
-`localDataCenter` must match the data center name reported by `nodetool status` or visible in `system.local`.
+`localDataCenter` must match the data center name reported by `system.local`.
 For a single-node Docker instance the default is `datacenter1`.
 
 == Create a Keyspace and Table
@@ -118,6 +117,7 @@ async function main() {
 
 `SimpleStrategy` with `replication_factor: 1` is appropriate for local development.
 Use `NetworkTopologyStrategy` in production clusters.
+The examples use random UUIDs because the row ID is only a lookup key for later updates and deletes.
 
 == Insert Data
 
@@ -275,6 +275,8 @@ Deleted Bob.
 Final users:
   Alice <alice@newdomain.com>
 ----
+
+NOTE: This quickstart also works with Cassandra 6. When you are ready to go beyond basic CRUD, see xref:cql/txn-reference.adoc[ACID Transactions] for `BEGIN TRANSACTION` and xref:cql/constraints.adoc[Constraints] for schema validation.
 
 == What's Next
 

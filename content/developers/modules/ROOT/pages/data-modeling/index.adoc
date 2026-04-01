@@ -13,6 +13,49 @@ In Cassandra you design tables around your queries: each query pattern typically
 
 This is called *query-driven design*, and it is the central discipline of Cassandra data modeling.
 
+For example, a user profile service often needs two different reads:
+
+* look up a user by `user_id`
+* find the same user by `email`
+
+In a relational database, that usually starts with one `users` table and a join-friendly model:
+
+[source,sql]
+----
+CREATE TABLE users (
+  user_id   uuid PRIMARY KEY,
+  email     text UNIQUE,
+  full_name text
+);
+
+SELECT user_id, email, full_name
+FROM users
+WHERE email = 'alice@example.com';
+----
+
+In Cassandra, each access pattern needs its own table so the read is a direct partition lookup:
+
+[source,sql]
+----
+CREATE TABLE users_by_id (
+  user_id   uuid PRIMARY KEY,
+  email     text,
+  full_name text
+);
+
+CREATE TABLE users_by_email (
+  email     text PRIMARY KEY,
+  user_id   uuid,
+  full_name text
+);
+
+SELECT user_id, email, full_name
+FROM users_by_email
+WHERE email = 'alice@example.com';
+----
+
+The tradeoff is duplication: Cassandra makes the reads fast by storing the same user data in the shape each query needs.
+
 [IMPORTANT]
 .What changed for Cassandra 6 upgraders
 ====

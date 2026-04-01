@@ -34,20 +34,27 @@ Most Cassandra drivers expose a schema agreement check directly:
 
 [source,java]
 ----
-// Java (Apache Cassandra Java Driver)
-boolean agreed = session.checkSchemaAgreement();
-----
+import com.datastax.oss.driver.api.core.CqlSession;
 
-[source,python]
-----
-# Python (Apache Cassandra Python Driver)
-agreed = session.cluster.refresh_schema_metadata()
+public class WaitForSchemaAgreement {
+    public static void main(String[] args) throws InterruptedException {
+        try (CqlSession session = CqlSession.builder().build()) {
+            waitForSchemaAgreement(session);
+        }
+    }
+
+    static void waitForSchemaAgreement(CqlSession session) throws InterruptedException {
+        while (!session.checkSchemaAgreement()) {
+            Thread.sleep(500);
+        }
+    }
+}
 ----
 
 [TIP]
 ====
 In automated migration scripts, poll for schema agreement after each DDL statement before issuing the next one.
-A short sleep-and-retry loop (check every 500 ms, time out after 30 s) is a practical approach.
+A short sleep-and-retry loop is a practical approach. Set a timeout in the migration runner so a stalled cluster does not block forever.
 ====
 
 == Safe Online Schema Changes

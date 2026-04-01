@@ -197,7 +197,7 @@ Production incidents that lack observability are much harder to diagnose and res
 
 [NOTE]
 ====
-A full observability guide covering dashboard templates, virtual table queries, and alerting thresholds is planned for Phase 4.3 of this documentation project.
+Document the dashboards, virtual table queries, and alert thresholds you actually use before launch.
 ====
 
 == Pre-Launch Testing

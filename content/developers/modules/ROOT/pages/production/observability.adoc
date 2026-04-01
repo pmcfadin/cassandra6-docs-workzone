@@ -331,7 +331,8 @@ httpServer.addRoute("/metrics", req ->
 ----
 
 Add a `prometheus.yml` scrape config targeting your application's metrics endpoint.
-Use the community Cassandra driver Grafana dashboard as a starting point; customize thresholds for your workload.
+If you use Grafana Cloud, the https://grafana.com/docs/grafana-cloud/monitor-infrastructure/integrations/integration-reference/integration-apache-cassandra/[Apache Cassandra integration] provides pre-built dashboards and alerts you can adapt.
+If you run self-managed Grafana, build the first dashboard directly from the driver metrics in this guide so each panel maps to a metric your application actually exports.
 
 === OpenTelemetry
 

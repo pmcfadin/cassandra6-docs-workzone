@@ -24,7 +24,14 @@ docker pull cassandra:latest
 docker run --name cassandra -d -p 9042:9042 cassandra:latest
 ----
 
-Wait about 30 seconds for the node to initialize before connecting.
+Wait 30-60 seconds for the node to initialize, then verify readiness:
+
+[source,bash]
+----
+docker exec cassandra cqlsh -e "DESCRIBE KEYSPACES"
+----
+
+Repeat the command until it returns a list of system keyspaces without an error.
 
 NOTE: The Python driver handles connection pooling automatically.
 You do not need to manage individual connections or threads.
@@ -84,6 +91,7 @@ print("Keyspace and table ready.")
 
 `SimpleStrategy` with a replication factor of 1 is appropriate for local development.
 Use `NetworkTopologyStrategy` in production clusters.
+The examples use random UUIDs because the row ID is only a lookup key for later updates and deletes.
 
 == Insert Data
 
@@ -95,7 +103,7 @@ They are compiled once by the cluster and cached for subsequent calls.
 import uuid
 
 insert_stmt = session.prepare(
-    "INSERT INTO users (id, name, email) VALUES (?, ?, ?)"
+    "INSERT INTO users (id, name, email) VALUES (%s, %s, %s)"
 )
 
 session.execute(insert_stmt, [uuid.uuid4(), "Alice", "alice@example.com"])
@@ -176,7 +184,7 @@ print("Keyspace and table ready.")
 
 # Insert using a prepared statement
 insert_stmt = session.prepare(
-    "INSERT INTO users (id, name, email) VALUES (?, ?, ?)"
+    "INSERT INTO users (id, name, email) VALUES (%s, %s, %s)"
 )
 alice_id = uuid.uuid4()
 bob_id = uuid.uuid4()
@@ -225,6 +233,8 @@ Updated Alice's email.
 Deleted Alice's record.
 Done.
 ----
+
+NOTE: This quickstart also works with Cassandra 6. When you are ready to go beyond basic CRUD, see xref:cql/txn-reference.adoc[ACID Transactions] for `BEGIN TRANSACTION` and xref:cql/constraints.adoc[Constraints] for schema validation.
 
 == What's Next
 

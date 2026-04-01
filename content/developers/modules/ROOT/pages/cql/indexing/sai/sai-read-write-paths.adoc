@@ -10,6 +10,14 @@ SSTables are stored on disk sequentially and maintained for each database table.
 
 This topic discusses the details of the SAI read and write paths, examining the SAI indexing lifecycle.
 
+At a high level:
+
+[source,text]
+----
+Write path: client write -> memtable index -> SSTable flush -> on-disk index files
+Read path: query -> choose index -> gather matching partitions -> read rows -> apply final filtering -> return results
+----
+
 == SAI write path
 
 An SAI index can be created either before any data is written to a CQL table, or after data has been written.
@@ -103,11 +111,18 @@ At this point, new SSTable indexes are available for queries.
 == SAI read path
 
 This section explains how index queries are processed by the SAI coordinator and executed by replicas.
-Unlike legacy secondary indexes, where at most one column index will be used per query, SAI implements a `Query Plan` that makes it possible to use all available column indexes in a single query.
+Unlike legacy secondary indexes, where a query typically uses one index at a time, SAI uses a `Query Plan` that can combine multiple column indexes in one query.
 
-The overall flow of a SAI read operation is as follows:
+The overall flow of a SAI read operation is:
 
-image::sai/saiReadpathOverview.png[alt=AI read path as described in subsequent sections,width=640,height=480]
+[source,text]
+----
+1. Coordinator picks the most selective index.
+2. Coordinator sends the read to the relevant token ranges.
+3. Replicas intersect matching partitions from the chosen indexes.
+4. Replicas apply any remaining filtering while rows are materialized.
+5. Matching rows are returned to the client.
+----
 
 === Index selection and Coordinator processing
 

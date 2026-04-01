@@ -10,6 +10,9 @@ Common patterns for building applications with Apache Cassandra.
 Cassandra tables are designed around your query patterns, not entity relationships.
 Each query typically maps to one table, with the partition key chosen to group related data for efficient retrieval.
 
+For example, a user profile service usually needs one table for lookups by `user_id` and another for lookups by `email`.
+That duplication is deliberate: Cassandra trades normalized joins for direct reads on the shape each query needs.
+
 See xref:data-modeling/index.adoc[Data Modeling] for comprehensive guidance, including:
 
 * xref:Cassandra:cassandra:developing/data-modeling/data-modeling_queries.adoc[Query-driven design methodology]
@@ -29,6 +32,30 @@ For time-series workloads (logs, metrics, events):
 Cassandra prefers denormalized data models over joins.
 If the same data is needed by multiple queries, create multiple tables with different partition keys.
 With Cassandra 6's xref:cql/txn-reference.adoc[Accord transactions], you can update multiple denormalized tables atomically.
+
+.Example: keep two user lookup tables in sync
+[source,python]
+----
+from cassandra.cluster import Cluster
+
+session = Cluster(["127.0.0.1"]).connect("app")
+
+def upsert_user(user_id, email, full_name):
+    session.execute("""
+        BEGIN TRANSACTION
+          UPDATE users_by_id
+          SET email = ?, full_name = ?
+          WHERE user_id = ?;
+
+          UPDATE users_by_email
+          SET user_id = ?, full_name = ?
+          WHERE email = ?;
+        COMMIT TRANSACTION
+    """, [email, full_name, user_id, user_id, full_name, email])
+----
+
+The application writes both tables in one transaction, so a caller can read by `user_id` or by `email` without seeing a half-updated state.
+Before Cassandra 6, you would need application-side compensation or a different consistency strategy.
 
 == Consistency Patterns
 
@@ -104,7 +131,4 @@ See xref:vector-search/index.adoc[Vector Search] for detailed examples of all th
 
 === Cassandra Lucene Index (Retired)
 
-The Cassandra Lucene Index plugin by Instaclustr was retired after the release of Cassandra 5.0 with Storage-Attached Indexing (SAI).
-It remains available for Cassandra 4.x releases at https://github.com/instaclustr/cassandra-lucene-index/[GitHub].
-
-For Cassandra 5.0+, use xref:cql/indexing/sai/sai-concepts.adoc[SAI] for secondary indexing and full-text search capabilities.
+Retired as of Cassandra 5.0. Use xref:cql/indexing/sai/sai-concepts.adoc[SAI] for secondary indexing and full-text search capabilities.

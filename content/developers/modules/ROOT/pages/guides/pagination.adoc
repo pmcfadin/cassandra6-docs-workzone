@@ -7,6 +7,7 @@
 ====
 
 Large Cassandra result sets can exhaust driver memory and stall application threads if fetched all at once.
+If you disable paging or eagerly materialize every page, the driver keeps fetching until your process runs out of heap or the request times out.
 Pagination controls how many rows arrive per round trip and keeps memory usage predictable regardless of table size.
 This guide covers the two primary patterns: driver auto-paging for simple iteration and manual paging state for stateless APIs.
 
@@ -220,6 +221,7 @@ Use paging state tokens for cursor-based pagination.
 === Fetching All Pages Eagerly
 
 Loading every page into memory before processing the first row defeats the purpose of pagination.
+The usual failure mode is heap growth followed by timeouts or out-of-memory errors on the client.
 If you need the full result set in memory, make sure your heap or process memory can accommodate it and consider whether token-range pagination or Spark is a better fit.
 
 === Sharing Paging State Across Different Queries
@@ -231,6 +233,19 @@ Applying a paging state to a different query will produce an error or corrupt re
 
 Full-table scans (analytics, migrations, backfills) benefit from dividing the token ring into ranges and processing each range independently.
 This approach parallelizes naturally across workers.
+
+.Token ring divided across workers
+----
+            min
+             |
+             v
+         [W1] [W2] [W3] [W4]
+             ^              |
+             |              v
+            max <-----------
+----
+
+Each worker owns one token interval, such as `(-2^63, -2^62]` or `(-2^62, 0]`, and runs the same query against only that slice.
 
 [source,sql]
 ----

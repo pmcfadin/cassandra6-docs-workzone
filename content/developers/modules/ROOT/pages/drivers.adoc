@@ -10,6 +10,16 @@ Picking the right driver for your language and workload will save significant in
 
 See xref:quickstart.adoc[Developer Quickstart] to get a running Cassandra instance before wiring up a driver.
 
+== Start Here
+
+If you want the shortest path to a working application, use this rule of thumb:
+
+* **JVM application** -> start with the https://github.com/apache/cassandra-java-driver[Apache Cassandra Java Driver].
+* **Python application or script** -> start with the https://github.com/apache/cassandra-python-driver[Apache Cassandra Python Driver].
+* **Lean Go service** -> use https://github.com/gocql/gocql[gocql] if you want a small, direct driver with a simple API.
+
+The matrix below is for comparing driver features after you know your language. If you are new to Cassandra, choose the driver that matches your runtime first and optimize for ergonomics second.
+
 == Recommended Drivers by Language
 
 === Java
@@ -106,11 +116,35 @@ It targets .NET Standard and supports async/await patterns, LINQ integration, an
 | No
 |===
 
+== Cassandra 6 Notes By Driver
+
+[cols="1,2,2", options="header"]
+|===
+| Driver | Cassandra 6 guidance in this workzone | Practical note
+
+| Java
+| Full quickstart plus references to `BEGIN TRANSACTION` and constraints
+| Best-documented path in this workzone for teams evaluating newer Cassandra 6 features
+
+| Python
+| Full quickstart plus references to `BEGIN TRANSACTION` and constraints
+| Good beginner path if you want short application examples and scripting-friendly tooling
+
+| Go
+| Full quickstart plus links to Cassandra 6 feature docs
+| CRUD examples are covered here, but confirm your chosen `gocql` version and feature support before rollout
+
+| Node.js
+| Full quickstart plus references to `BEGIN TRANSACTION` and constraints
+| Good fit when you want prepared statements, paging, and token-aware routing from a JavaScript service
+|===
+
 == Which Driver Should I Use?
 
 Not sure where to start? Use these rules of thumb:
 
-* **New to Cassandra?** Start with the Java or Python driver. Both have the best documentation, the most examples online, and the largest communities answering questions.
+* **New to Cassandra?** Start with the Java or Python driver. Both have the clearest getting-started material and the most examples for common application patterns.
+* **Building a backend service?** Java, Python, and Go are the safest defaults. Pick the one your team already knows unless you have a strong reason to optimize for runtime footprint.
 * **Building microservices or cloud-native services?** Go (gocql) and Rust (scylla-rust-driver) have minimal footprints and excellent async performance.
 * **Enterprise .NET shop?** The Apache Cassandra C# driver supports .NET Standard and integrates with common enterprise patterns.
 * **Full-stack JavaScript?** The Apache Cassandra Node.js driver covers both backend Node.js services and server-side rendering frameworks.
