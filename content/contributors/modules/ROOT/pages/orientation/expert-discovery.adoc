@@ -1,0 +1,196 @@
+= Subsystem Expert Discovery
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Apache Cassandra is a large, distributed system with deep expertise distributed across many contributors worldwide.
+No single person knows every subsystem, and the project has grown complex enough that getting a review from someone familiar with the affected code area makes a significant difference in review quality and speed.
+This page helps you find the right people, channels, and processes for your contribution area.
+Use it as a starting point — not a complete authority — because contributor activity shifts over time.
+
+== How Cassandra Review Works
+
+Apache Cassandra follows the standard Apache Software Foundation contribution model:
+
+* All code changes are tracked through a https://issues.apache.org/jira/browse/CASSANDRA[JIRA ticket]. Each change should have a ticket before work begins.
+* Contributors submit patches via GitHub pull requests or as patch files attached to JIRA. The JIRA ticket is the canonical record.
+* **Committers** review patches and merge them after one or more reviews. You need at least one committer +1 to proceed.
+* **PMC members** have binding votes on releases and project governance decisions. For major architectural changes, broader PMC awareness is appropriate.
+* Review expectations are high, especially for storage engine, protocol, and consensus-related changes. Expect requests for performance validation, additional tests, and multiple review rounds.
+* There is no formal CODEOWNERS file. Instead, there are recognized experts per subsystem, discoverable through JIRA and git history.
+
+== Subsystem Expert Map
+
+The table below maps each subsystem to where you can find the right reviewers and what the review bar looks like.
+Do not rely on any static list of names — contributor availability changes.
+Use the discovery methods described here instead.
+
+[cols="1,2,2", options="header"]
+|===
+| Subsystem
+| Where to Find Reviewers
+| Review Expectations
+
+| Storage Engine & Compaction
+| Check recent JIRA activity using `component/s = Storage Engine` in the https://issues.apache.org/jira/projects/CASSANDRA[CASSANDRA project]. Run `git log --format='%an' -- <file> \| sort \| uniq -c \| sort -rn` on changed files to identify frequent authors.
+| Very high bar. Changes can affect data integrity, durability guarantees, and read/write performance. Expect requests for benchmark results and stress test validation.
+
+| CQL & Query Processing
+| Check JIRA component `CQL`. Review git blame on `src/java/org/apache/cassandra/cql3/` and related grammar files.
+| Grammar changes require both parser-level and semantic-level tests. Behavior changes to existing CQL constructs need careful backwards-compatibility analysis.
+
+| Accord / Transactions
+| Check JIRA component `Accord`. This subsystem has a small, focused group of active contributors. Look at https://github.com/apache/cassandra/tree/trunk/modules/accord[the Accord submodule] commit history.
+| Very high bar. Accord implements distributed consensus and correctness is critical. Expect deep review of linearizability, failure scenarios, and edge cases. Start a dev@ discussion before large changes.
+
+| Messaging & Internode
+| Check JIRA component `Messaging/Internode`. Review git log on `src/java/org/apache/cassandra/net/`.
+| Protocol compatibility between versions matters. Changes that affect the wire format require careful versioning. Include interoperability test evidence.
+
+| Schema & Metadata (TCM)
+| Check JIRA component `Schema` or search for TCM-related tickets. TCM (Transactional Cluster Metadata) changes are often cross-cutting.
+| Changes frequently affect multiple subsystems. Identify downstream impacts early and confirm compatibility with schema migration paths.
+
+| Repair & Streaming
+| Check JIRA component `Repair`. Review git log on `src/java/org/apache/cassandra/repair/` and `src/java/org/apache/cassandra/streaming/`.
+| Distributed test coverage is required. Repair bugs can cause data inconsistency. Include multi-node dtest results.
+
+| Security (Auth, SSL)
+| Check JIRA component `Security`. Review activity on `src/java/org/apache/cassandra/auth/`.
+| Changes may have compliance and operational implications. Involve reviewers with security experience. Audit-logging and authentication behavior changes need clear documentation.
+
+| Configuration
+| Check JIRA component `Configuration`. Review `src/java/org/apache/cassandra/config/` and `conf/cassandra.yaml`.
+| Configuration changes affect `cassandra.yaml` and must include docs updates and migration guidance for existing deployments. Consider deprecation paths for removed or renamed options.
+
+| Nodetool & Tools
+| Check JIRA component `Tools`. Review `src/java/org/apache/cassandra/tools/`.
+| Nodetool command changes often require regenerating the reference docs. Verify that generated docs are updated as part of the patch.
+
+| Documentation
+| Discuss on https://lists.apache.org/list.html?dev@cassandra.apache.org[dev@cassandra.apache.org]. See xref:documentation/index.adoc[Working on Documentation] for the docs contribution workflow.
+| Follow the docs contribution guide. AsciiDoc style and Antora structure conventions apply.
+
+| Test Infrastructure
+| Check JIRA component `Test/CI`. Review `.circleci/`, `build.xml`, and the `test/` tree.
+| Changes affect every contributor. CI changes require particular care — unexpected breakage blocks the entire project.
+|===
+
+== Before You Ask for Review
+
+Preparing your patch well before requesting review reduces back-and-forth and signals respect for reviewer time.
+Run through this checklist before tagging anyone:
+
+* Your JIRA ticket has a clear description of the problem and solution
+* The patch includes tests appropriate to the risk level of the change
+* You have run the relevant test suite locally and it passes
+* The commit message follows the project format: one-line description, then `patch by <Author>; reviewed by <Reviewer> for CASSANDRA-#####`
+* You have added a `CHANGES.txt` entry if the change is user-visible
+* You have reviewed the xref:patch-review/how_to_review.adoc[Review Checklist] for your own code
+* If the change affects `cassandra.yaml`, configuration docs are updated
+* If the change affects generated reference docs (nodetool, CQL), those are regenerated
+
+A patch that passes self-review is substantially faster to get through external review.
+
+== How to Find the Right Reviewer
+
+Use this sequence when you are unsure who to ask for review:
+
+. **Check the JIRA component** for your change area. Search recent tickets in that component and note who has been commenting, reviewing, and resolving issues.
+. **Inspect git history** on the files you changed to identify contributors with deep familiarity:
++
+[source,bash]
+----
+git log --format='%an' -- <path/to/changed/file> | sort | uniq -c | sort -rn
+----
++
+. **Read recent JIRA comments** on related tickets. Frequent, substantive commenters in your area are likely good reviewers.
+. **Post to the dev mailing list** at https://lists.apache.org/list.html?dev@cassandra.apache.org[dev@cassandra.apache.org] asking for review attention. Include a brief summary of the change and a link to the JIRA ticket.
+. **Ask in ASF Slack** in the `#cassandra-dev` channel for real-time guidance on who to tag. Note that important decisions should be captured in JIRA or the mailing list, not only in Slack.
+
+== Where to Ask Questions
+
+Different channels serve different purposes:
+
+**dev@cassandra.apache.org**::
+The primary development mailing list. All design discussions, major feature proposals, and review requests happen here. When in doubt, start with this list.
+It is public and archived, so discussions are visible to the whole community.
+
+**ASF Slack #cassandra-dev**::
+Real-time chat for quick questions, review coordination, and informal discussion.
+Join at https://s.apache.org/slack-invite[s.apache.org/slack-invite].
+Substantive decisions and approvals belong in JIRA or the mailing list, not Slack.
+
+**JIRA comments**::
+Use for questions and discussion specific to a ticket.
+Tag contributors by their Apache ID to get attention.
+
+**CEP discussions**::
+Cassandra Enhancement Proposals (CEPs) govern major new features and architectural changes.
+CEPs are discussed on the dev mailing list before implementation.
+If your change is significant enough to require a CEP, announce it early.
+
+**When in doubt**, start with the dev mailing list.
+A short, well-framed question to the list is always welcome and often results in fast guidance.
+
+== Roles in the Cassandra Project
+
+Understanding roles helps you direct your requests appropriately:
+
+**Contributor**::
+Anyone who submits patches, documentation updates, tests, or bug reports.
+No formal membership is required — you just need a JIRA account and a GitHub account.
+This is where all community members start.
+Contributions are not limited to code: documentation, test improvements, and detailed bug reports are equally valued.
+
+**Committer**::
+Has merge access to the Apache Cassandra repositories.
+Committer status is earned through sustained, high-quality contributions over time and is formally granted by a PMC vote.
+Committers are the primary reviewers of patches.
+When you need a +1, you need it from a committer.
+The current list of committers is available on the https://cassandra.apache.org/community/[Cassandra community page].
+
+**PMC Member**::
+Member of the Project Management Committee.
+Has binding votes on releases, on adding new committers, and on major project direction decisions.
+Responsible for project governance, license compliance, and alignment with Apache Software Foundation policies.
+Many PMC members are also active code reviewers.
+
+**Release Manager**::
+A committer or PMC member who coordinates a specific release cycle: branch cutting, release candidates, the community vote, and public announcements.
+The role rotates across releases and is announced on the dev mailing list.
+
+== Review Expectations by Patch Type
+
+See xref:develop/patch-classification.adoc[Patch Classification Guide] for a full breakdown.
+As a summary:
+
+* **Bug fixes**: One committer review is generally sufficient for small, isolated fixes. Larger or riskier fixes may need more eyes.
+* **New features**: At least one committer with subsystem expertise should review. Discuss on the dev list before starting significant feature work.
+* **Breaking or disruptive changes**: Broader review expected. Post to dev@ early, document the motivation clearly, and be prepared for extended discussion.
+* **Protocol or storage format changes**: Highest bar in the project. Multiple expert reviews required. Include detailed compatibility analysis and a migration plan.
+
+== Getting Your Patch Unstuck
+
+It is common for patches to sit without review, especially during busy periods.
+Here is how to move things forward:
+
+* **Wait 1–2 weeks** after submitting before following up. Reviewers are volunteers managing many tickets.
+* **Politely bump the JIRA ticket** with a short comment noting that the patch is ready for review. Link directly to the pull request or patch file.
+* **Post to dev@** asking for review attention. Include a concise summary of the change, why it matters, and any context that makes it easy to review.
+* **Make the patch easy to review**: write a clear commit message, include test evidence, add inline comments explaining non-obvious decisions.
+* **Break large patches into smaller, reviewable chunks**. A series of focused patches is far easier to review than one large diff.
+* **Respond to feedback promptly**. Patches that receive feedback but go unaddressed for weeks lose momentum quickly.
+* If a patch is stuck for more than a month with no engagement, raising it at the next community meeting or on the dev list with a clear ask is appropriate.
+
+== Related Pages
+
+The following pages in this contributor guide are closely related to finding the right people and process for your change:
+
+* xref:patch-review/patches.adoc[Contributing Code Changes] — the full patch submission workflow from JIRA ticket to committed patch
+* xref:patch-review/how_to_review.adoc[Review Checklist] — what reviewers look for and how to self-review before asking for external review
+* xref:patch-review/how_to_commit.adoc[How to Commit] — the committer merge process; useful for understanding what happens after your patch is approved
+* xref:develop/patch-classification.adoc[Patch Classification Guide] — how to assess the scope and risk of your change and what review level it requires
+* xref:documentation/index.adoc[Working on Documentation] — contribution process specific to documentation changes

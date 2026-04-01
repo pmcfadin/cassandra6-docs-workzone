@@ -1,0 +1,304 @@
+= Write Path: CQL to Disk
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Every write in Cassandra follows the same fundamental path: CQL mutation → CommitLog → Memtable → SSTable flush.
+This page traces that pipeline in detail, covering both BIG and BTI format flush paths.
+Class names are pinned to Cassandra 5.0 source.
+For the coordinator-level view of how a write request is routed before reaching this pipeline, see xref:internals/query-path.adoc[Query Execution Path].
+
+== CQL Mutation to Partition
+
+A CQL `INSERT`, `UPDATE`, or `DELETE` statement is translated at the coordinator into a `Mutation` object containing one or more `PartitionUpdate` objects — one per table touched by the statement.
+The table schema determines how data is organized: the partition key identifies which replica set owns the data, clustering columns define row ordering within the partition, and regular columns map to individual cells.
+Deletes produce tombstones — partition-level, row-level, cell-level, or range tombstones depending on the CQL statement.
+
+`Mutation.apply()` dispatches the mutation to the local write path on each replica, handing it to the `CommitLog` and then the `Memtable` in sequence.
+
+Key classes:
+
+* `org.apache.cassandra.db.Mutation`
+* `org.apache.cassandra.db.partitions.PartitionUpdate`
+* `org.apache.cassandra.db.ColumnFamilyStore`
+
+== CommitLog (Write-Ahead Log)
+
+Before any in-memory state is updated, `CommitLog.add()` appends the serialized mutation to an active log segment on disk.
+This write-ahead guarantee means that if a node crashes after acknowledging a write but before flushing the memtable, the mutation can be replayed from the CommitLog on restart.
+
+CommitLog operates in segments: mutations are appended sequentially to the current active segment, and segments are periodically synced to disk.
+A segment can be discarded only after all memtables that received mutations from it have been flushed to SSTables.
+
+Sync modes (configurable in `cassandra.yaml`):
+
+`periodic` (default)::
+  The CommitLog is synced to disk on a background timer.
+  Provides a small window (default 10 seconds) where an acknowledged write could be lost on a hard crash.
+`batch`::
+  Every mutation group is synced before the coordinator acknowledges the write.
+  Higher durability, higher write latency.
+
+Key classes:
+
+* `org.apache.cassandra.db.commitlog.CommitLog`
+* `org.apache.cassandra.db.commitlog.CommitLogSegment`
+* `org.apache.cassandra.db.commitlog.CommitLogSegmentManager`
+
+== Memtable
+
+After the CommitLog append, the mutation is applied to the in-memory `Memtable` for the affected table.
+The memtable maintains all unflushed mutations in sorted order, ready to be iterated partition-by-partition during flush.
+
+=== TrieMemtable (Cassandra 5.0+ Default)
+
+Cassandra 5.0 replaced `SkipListMemtable` (backed by `ConcurrentSkipListMap`) with `TrieMemtable` as the default implementation.
+`TrieMemtable` stores partition keys in a byte-ordered prefix trie with shared prefixes:
+
+* *Single allocation for key storage* — common prefixes between partition keys are stored once, reducing per-key memory overhead and GC pressure relative to the object-heavy skip list.
+* *Concurrent reads during writes* — trie traversal is lock-free; readers can scan the memtable concurrently with ongoing inserts.
+* *Inherently sorted output* — trie iteration produces partitions in lexicographic (byte-comparable) order, eliminating any sorting pass at flush time.
+* *Architectural alignment with BTI format* — the byte-ordered prefix structure of `TrieMemtable` maps directly to the on-disk trie index in BTI SSTables, preserving prefix sharing from memory to disk and simplifying the flush implementation.
+
+The trie is sharded across CPU cores, each shard covering a token range, to reduce contention under concurrent write workloads.
+
+Flush is triggered by one of:
+
+* Memtable size threshold (`memtable_heap_space` or `memtable_offheap_space` in `cassandra.yaml`)
+* CommitLog segment pressure (too many segments waiting for memtable flush)
+* Manual flush (`nodetool flush`)
+
+Key classes:
+
+* `org.apache.cassandra.db.memtable.Memtable`
+* `org.apache.cassandra.db.memtable.TrieMemtable`
+* `org.apache.cassandra.db.memtable.SkipListMemtable`
+* `org.apache.cassandra.db.ColumnFamilyStore.switchMemtable()`
+
+== Flush Pipeline: BIG Format
+
+When the flush trigger fires, `ColumnFamilyStore.switchMemtable()` atomically marks the current memtable as read-only and installs a new empty memtable.
+A background flush task then drains the old memtable to disk using `BigTableWriter`, producing the classic BIG format SSTable.
+
+Steps in order:
+
+. `ColumnFamilyStore.switchMemtable()` — mark old memtable for flush, install new memtable to accept incoming writes.
+. Iterate all partitions in the memtable in token (key) order.
+. For each partition: serialize rows (unfiltered row sequence) into `Data.db` via `SSTableWriter`.
+  Data is written in fixed-size compressed chunks; chunk offsets are accumulated for `CompressionInfo.db`.
+. Emit a partition index entry into `Index.db` for each partition: partition key digest and byte offset into `Data.db`.
+. After all partitions are written, sample `Index.db` entries at a configured interval and write the sampled entries to `Summary.db`.
+  The summary is the entry point for partition lookups: a binary search over the summary narrows the search range in `Index.db`.
+. For each partition key, compute a hash and add it to the in-memory Bloom filter structure, then serialize it to `Filter.db`.
+. Throughout the write, accumulate per-partition statistics (min/max timestamps, tombstone counts, partition sizes, clustering column ranges) and write them to `Statistics.db` at flush completion.
+. Compute a CRC32 digest over all completed SSTable components and write it to `Digest.crc32`.
+. Write `TOC.txt` last — this is the *publication barrier*.
+  A reader seeing `TOC.txt` can assume all listed components are fully written and fsync'd.
+  Incomplete flushes that crash before `TOC.txt` is written are discarded on restart.
+
+A `TOC.txt` for a BIG format SSTable lists:
+
+----
+Data.db
+Statistics.db
+Digest.crc32
+TOC.txt
+CompressionInfo.db
+Filter.db
+Index.db
+Summary.db
+----
+
+Key classes:
+
+* `org.apache.cassandra.io.sstable.format.big.BigTableWriter`
+* `org.apache.cassandra.io.sstable.SSTableWriter`
+* `org.apache.cassandra.db.ColumnFamilyStore`
+
+== Flush Pipeline: BTI Format
+
+The BTI format (available in Cassandra 5.0, selectable via `sstable_format: bti` in `cassandra.yaml`) replaces `Index.db` + `Summary.db` with a pair of trie-indexed files: `Partitions.db` and `Rows.db`.
+The partition iteration and `Data.db` serialization steps are identical to BIG format; the index construction is fundamentally different.
+
+Steps that differ from BIG format:
+
+. Iterate partitions in byte-comparable trie order (natural output of `TrieMemtable`).
+. For each partition: serialize rows into `Data.db` as before, recording the byte offset.
+. Build the partition index incrementally using `PartitionIndexBuilder` (`IncrementalTrieWriter` under the hood):
+** For partitions with enough row data to warrant a row-level index (above `column_index_size`, default 16 KiB):
+   write row index blocks to `Rows.db`, then record a *positive* position in the partition trie pointing to the row index block.
+** For narrow partitions (single index block): encode a *negative* position in the partition trie using bitwise complement (`~dataPosition`), which encodes the `Data.db` offset directly, skipping the row index entirely.
++
+[NOTE]
+====
+The sign of the position value is the BTI format's encoding trick.
+Positive values are pointers into `Rows.db`; negative (bitwise-complemented) values are direct pointers into `Data.db`.
+Readers check the sign on every lookup to know which file to dereference.
+====
+. Apply the *shortest unique prefix optimization*: instead of recording the full partition key in each trie node, `PartitionIndexBuilder` keeps a one-key lookahead and writes only the shortest prefix that distinguishes the current key from the next key.
+  This reduces index size for high-cardinality partition key spaces where keys share long common prefixes.
++
+[NOTE]
+====
+BTI writes trie nodes incrementally as they become complete — only the active path from the root to the current key is kept in memory.
+This allows flushing tables with millions of partitions with minimal additional memory overhead beyond the partition data itself.
+====
+. After all partitions are written: finalize the partition trie and write the `Partitions.db` footer (first key, last key, partition count, trie root pointer).
+. Write `Filter.db`, `Statistics.db`, `Digest.crc32`, and `TOC.txt` as in BIG format.
+
+A `TOC.txt` for a BTI format SSTable lists:
+
+----
+Data.db
+Statistics.db
+Digest.crc32
+TOC.txt
+CompressionInfo.db
+Filter.db
+Partitions.db
+Rows.db
+----
+
+The trie structure provides O(key-length) partition lookup without a separate summary file.
+There is no equivalent of `Summary.db` in BTI — the trie is its own navigation structure.
+
+Key classes:
+
+* `org.apache.cassandra.io.sstable.format.bti.BtiTableWriter`
+* `org.apache.cassandra.io.sstable.format.bti.PartitionIndexBuilder`
+* `org.apache.cassandra.io.sstable.format.bti.RowIndexWriter`
+* `org.apache.cassandra.io.sstable.format.bti.BtiFormatPartitionWriter`
+
+== Compression and Chunking
+
+`Data.db` is not written as a single compressed blob.
+It is divided into fixed-size *chunks*, each independently compressed.
+This enables random access: to read a single partition, Cassandra decompresses only the chunk(s) containing that partition's data, not the entire file.
+
+Default chunk size is 64 KiB (LZ4 compression), configurable per table via `CREATE TABLE ... WITH compression = {'chunk_length_in_kb': '...' }`.
+
+=== CompressionInfo.db Layout
+
+`CompressionInfo.db` stores the metadata needed to locate and validate every chunk:
+
+[cols="1,1,1,2", options="header"]
+|===
+|Field |Type |Endianness |Notes
+
+|`compressor_name_length`
+|u16
+|big
+|Byte length of the compressor class name string
+
+|`compressor_name`
+|UTF-8 bytes
+|—
+|e.g., `LZ4Compressor`, `SnappyCompressor`, `DeflateCompressor`
+
+|`chunk_length`
+|u32
+|big
+|Target uncompressed size per chunk in bytes
+
+|`total_uncompressed_length`
+|u64
+|big
+|Total uncompressed payload size across all chunks
+
+|`chunk_count`
+|u32
+|big
+|Number of chunks in this `Data.db`
+
+|`chunk_offsets[chunk_count]`
+|u64 each
+|big
+|Byte offset of each compressed chunk within `Data.db`
+|===
+
+In NB format (Cassandra 4.x/5.x), `Data.db` starts directly with compressed chunk data — there is no global file header or magic number.
+Each compressed chunk is immediately followed by a 4-byte big-endian CRC32 of that chunk's compressed bytes.
+The compressed length of chunk _n_ is derived as: `chunk_offsets[n+1] - chunk_offsets[n] - 4` (subtracting the trailing CRC word).
+
+=== Chunk Size Trade-offs
+
+Larger chunk size::
+  Better compression ratio (more context for the compressor).
+  Better throughput for sequential scans.
+  Higher read amplification for single-row point reads — more data must be decompressed to retrieve one row.
+
+Smaller chunk size::
+  Lower read amplification for point reads.
+  More entries in `CompressionInfo.db`, slightly higher metadata overhead.
+  Potentially lower compression ratio.
+
+The default of 64 KiB is a reasonable balance for mixed workloads.
+Tables with heavy point-read workloads may benefit from smaller chunks (e.g., 16 KiB).
+
+Key classes:
+
+* `org.apache.cassandra.io.compress.CompressionMetadata`
+* `org.apache.cassandra.io.compress.CompressionParams`
+* `org.apache.cassandra.io.util.CompressedSequentialWriter`
+
+== Key Source Files
+
+The following table maps each pipeline stage to the primary source classes in the Cassandra 5.0 codebase.
+
+[cols="1,2,2", options="header"]
+|===
+|Pipeline Stage |BIG Format Class |BTI Format Class
+
+|Mutation entry
+|`org.apache.cassandra.db.Mutation`
+|`org.apache.cassandra.db.Mutation`
+
+|CommitLog append
+|`org.apache.cassandra.db.commitlog.CommitLog`
+|`org.apache.cassandra.db.commitlog.CommitLog`
+
+|Memtable insert
+|`org.apache.cassandra.db.memtable.TrieMemtable` +
+(or `SkipListMemtable`)
+|`org.apache.cassandra.db.memtable.TrieMemtable`
+
+|Flush dispatch
+|`org.apache.cassandra.db.ColumnFamilyStore`
+|`org.apache.cassandra.db.ColumnFamilyStore`
+
+|SSTable writer
+|`org.apache.cassandra.io.sstable.format.big.BigTableWriter`
+|`org.apache.cassandra.io.sstable.format.bti.BtiTableWriter`
+
+|Partition index
+|`Index.db` (key-offset pairs, binary search via `Summary.db`)
+|`org.apache.cassandra.io.sstable.format.bti.PartitionIndexBuilder`
+
+|Row index
+|Inline in `Index.db`
+|`org.apache.cassandra.io.sstable.format.bti.RowIndexWriter`
+
+|Compression metadata
+|`org.apache.cassandra.io.compress.CompressionMetadata`
+|`org.apache.cassandra.io.compress.CompressionMetadata`
+
+|Bloom filter
+|`org.apache.cassandra.utils.BloomFilter`
+|`org.apache.cassandra.utils.BloomFilter`
+
+|Table statistics
+|`org.apache.cassandra.io.sstable.metadata.MetadataCollector`
+|`org.apache.cassandra.io.sstable.metadata.MetadataCollector`
+|===
+
+Source references (Cassandra 5.0.0 tag):
+
+* https://github.com/apache/cassandra/blob/cassandra-5.0.0/src/java/org/apache/cassandra/db/commitlog/CommitLog.java[CommitLog.java]
+* https://github.com/apache/cassandra/blob/cassandra-5.0.0/src/java/org/apache/cassandra/db/memtable/TrieMemtable.java[TrieMemtable.java]
+* https://github.com/apache/cassandra/blob/cassandra-5.0.0/src/java/org/apache/cassandra/io/sstable/format/big/BigTableWriter.java[BigTableWriter.java]
+* https://github.com/apache/cassandra/blob/cassandra-5.0.0/src/java/org/apache/cassandra/io/sstable/format/bti/BtiTableWriter.java[BtiTableWriter.java]
+* https://github.com/apache/cassandra/blob/cassandra-5.0.0/src/java/org/apache/cassandra/io/sstable/format/bti/PartitionIndexBuilder.java[PartitionIndexBuilder.java]
+* https://github.com/apache/cassandra/blob/cassandra-5.0.0/src/java/org/apache/cassandra/io/compress/CompressionMetadata.java[CompressionMetadata.java]
+* https://github.com/apache/cassandra/tree/cassandra-5.0.0/src/java/org/apache/cassandra/io/sstable/format/bti[BTI format package]

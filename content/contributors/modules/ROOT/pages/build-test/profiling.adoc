@@ -1,0 +1,231 @@
+= Profiling and Performance Validation
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Many Cassandra changes are correctness-neutral but performance-sensitive.
+A test that passes is not proof that a read path change did not regress latency by 5%.
+This page covers the profiling and performance validation workflow for contributors working on hot-path code changes.
+Before you open a patch that touches a latency-critical code path, understand what data reviewers will expect to see.
+
+== When Performance Validation Is Required
+
+Performance validation is *expected (not optional)* when a change:
+
+* Touches the read or write hot path (coordinator, replica, storage engine)
+* Changes compaction logic or compaction scheduling
+* Changes memtable behavior or flush mechanics
+* Modifies the commitlog write path
+* Adds or changes background thread behavior that competes with foreground I/O
+
+Performance validation is *recommended (not required)* when a change:
+
+* Refactors frequently-called code on the hot path
+* Changes serialization or deserialization in the storage or protocol layer
+* Touches GC-sensitive allocation patterns
+
+[NOTE]
+====
+Reviewers may ask for profiling data even when a change does not fall into the required category.
+If your change is in a latency-critical path, provide data rather than assertions.
+====
+
+== CPU Profiling With async-profiler
+
+https://github.com/async-profiler/async-profiler[async-profiler] is the recommended CPU profiler for Cassandra performance work.
+It uses Linux `perf_events` or macOS Instruments and is free of JVM safepoint bias — meaning it captures the true CPU profile rather than only what the JVM reports at safepoint-safe moments.
+
+=== Basic Profiling of a Running Node
+
+Attach to a running Cassandra process for 30 seconds and generate an interactive flamegraph:
+
+[source,bash]
+----
+# Attach to the Cassandra JVM for 30 seconds and generate a flamegraph
+./profiler.sh -d 30 -f flamegraph.html $(jps -l | grep CassandraDaemon | awk '{print $1}')
+----
+
+=== Profiling During a Specific Benchmark
+
+Use start/stop mode to bracket a controlled workload window:
+
+[source,bash]
+----
+# Start profiling before workload
+./profiler.sh start $(jps -l | grep CassandraDaemon | awk '{print $1}')
+
+# Run your workload here...
+
+# Stop and dump flamegraph
+./profiler.sh stop -f flamegraph.html $(jps -l | grep CassandraDaemon | awk '{print $1}')
+----
+
+Open `flamegraph.html` in a browser and compare frame widths against a baseline (unmodified) profile.
+Unexpectedly wide frames in your modified build indicate new CPU cost that should be explained or eliminated.
+
+[TIP]
+====
+Always generate both a baseline profile and a modified profile under identical workload conditions.
+A flamegraph in isolation has limited diagnostic value without a baseline for comparison.
+====
+
+== Allocation Profiling
+
+Allocation regressions matter in GC-sensitive paths including the read path, compaction, and query execution.
+Excessive allocation increases GC pause frequency and can produce p999 latency spikes that a mean-latency benchmark will not reveal.
+
+Use async-profiler in allocation mode:
+
+[source,bash]
+----
+./profiler.sh -e alloc -d 30 -f alloc-flamegraph.html $(jps -l | grep CassandraDaemon | awk '{print $1}')
+----
+
+Compare baseline vs. modified allocation profiles.
+Look for new allocation sites in hot frames — even small per-operation allocations accumulate under high throughput.
+
+[NOTE]
+====
+Allocation profiling requires the following JVM flags:
+
+[source]
+----
+-XX:+UnlockDiagnosticVMOptions
+-XX:+DebugNonSafepoints
+----
+
+Add these to `jvm-server.options` during development.
+Remove them before submitting the patch.
+====
+
+== Running Workloads for Performance Validation
+
+=== cassandra-harry (Correctness + Performance)
+
+https://github.com/apache/cassandra-harry[cassandra-harry] is a fuzz testing tool that also works for performance baseline comparisons.
+Run it against a local cluster before and after your change to establish correctness and capture throughput data.
+
+[source,bash]
+----
+java -jar harry-runner.jar run --conf conf/default.yaml
+----
+
+[TIP]
+====
+Use the same `--conf` file for both baseline and modified runs so the workload parameters are identical.
+====
+
+=== tlp-stress (Load Generation)
+
+https://github.com/thelastpickle/tlp-stress[tlp-stress] is a flexible workload generator for Cassandra with built-in histogram reporting.
+Use it to drive controlled read-heavy, write-heavy, or mixed workloads while profiling.
+
+[source,bash]
+----
+# Run a 60-second read-heavy workload
+tlp-stress run KeyValue --duration 60s --readrate 0.9 -n 1000000
+----
+
+tlp-stress emits per-operation latency histograms at the end of a run.
+Capture this output for both baseline and modified runs and include it in your JIRA attachment.
+
+=== nodetool tpstats (Quick Health Check)
+
+Use `nodetool` commands to inspect node behavior during workload execution:
+
+[source,bash]
+----
+# Check thread pool stats during workload
+nodetool tpstats
+
+# Check compaction activity
+nodetool compactionstats
+
+# Check latency histograms
+nodetool tablehistograms <keyspace> <table>
+----
+
+[WARNING]
+====
+Do not run `nodetool tablehistograms` without first resetting histograms before the benchmark run.
+Stale histogram data from prior workloads will pollute your before/after comparison.
+====
+
+== Latency Regression Detection
+
+Use `nodetool tablehistograms` before and after your change under the same workload.
+Compare the following percentiles:
+
+* p50 — median latency (baseline health check)
+* p95 — moderate tail latency
+* p99 — significant tail latency (common SLA threshold)
+* p999 — extreme tail latency (often the most important for database workloads)
+
+[IMPORTANT]
+====
+A regression in p999 is often more operationally significant than a regression in p50.
+A change that improves mean latency while worsening tail latency is generally not acceptable.
+====
+
+If using tlp-stress, compare the histogram output from baseline and modified runs directly.
+
+When sharing performance data in a patch or JIRA comment, include:
+
+* Workload type (read-heavy, write-heavy, mixed, specify ratios)
+* Node count and hardware configuration
+* Before/after p50, p99, and p999 latency
+* Before/after throughput (ops/sec)
+* Flamegraph link or inline image if significant CPU changes were observed
+
+== Reporting Performance Results in JIRA
+
+Attach before/after profiling data directly to the JIRA ticket.
+Include the workload description and cluster configuration so results are reproducible.
+
+[TIP]
+====
+If the change has no measurable performance impact, state that explicitly with the supporting data.
+"No regression observed" is a valid and valuable result — reviewers need to see the evidence, not just the conclusion.
+====
+
+Reviewers may request profiling data even when you believe the change is neutral.
+Provide the data rather than assertions — this is a faster path to merge than a review discussion about theoretical impact.
+
+See xref:testing.adoc[Testing] for the full test selection matrix and required test gates before a patch is considered ready for review.
+
+== Quick Reference
+
+[cols="1,1,2", options="header"]
+|===
+| Goal | Tool | Command
+
+| CPU flamegraph
+| async-profiler
+| `./profiler.sh -d 30 -f out.html <pid>`
+
+| Allocation flamegraph
+| async-profiler
+| `./profiler.sh -e alloc -d 30 -f out.html <pid>`
+
+| Load generation
+| tlp-stress
+| `tlp-stress run KeyValue --duration 60s`
+
+| Fuzz + correctness baseline
+| cassandra-harry
+| `java -jar harry-runner.jar run`
+
+| Latency histograms
+| nodetool
+| `nodetool tablehistograms <ks> <tbl>`
+
+| Thread pool health
+| nodetool
+| `nodetool tpstats`
+
+| Compaction activity
+| nodetool
+| `nodetool compactionstats`
+|===

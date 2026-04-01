@@ -1,0 +1,566 @@
+= Cassandra Internals Map
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+This page is a contributor-oriented map of the Cassandra codebase.
+It does not replace the architecture docs — it answers the question: _where in the source tree does this subsystem live, and what touches it?_
+
+Use this map as a starting point for code navigation, debugging, and understanding the scope of a change.
+AI coding tools can use the package and class names here as workspace query anchors.
+
+== How to Use This Map
+
+Each subsystem section lists:
+
+* What the subsystem does (brief, contributor-focused)
+* Key packages — the primary source locations
+* Key classes — the most important entry points and abstractions
+* Cross-subsystem boundaries — what other subsystems it calls into or is called by
+* Change impact — what kinds of work touch this subsystem
+
+When you are assigned a JIRA, use the package list to locate the relevant code.
+When you are reviewing a patch, use the cross-subsystem boundaries to identify what else might be affected.
+
+[TIP]
+====
+All packages are under `src/java/` in the Cassandra repository root.
+For example, `org.apache.cassandra.db` maps to `src/java/org/apache/cassandra/db/`.
+====
+
+---
+
+== 1. Coordinator and Request Path
+
+The coordinator is the entry point for all client operations.
+When a client sends a CQL query, one node acts as coordinator: it parses the query, determines the target replicas, routes the request, and assembles the response.
+Changes here affect latency, consistency behavior, and client-visible semantics.
+
+Key packages::
++
+----
+org.apache.cassandra.service
+org.apache.cassandra.locator
+----
+
+Key classes::
++
+----
+StorageProxy          -- Routes reads and writes to replicas; enforces consistency levels
+ReadCallback          -- Collects replica responses for reads
+WriteResponseHandler  -- Tracks acknowledgments for writes
+ReadCommand           -- Represents a read operation (parsed, not yet executed)
+MutationStatement     -- CQL mutation (INSERT/UPDATE/DELETE) after parse
+ConsistencyLevel      -- Models the consistency guarantees for a request
+----
+
+Cross-subsystem boundaries::
+* Calls into *Messaging* (`MessagingService`) to send requests to remote replicas
+* Calls into *Storage Engine* (`ColumnFamilyStore`) for local reads and writes
+* Invokes *CQL Parsing* to translate statements into internal commands
+* Triggers *Accord* for transactional operations (LWT and ACID transactions)
+
+Change impact::
+Touches this subsystem: consistency level changes, speculative execution tuning, read repair policy changes, coordinator-side timeout handling, paxos/LWT changes.
+
+---
+
+== 2. Storage Engine
+
+The storage engine manages all on-disk and in-memory data structures.
+It implements the LSM-tree model: writes go to a memtable first, then flush to immutable SSTables on disk, and compaction merges SSTables over time.
+This subsystem is performance-critical and deeply tied to the SSTable format.
+
+Key packages::
++
+----
+org.apache.cassandra.db
+org.apache.cassandra.db.rows
+org.apache.cassandra.db.partitions
+org.apache.cassandra.db.filter
+----
+
+Key classes::
++
+----
+ColumnFamilyStore     -- The per-table facade; coordinates memtable, SSTable, and compaction
+Memtable              -- In-memory write buffer; base interface for memtable implementations
+TrieMemtable          -- Trie-based memtable (default in Cassandra 4.1+; used in Cassandra 6)
+SSTableReader         -- Read handle for an on-disk SSTable
+SSTableWriter         -- Write handle; used during flush and compaction
+Keyspace              -- Groups ColumnFamilyStores for a keyspace; handles replication
+UnfilteredRowIterator -- Core row streaming abstraction used throughout the read path
+----
+
+Cross-subsystem boundaries::
+* Flushes are triggered by *CommitLog* segment pressure and memtable size thresholds
+* Compaction is managed by *Compaction* (`CompactionManager`)
+* SSTable files are the subject of *Streaming and Repair*
+* Schema changes arrive from *Schema and Metadata*
+
+Change impact::
+Touches this subsystem: memtable implementations, flush triggers, read path optimizations, row/partition-level filtering, storage format changes, SAI (Storage Attached Index) integration.
+
+[NOTE]
+====
+The SSTable binary format, file components, and read/write mechanics are documented in depth in the SSTable Architecture section (see `sstables-architecture/` in this workspace).
+====
+
+---
+
+== 3. CommitLog
+
+The CommitLog is the write-ahead log that guarantees durability before a write is acknowledged.
+Every mutation is written to the CommitLog before being applied to the memtable.
+On node restart after a crash, the CommitLog replays mutations that were not yet flushed to SSTables.
+
+Key packages::
++
+----
+org.apache.cassandra.db.commitlog
+----
+
+Key classes::
++
+----
+CommitLog             -- Singleton entry point; manages segments and write ordering
+CommitLogSegment      -- A single log file on disk; may be memory-mapped or compressed
+CommitLogArchiver     -- Optional hook for CommitLog archiving and point-in-time recovery
+CommitLogReader       -- Reads and deserializes CommitLog entries (used during replay)
+----
+
+Cross-subsystem boundaries::
+* Receives mutations from the *Coordinator* and *Storage Engine* write path
+* Signals *Storage Engine* when segments fill up (triggering memtable flush)
+* Relatively self-contained; interacts with *Configuration* for segment sizing and compression settings
+
+Change impact::
+Touches this subsystem: CommitLog compression, segment sizing, sync strategy (periodic vs. batch), point-in-time recovery, mutation serialization format changes.
+
+---
+
+== 4. Compaction
+
+Compaction merges SSTables to reclaim space, remove tombstones, and maintain read performance.
+Each table has an associated compaction strategy that decides which SSTables to merge and when.
+Compaction is one of the most operator-visible subsystems: wrong strategy choices cause space amplification, read latency, and GC pressure.
+
+Key packages::
++
+----
+org.apache.cassandra.db.compaction
+----
+
+Key classes::
++
+----
+CompactionManager         -- Manages the compaction thread pool; schedules and runs tasks
+CompactionStrategy        -- Interface implemented by all strategies
+SizeTieredCompactionStrategy  -- Groups SSTables by size; classic default strategy
+LeveledCompactionStrategy     -- Maintains SSTable levels with bounded size per level
+TimeWindowCompactionStrategy  -- Time-series optimized; groups by time window
+UnifiedCompactionStrategy     -- Single parameterized strategy introduced in Cassandra 4.x / 5.x
+CompactionTask            -- Represents a single compaction run
+LifecycleTransaction      -- Tracks the SSTable lifecycle during compaction (atomically replaces old with new)
+----
+
+Cross-subsystem boundaries::
+* Reads and writes SSTables via *Storage Engine* (`SSTableReader`, `SSTableWriter`)
+* Compaction progress and metrics feed into *Nodetool* commands (`compact`, `compactionstats`)
+* Anti-compaction during repair is triggered by *Repair*
+
+Change impact::
+Touches this subsystem: new or modified compaction strategies, compaction throttling, tombstone purge behavior, `LifecycleTransaction` changes, metrics changes, operator-facing configuration options.
+
+---
+
+== 5. Messaging and Internode Communication
+
+The messaging layer handles all node-to-node communication.
+Every request the coordinator sends to a replica, every gossip message, every repair message, and every Accord protocol message goes through this subsystem.
+It is the internal network fabric of a Cassandra cluster.
+
+Key packages::
++
+----
+org.apache.cassandra.net
+----
+
+Key classes::
++
+----
+MessagingService      -- Singleton; manages connections and dispatches inbound/outbound messages
+Message               -- Typed envelope wrapping any serializable payload
+Verb                  -- Enum of all message types (READ, MUTATION, GOSSIP_DIGEST_SYN, etc.)
+MessageIn             -- Inbound message (received from a peer)
+MessageOut            -- Outbound message (sent to a peer)
+IVerbHandler          -- Interface for message handlers; one implementation per Verb
+OutboundConnection    -- Manages the outbound TCP connection to a peer
+InboundMessageHandlers -- Dispatches inbound messages to verb handlers
+----
+
+Cross-subsystem boundaries::
+* Used by *Coordinator* to send read/write requests to replicas
+* Used by *Gossip* for cluster membership messages
+* Used by *Repair* and *Streaming* for data movement messages
+* Used by *Accord* for consensus protocol messages
+* Serialization format versioning is critical for rolling upgrades
+
+Change impact::
+Touches this subsystem: new message types (new `Verb`), changes to serialization format, connection pool tuning, backpressure and flow control, internode encryption (TLS) configuration.
+
+---
+
+== 6. Gossip and Failure Detection
+
+Gossip maintains cluster membership: which nodes exist, which datacenter and rack they belong to, their token ranges, and whether they are alive.
+The failure detector uses heartbeat timestamps from gossip to mark nodes as DOWN without a central coordinator.
+
+Key packages::
++
+----
+org.apache.cassandra.gms
+----
+
+Key classes::
++
+----
+Gossiper              -- Runs the gossip protocol; manages EndpointState per peer
+FailureDetector       -- Implements phi-accrual failure detection; marks nodes UP/DOWN
+EndpointState         -- All known state for a peer (heartbeat + application states)
+ApplicationState      -- Enum of gossip application state keys (STATUS, LOAD, RACK, DC, etc.)
+VersionedValue        -- A gossip value with a logical version number
+IEndpointStateChangeSubscriber -- Interface for components that react to membership changes
+----
+
+Cross-subsystem boundaries::
+* Drives *Messaging* to send gossip SYN/ACK/ACK2 messages
+* Notifies *Schema* and *Storage Engine* of topology changes (node joins, leaves, moves)
+* In Cassandra 6, *TCM* (Transactional Cluster Metadata) supersedes gossip-based schema distribution for cluster metadata; gossip continues for liveness detection
+
+Change impact::
+Touches this subsystem: node lifecycle changes (bootstrap, decommission, replace), snitch changes, token assignment changes, failure detection tuning, multi-datacenter awareness.
+
+---
+
+== 7. Schema and Metadata
+
+Schema manages table definitions, keyspace configurations, and user-defined types.
+In Cassandra 6, schema is distributed via Transactional Cluster Metadata (TCM) rather than gossip, which is a significant architectural change from earlier versions.
+
+Key packages::
++
+----
+org.apache.cassandra.schema
+org.apache.cassandra.tcm
+----
+
+Key classes::
++
+----
+Schema                   -- In-memory schema registry; the authoritative view of all tables
+SchemaChangeListener     -- Interface for components that react to schema changes
+TableMetadata            -- Immutable description of a table (columns, options, indexes)
+KeyspaceMetadata         -- Immutable description of a keyspace (tables, replication)
+Types                    -- Registry of user-defined types for a keyspace
+ClusterMetadata          -- (TCM) Single authoritative metadata object for the cluster
+ClusterMetadataService   -- (TCM) Manages the distributed log of metadata changes
+----
+
+Cross-subsystem boundaries::
+* Schema changes from CQL (`CREATE TABLE`, `ALTER TABLE`) originate in *CQL Parsing*
+* Schema updates notify *Storage Engine* (`ColumnFamilyStore`) to rebuild in-memory structures
+* In Cassandra 6, TCM replaces gossip-based schema propagation — changes flow through the TCM log, not `MigrationManager`
+* *Gossip* is no longer the schema broadcast mechanism in Cassandra 6
+
+Change impact::
+Touches this subsystem: new CQL types, table option changes, index definitions, TCM log entry types, schema migration compatibility, upgrades that change metadata formats.
+
+[NOTE]
+====
+TCM is a major Cassandra 6 change.
+See the `tcm/` directory in this workspace for TCM-specific documentation drafts.
+====
+
+---
+
+== 8. CQL Parsing and Execution
+
+The CQL layer translates SQL-like query strings into internal command objects.
+It covers the full pipeline from raw bytes to an executable statement, including parsing, binding, authorization checks, and result assembly.
+
+Key packages::
++
+----
+org.apache.cassandra.cql3
+org.apache.cassandra.cql3.statements
+org.apache.cassandra.cql3.functions
+----
+
+Key classes::
++
+----
+QueryProcessor        -- Entry point for executing CQL; handles parsing, caching, and dispatch
+QueryHandler          -- Interface implemented by QueryProcessor (and overridable)
+CQLStatement          -- Base interface for all executable CQL statements
+SelectStatement       -- Compiled SELECT; drives the read path
+ModificationStatement -- Base for INSERT, UPDATE, DELETE statements
+BatchStatement        -- Compiled BATCH; coordinates multiple mutations
+CreateTableStatement  -- DDL for table creation; produces TableMetadata
+CQL3Type              -- Type system mapping CQL types to internal representations
+----
+
+Cross-subsystem boundaries::
+* Calls into *Coordinator* (`StorageProxy`) to execute reads and writes against replicas
+* Calls into *Schema* to resolve table and keyspace metadata
+* Calls into *Accord* for transactional statements (BEGIN TRANSACTION / COMMIT TRANSACTION)
+* Authorization checks call into *Security* (`IAuthorizer`)
+
+Change impact::
+Touches this subsystem: new CQL syntax, new built-in functions, query planning changes, prepared statement cache behavior, type system changes, CQL-to-internal command mapping.
+
+---
+
+== 9. Accord and Transactions
+
+Accord is an implementation of the Accord consensus protocol for ACID transactions.
+It provides linearizable multi-partition transactions that are consistent with CQL's eventual consistency model but with stronger guarantees.
+Accord is new in Cassandra 5.0 and central to Cassandra 6.
+
+Key packages::
++
+----
+org.apache.cassandra.service.accord
+accord/src/accord/                     (git submodule: the Accord core library)
+----
+
+Key classes::
++
+----
+AccordService             -- Cassandra's integration point for Accord; singleton
+AccordCommandStore        -- Persists Accord command state; one per shard
+AccordKeyspace            -- CQL keyspace backing Accord's durable state
+AccordSafeCommandStore    -- Transactional view of command state during execution
+TransactionStatement      -- CQL entry point for BEGIN TRANSACTION / COMMIT TRANSACTION
+CQLTransaction            -- Wraps a CQL transaction for Accord processing
+----
+
+Cross-subsystem boundaries::
+* Accord transactions use *Messaging* to exchange consensus protocol messages between replicas
+* Accord commands read and write data via the *Storage Engine*
+* *CQL Parsing* translates transaction statements into Accord inputs
+* Accord depends on *Schema* for table-level configuration
+
+Change impact::
+Touches this subsystem: new transaction types, Accord protocol changes (submodule update), shard configuration, transaction isolation behavior, paxos-to-Accord migration paths.
+
+[NOTE]
+====
+The Accord consensus protocol is documented in xref:architecture/accord.adoc[Accord Architecture] and xref:architecture/accord-architecture.adoc[Accord Protocol Details].
+Cassandra-specific CQL transaction behavior is in xref:architecture/cql-on-accord.adoc[CQL on Accord].
+====
+
+---
+
+== 10. Streaming and Repair
+
+Streaming moves SSTable data between nodes.
+Repair detects and reconciles inconsistencies between replicas using Merkle tree comparisons.
+Both subsystems are critical for cluster health and are closely related — repair triggers streaming to transfer missing or mismatched data.
+
+Key packages::
++
+----
+org.apache.cassandra.streaming
+org.apache.cassandra.repair
+org.apache.cassandra.dht.tokenallocator
+----
+
+Key classes::
++
+----
+StreamSession         -- Manages a bidirectional streaming connection between two nodes
+StreamPlan            -- Describes what data to stream (tokens, tables, direction)
+StreamResultFuture    -- Tracks the outcome of a streaming operation
+RepairRunnable        -- Entry point for a repair job (triggered by nodetool repair)
+RepairJob             -- Coordinates repair for a single table within a session
+MerkleTrees           -- Builds and exchanges Merkle trees for range comparison
+SyncTask              -- Transfers differing ranges identified by Merkle tree comparison
+----
+
+Cross-subsystem boundaries::
+* Reads SSTables via *Storage Engine* for data transfer
+* Sends and receives stream messages via *Messaging*
+* Anti-compaction after repair is driven by *Compaction*
+* Repair sessions are tracked via *Gossip* state for progress visibility
+* Triggered by `nodetool repair` via *Tools and Nodetool*
+
+Change impact::
+Touches this subsystem: streaming protocol changes, incremental repair, preview repair, repair parallelism, bootstrap data transfer, SSTable format changes that affect streaming.
+
+---
+
+== 11. Security
+
+The security subsystem handles authentication (who are you?), authorization (what can you do?), and transport encryption (TLS).
+It is extensible: custom authenticators and authorizers can be plugged in via Java interfaces.
+
+Key packages::
++
+----
+org.apache.cassandra.auth
+org.apache.cassandra.transport.ssl
+----
+
+Key classes::
++
+----
+AuthenticatedUser     -- Represents an authenticated principal; passed through the request path
+IAuthenticator        -- Interface for authentication implementations
+IAuthorizer           -- Interface for authorization; maps users/roles to permissions
+IRoleManager          -- Manages roles and role membership
+CassandraRoleManager  -- Default role manager; stores roles in system_auth keyspace
+CassandraAuthorizer   -- Default authorizer; stores permissions in system_auth keyspace
+ISslContextFactory    -- Interface for TLS context creation; supports custom providers
+----
+
+Cross-subsystem boundaries::
+* Authentication checks happen in the *Transport* layer (native protocol handler) before CQL reaches the *Coordinator*
+* Authorization checks are called from *CQL Parsing* statements before execution
+* Security configuration is read from *Configuration* (`DatabaseDescriptor`)
+
+Change impact::
+Touches this subsystem: new permission types, role-based access control changes, custom authenticator/authorizer integration, TLS configuration, native protocol authentication handshake.
+
+---
+
+== 12. Configuration and Startup
+
+Configuration translates `cassandra.yaml` into runtime objects that the rest of the system reads.
+Startup orchestrates the node initialization sequence: loading config, initializing subsystems, joining the ring, and accepting client connections.
+
+Key packages::
++
+----
+org.apache.cassandra.config
+org.apache.cassandra.service
+----
+
+Key classes::
++
+----
+DatabaseDescriptor    -- Singleton holding all runtime configuration; the source of truth for config values
+Config                -- POJO that maps directly to cassandra.yaml fields; deserialized at startup
+CassandraDaemon       -- Main entry point for a Cassandra node; runs the startup sequence
+StartupChecks         -- Validates the environment before starting (JVM version, disk access, etc.)
+StorageService        -- Long-lived singleton managing node lifecycle (join, leave, decommission)
+----
+
+Cross-subsystem boundaries::
+* Every subsystem reads its configuration from `DatabaseDescriptor`
+* `CassandraDaemon` initializes *CommitLog*, *Gossip*, *Schema*, *Messaging*, and *Storage Engine* in dependency order
+* `StorageService` bridges *Gossip* with the node's own token and status
+
+Change impact::
+Touches this subsystem: new `cassandra.yaml` parameters, JVM tuning defaults, startup validation checks, config hot-reloading, multi-instance deployments.
+
+[NOTE]
+====
+When you add a new configuration option, it must be added to both `Config.java` (the POJO) and the `cassandra.yaml` template, and the generated documentation for `cassandra.yaml` must be regenerated.
+See xref:generated-docs/index.adoc[Generated Documentation] for that workflow.
+====
+
+---
+
+== 13. Tools and Nodetool
+
+Nodetool is the primary administrative CLI for Cassandra.
+It communicates with a running node via JMX (Java Management Extensions) and exposes cluster management operations.
+Changes to nodetool often require regenerating the reference documentation.
+
+Key packages::
++
+----
+org.apache.cassandra.tools
+org.apache.cassandra.tools.nodetool
+----
+
+Key classes::
++
+----
+NodeTool              -- Main entry point for nodetool; dispatches to subcommands
+NodeProbe             -- JMX client; connects to the local or remote Cassandra JMX endpoint
+INodeProbe            -- Interface for NodeProbe; allows testing with mock implementations
+----
+
+Nodetool subcommands are individual classes in `org.apache.cassandra.tools.nodetool`, each annotated with `@Command` from the Airline library.
+Examples: `Compact`, `Repair`, `Status`, `Ring`, `Info`.
+
+Cross-subsystem boundaries::
+* Calls into *Compaction* via JMX MBeans (`CompactionManagerMBean`)
+* Calls into *Streaming and Repair* to start repair sessions
+* Reads state from *Gossip* and *Storage Engine* for status commands
+* Changes here often require updating reference docs (see xref:generated-docs/index.adoc[Generated Docs])
+
+Change impact::
+Touches this subsystem: new nodetool subcommands, changes to existing subcommand options, JMX MBean interface changes, JMX security configuration.
+
+---
+
+== Cross-Cutting Concerns
+
+These concerns span multiple subsystems.
+When making changes in any subsystem, check whether these areas are affected.
+
+=== Error Handling and Exceptions
+
+Cassandra uses a hierarchy of typed exceptions under `org.apache.cassandra.exceptions`.
+Key types: `RequestExecutionException`, `RequestValidationException`, `UnavailableException`, `WriteTimeoutException`, `ReadTimeoutException`.
+These propagate from the storage engine through the coordinator to the client via the native protocol.
+
+=== Logging
+
+Cassandra uses SLF4J with a Logback backend.
+Log statements should use parameterized form (`logger.debug("msg {}", value)`, not string concatenation).
+Log level conventions: ERROR for unrecoverable failures, WARN for recoverable anomalies, INFO for lifecycle events, DEBUG for detailed tracing.
+
+=== Metrics
+
+Cassandra exposes metrics via Dropwizard Metrics, accessible through JMX and compatible with Prometheus exporters.
+Key class: `CassandraMetricsRegistry` (`org.apache.cassandra.metrics`).
+When adding new observable behavior, add a metric.
+Metrics names are operator-visible and must be treated as a stable interface once released.
+
+=== Thread Pools
+
+Cassandra uses named, bounded thread pools for all async operations.
+Key class: `Stage` (`org.apache.cassandra.concurrent`) — an enum of all internal executor stages (READ, MUTATION, GOSSIP, INTERNAL_RESPONSE, etc.).
+Thread pool sizing is configurable and observable via JMX and nodetool (`tpstats`).
+When introducing new async work, assign it to an appropriate existing stage or justify adding a new one.
+
+=== Serialization
+
+Internode serialization uses versioned binary protocols implemented via `IVersionedSerializer<T>` (`org.apache.cassandra.io.util`).
+Every message type that crosses the network must be backward-compatible across the supported messaging versions.
+This is enforced during rolling upgrades.
+Changes to serialized types must increment the messaging version or use version-conditional logic.
+
+=== Tracing
+
+Cassandra supports distributed query tracing via `Tracing` (`org.apache.cassandra.tracing`).
+Trace events are written to `system_traces` keyspace tables.
+Subsystems that participate in query execution should emit trace events at key decision points.
+
+---
+
+== See Also
+
+* xref:architecture/dynamo.adoc[Dynamo Architecture] -- Consistent hashing, replication, and the distributed storage model
+* xref:architecture/accord.adoc[Accord] -- Overview of the Accord consensus protocol integration
+* xref:architecture/accord-architecture.adoc[Accord Architecture] -- Protocol internals and implementation details
+* xref:architecture/cql-on-accord.adoc[CQL on Accord] -- How CQL transactions map to Accord
+* xref:build-test/gettingstarted.adoc[Getting Started] -- Clone, build, and run your first test
+* xref:patch-review/patches.adoc[Contributing Code Changes] -- From JIRA to committed patch
+* xref:generated-docs/index.adoc[Generated Documentation] -- Regenerating nodetool and cassandra.yaml reference pages

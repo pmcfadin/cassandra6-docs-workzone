@@ -1,0 +1,217 @@
+= Test Selection Matrix
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Running every test for every change is slow, unreliable, and counterproductive.
+This matrix maps change types to the minimum correct set of tests to run before submitting a patch.
+When in doubt, run more.
+When the change is small and local, run less.
+
+Use this page alongside xref:build-test/testing.adoc[Testing] for background on the test types themselves.
+
+== How to Read This Matrix
+
+Each row describes a category of change and what testing is required for it.
+
+* *Must pass* — these tests block review; a patch cannot land without them
+* *Should run* — strongly recommended; skip only with a documented reason in the JIRA
+* *Not required* — out of scope for the described change type; run these only if your change is broader than described
+
+If your change spans multiple rows, union the test sets.
+When a change touches a subsystem boundary — for example, a compaction change that also modifies streaming — treat each subsystem row independently.
+
+== The Matrix
+
+[cols="2,2,2,2,2", options="header"]
+|===
+| Change Type
+| Unit Tests (Must Pass)
+| Integration / dtest (Should Run)
+| Special Validation
+| Notes
+
+| Storage engine / SSTable format
+| All tests in `org.apache.cassandra.io` and `org.apache.cassandra.db` packages
+| Full dtest suite; upgrade dtests if format changed
+| Compaction stress tests; read/write performance baseline
+| If the on-disk format changed, upgrade tests are mandatory
+
+| CQL grammar / parser
+| Parser unit tests; `CQLSSTableWriterTest`; relevant grammar tests
+| Smoke dtests with the affected statement type at minimum
+| N/A
+| Grammar regressions can be subtle; run the full CQL test class, not just the changed method
+
+| Native protocol
+| Protocol unit tests in `org.apache.cassandra.transport`
+| dtests exercising the affected message type; driver compatibility tests
+| Protocol spec must be updated
+| Protocol changes require PMC review; coordinate with driver teams before merging
+
+| Nodetool command (existing)
+| Unit tests for the changed command
+| dtest exercising the command end-to-end
+| Regenerate generated docs
+| See xref:generated-docs/index.adoc[Generated Documentation] for the regen procedure
+
+| Nodetool command (new)
+| Unit tests covering all flags and edge cases
+| dtest exercising the new command
+| Regenerate generated docs
+| New commands require annotation-driven doc generation; generated output must be committed with the patch
+
+| Compaction logic
+| Unit tests in `org.apache.cassandra.db.compaction`
+| dtests with high write load and tombstone-heavy workloads
+| Compaction stress; space amplification check
+| Compaction changes can introduce subtle data loss bugs; err toward more coverage, not less
+
+| Repair and streaming
+| Unit tests for the affected code path
+| dtests exercising repair in multi-node clusters
+| Mixed-version repair dtest if upgrade-sensitive
+| Streaming and repair interact closely; if you changed one, run dtests for both
+
+| Gossip / failure detection
+| Unit tests for the gossip state machine
+| dtests with node failures and network partitions
+| None typically
+| Check mixed-version scenarios if the messaging format or versioning logic changed
+
+| TCM / topology changes
+| Unit tests for TCM transitions
+| Upgrade dtests; mixed-version topology tests
+| None typically
+| TCM changes require careful review of quorum handling; involve a reviewer familiar with TCM before submitting
+
+| `cassandra.yaml` parameter (new)
+| Unit test for default value behavior
+| Smoke test confirming default behavior is preserved
+| Regenerate generated docs
+| The default must not change existing behavior; document the expected default in the JIRA
+
+| Config migration / removal
+| Unit test for the migration or fallback path
+| dtest confirming old config is handled gracefully
+| N/A
+| Deprecated parameters must remain working for at least one major version per upgrade compatibility policy
+
+| CQL semantics change
+| Unit tests covering old and new behavior
+| dtests exercising the changed statement type
+| N/A
+| Document in the JIRA whether the old behavior was a bug or intentional; this affects upgrade notes
+
+| Performance-sensitive hot path
+| Existing tests must still pass — no regressions
+| Smoke dtests
+| CPU and allocation profiling run (see xref:build-test/profiling.adoc[Profiling])
+| A green test suite is not proof of no regression; include profiling output in the JIRA comment
+
+| Tooling / scripts / build
+| Targeted unit or script tests
+| N/A unless the tool affects cluster behavior
+| N/A
+| Keep scope tight; tooling changes rarely need full dtests unless the tool drives cluster operations
+|===
+
+== How to Run the Right Tests
+
+=== Unit Tests
+
+Run a specific test class:
+
+[source,bash]
+----
+ant test -Dtest.name=ClassName
+----
+
+Run a specific test method:
+
+[source,bash]
+----
+ant test -Dtest.name=ClassName#methodName
+----
+
+Run all tests in a package:
+
+[source,bash]
+----
+ant test -Dtest.name="org.apache.cassandra.io.*"
+----
+
+=== Distributed Tests (dtests)
+
+Run a specific dtest:
+
+[source,bash]
+----
+cd cassandra-dtest
+pytest test_file.py::TestClass::test_method -v
+----
+
+Run upgrade dtests:
+
+[source,bash]
+----
+pytest upgrade_tests/ -v
+----
+
+[TIP]
+====
+Set `CASSANDRA_DIR` to point at your local Cassandra build before running dtests:
+
+[source,bash]
+----
+export CASSANDRA_DIR=/path/to/cassandra
+----
+====
+
+=== Docker (Recommended for CI Parity)
+
+Running tests inside Docker matches the CI environment and avoids local JDK or dependency skew:
+
+[source,bash]
+----
+docker run --rm -v $(pwd):/cassandra cassandra-test ant test
+----
+
+[NOTE]
+====
+The CI environment is the authoritative pass/fail signal.
+Local runs are useful for rapid iteration, but always confirm with CI before requesting review.
+====
+
+== When to Run the Full Suite
+
+Run the full test suite in these situations:
+
+* Before a major feature lands on trunk
+* When a change touches multiple subsystems and the union of per-row test sets is large
+* When CI is failing for unrelated reasons and you need to establish a clean baseline for your change
+* Before a release candidate is cut
+
+[WARNING]
+====
+Full local suite runs take 2–6 hours depending on hardware.
+Prefer triggering the full suite through CI rather than running it locally.
+If you need a local full run, use the Docker-based environment for reproducibility.
+====
+
+== If CI Fails
+
+Before assuming your change caused a failure:
+
+. Search https://issues.apache.org/jira/projects/CASSANDRA[JIRA] for the failing test name — it may be a known flaky test with an open ticket
+. Check the test history in CI to see if the failure predates your patch
+. If the failure is unrelated to your change, note it explicitly in the JIRA ticket and ask reviewers to confirm the failure is pre-existing
+. If the failure is related to your change, fix it before requesting review — do not ask reviewers to ignore a red CI run without a documented reason
+
+[TIP]
+====
+A comment in the JIRA like _"CI failure in `FooTest` is pre-existing; see CASSANDRA-XXXXX"_ is acceptable.
+Silence on a red CI run is not.
+====

@@ -1,0 +1,116 @@
+= Compatibility Checklist
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Cassandra operates in distributed clusters and must support rolling upgrades where individual nodes are updated one at a time.
+A change that breaks compatibility can strand a node mid-upgrade, corrupt data, or break client applications without warning.
+Use this checklist to identify compatibility concerns before submitting a patch for review.
+
+== Protocol Compatibility
+
+The native protocol is versioned.
+New features must not alter the semantics of existing protocol versions or break clients that negotiate an older version.
+
+* [ ] Does this change add, remove, or modify a native protocol message type or field?
+* [ ] Does this change affect how the server responds to an existing client request?
+* [ ] If new protocol behavior is added, is it gated on the negotiated protocol version?
+* [ ] Has the native protocol spec been updated? (see xref:generated-docs/index.adoc[Generated Documentation])
+
+[NOTE]
+====
+Protocol changes require PMC attention and extensive compatibility testing.
+Coordinate with the dev list before submitting.
+====
+
+== Upgrade Path Safety
+
+Cassandra clusters upgrade one node at a time.
+Mixed-version clusters must remain fully operational throughout the upgrade window — no data loss, no loss of availability, no silent semantic drift.
+
+* [ ] Does this change affect how nodes communicate with each other (gossip, messaging, streaming)?
+* [ ] Does this change affect how a new-version node interacts with old-version nodes?
+* [ ] If new behavior is introduced, is it gated on a cluster-wide feature flag or TCM version?
+* [ ] Have you tested this change in a mixed-version cluster scenario?
+* [ ] Does CHANGES.txt or the commit message note the upgrade impact?
+
+[WARNING]
+====
+If you answer *yes* to any item in this section, the change likely requires mixed-version dtest coverage and careful committer review.
+See xref:develop/feature-playbook.adoc[Feature Development Playbook] for the full validation requirements.
+====
+
+== On-Disk Format Changes (SSTable and Commitlog)
+
+SSTable and commitlog format changes are permanent once data is written.
+They cannot be rolled back without data migration.
+Old-version nodes must still be able to read files written before the upgrade.
+
+* [ ] Does this change modify the SSTable format, index format, or filter format?
+* [ ] Does this change modify the commitlog format or segment structure?
+* [ ] Is the new format version-gated so that old readers can still read old files?
+* [ ] Is there a format version bump in the appropriate version enum or constants?
+* [ ] Is there a migration or upgrade path documented for operators?
+* [ ] Have you tested reading data written by the previous format version?
+
+[WARNING]
+====
+On-disk format changes require upgrade tests and typically a CEP.
+Do not merge format changes without explicit committer sign-off.
+====
+
+== Configuration and YAML Changes
+
+`cassandra.yaml` changes affect operator deployments and automation tooling such as configuration management systems and Kubernetes operators.
+Removals and renames can silently break operator workflows without any startup error.
+
+* [ ] Does this change add, remove, or rename a `cassandra.yaml` parameter?
+* [ ] If adding: does the new parameter have a sensible default that preserves existing behavior?
+* [ ] If removing: was the old parameter deprecated first in a prior version?
+* [ ] If renaming: is there a migration path or alias for the old name?
+* [ ] Has the `cassandra.yaml` generated doc been regenerated? (see xref:generated-docs/index.adoc[Generated Documentation])
+* [ ] Is the parameter change documented in `NEWS.txt`?
+
+[TIP]
+====
+Adding a new parameter with a default that matches the previous hard-coded behavior is the safest approach.
+Avoid removing parameters in the same version that introduces the deprecation warning.
+====
+
+== CQL and API Surface Changes
+
+CQL changes affect drivers and existing application queries.
+Grammar changes, new reserved keywords, or altered semantics can break queries that worked in prior versions.
+
+* [ ] Does this change modify CQL syntax (grammar, keywords, or statement types)?
+* [ ] Does this change modify the semantics of an existing CQL statement?
+* [ ] Does this change affect the system tables or virtual tables that clients query?
+* [ ] If adding new syntax: is it backward-compatible (do existing queries still work)?
+* [ ] If removing or restricting behavior: is it documented as a breaking change?
+
+[NOTE]
+====
+New CQL keywords must be evaluated for collision with common identifiers.
+Coordinate with driver maintainers when changing system table schemas.
+====
+
+== Guardrails and Operator Controls
+
+Changes that affect performance or cluster safety should give operators a way to throttle or disable the new behavior without a code change.
+
+* [ ] Does this change introduce new behavior that operators should be able to throttle or disable?
+* [ ] If so, is there a guardrail or configuration parameter to control it?
+* [ ] Does the guardrail have a safe default that does not alter existing behavior?
+
+[TIP]
+====
+A guardrail that defaults to `disabled` (preserving current behavior) is the lowest-risk way to ship new functionality while giving operators time to validate it in their environment.
+====
+
+== Summary
+
+If you answered *yes* to any item in <<Upgrade Path Safety>> or <<On-Disk Format Changes (SSTable and Commitlog)>>, the change likely requires upgrade test coverage and careful review before it is commit-ready.
+
+Consult xref:develop/feature-playbook.adoc[Feature Development Playbook] for the full list of validation steps and stakeholder requirements for significant changes.

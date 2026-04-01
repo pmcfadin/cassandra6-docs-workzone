@@ -1,0 +1,332 @@
+= Query Execution Path
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Understanding the query execution path is fundamental for contributors working on correctness, performance, or protocol behavior.
+Every CQL operation — reads, writes, and transactions — flows through a well-defined sequence of stages, crossing multiple subsystems from the network layer through coordinator logic and into per-replica storage.
+This page traces that path end-to-end and maps each stage to the source code, giving you the entry points you need to navigate a patch or debug an issue.
+
+---
+
+== 1. Client Connection and Protocol
+
+The native transport layer accepts client connections and handles all protocol framing.
+The `Server` class in `org.apache.cassandra.transport` owns the Netty pipeline, including TLS, authentication, and protocol version negotiation.
+Inbound bytes are decoded into `Message.Request` subtypes; outbound results are serialized as `Message.Response` subtypes.
+
+Key package::
++
+----
+org.apache.cassandra.transport
+----
+
+Key classes::
++
+----
+Server                 -- Netty server bootstrap; owns listener lifecycle
+Message.Request        -- Base type for all inbound CQL protocol messages
+Message.Response       -- Base type for all outbound CQL protocol messages
+Frame                  -- Raw protocol frame with header and payload bytes
+----
+
+Notes::
+* Protocol version is negotiated per connection; the server supports multiple versions simultaneously.
+* Backpressure is enforced via Netty's channel writability mechanism before messages are enqueued for processing.
+* Connection pooling is the client's responsibility; the server treats each connection independently.
+
+---
+
+== 2. CQL Parsing
+
+Once a request frame arrives, `QueryProcessor` receives the raw CQL string and drives the parse-to-statement pipeline.
+Parsing uses an ANTLR-generated grammar: `CqlLexer` tokenizes the input and `CqlParser` builds a parse tree, both in `org.apache.cassandra.cql3`.
+The parse tree is then walked to produce a typed `CQLStatement`.
+
+Key package::
++
+----
+org.apache.cassandra.cql3
+----
+
+Key classes::
++
+----
+QueryProcessor         -- Top-level entry point; dispatches parse, prepare, execute
+CqlParser              -- ANTLR-generated parser; builds parse tree from token stream
+CqlLexer               -- ANTLR-generated lexer; tokenizes the CQL string
+CQLStatement           -- Marker interface for all parsed statement types
+SelectStatement        -- Parsed SELECT; owns restriction and selection trees
+ModificationStatement  -- Base for INSERT, UPDATE, DELETE
+BatchStatement         -- Wraps multiple modification statements
+UseStatement           -- Switches the active keyspace on a connection
+----
+
+Notes::
+* `QueryProcessor` maintains a prepared statement cache keyed by the CQL string hash.
+  On a cache hit, parsing is skipped entirely and the cached `CQLStatement` is reused.
+* Prepared statements bind typed `ColumnSpecification` metadata at prepare time, enabling type checking before execution.
+
+---
+
+== 3. Query Planning and Validation
+
+After parsing, the statement is validated and planned before any I/O occurs.
+`QueryOptions` carries per-execution parameters — consistency level, paging state, serial consistency, and client-supplied timestamp.
+Schema validation confirms that the target table exists, all referenced columns are present and typed correctly, and the executing role has permission.
+
+Key package::
++
+----
+org.apache.cassandra.cql3.statements
+org.apache.cassandra.cql3.restrictions
+----
+
+Key classes::
++
+----
+QueryOptions              -- Consistency level, paging state, timestamp, and serial CL
+Restrictions              -- Encodes the WHERE clause as a set of partition/clustering constraints
+Selection                 -- Encodes the SELECT column list and any post-fetch transformations
+SinglePartitionReadCommand -- Read command targeting a single partition key
+PartitionRangeReadCommand  -- Read command for a token or partition key range
+Mutation                  -- Encodes one or more column updates destined for a single partition
+CounterMutation           -- Specialization of Mutation for counter increments/decrements
+----
+
+Notes::
+* `Restrictions` drives replica selection by determining whether the query is single-partition, multi-partition, or a full scan.
+* A `Mutation` can carry updates to multiple tables (via triggers or materialized views), but always targets a single partition key within a keyspace.
+
+---
+
+== 4. Coordinator Path (Reads)
+
+`StorageProxy.read()` is the coordinator-side entry point for reads.
+It selects the replica set required to satisfy the requested consistency level using the configured `IEndpointSnitch`, then sends `ReadCommand` instances to remote replicas via `MessagingService`.
+
+Key package::
++
+----
+org.apache.cassandra.service
+----
+
+Key classes::
++
+----
+StorageProxy           -- Central routing hub; owns read(), readRegular(), mutate()
+ReadCallback           -- Collects replica responses; unblocks when CL is satisfied
+SpeculativeRetryPolicy -- Triggers a speculative retry after a configurable latency threshold
+----
+
+Read flow::
+. `StorageProxy.readRegular()` selects live replicas ordered by proximity.
+. For consistency levels above `ONE`, full data is requested from the closest replica and digest reads are sent to the rest.
+. `ReadCallback` waits for the required number of responses.
+. If configured, speculative retry issues an additional request to a second replica before the first has responded.
+. Short-read protection re-issues fetches when a paged query returns fewer rows than requested from a replica, guarding against tombstone-masked rows.
+. Digest mismatch triggers a full-data read from all replicas, followed by response reconciliation and read repair.
+
+---
+
+== 5. Coordinator Path (Writes)
+
+`StorageProxy.mutate()` is the coordinator-side entry point for writes.
+It resolves the partition key to a replica set, sends the `Mutation` to each required replica, and waits for acknowledgments via `WriteResponseHandler`.
+
+Key package::
++
+----
+org.apache.cassandra.service
+----
+
+Key classes::
++
+----
+StorageProxy            -- Routes mutations to replicas; handles hints and batch logging
+WriteResponseHandler    -- Tracks per-replica acknowledgments; signals completion at CL
+HintedHandoffManager    -- Stores hints locally when a replica is unavailable
+BatchlogManager         -- Persists batchlog entries for logged batches before fan-out
+CounterMutation         -- Routes counter operations through a single leader replica
+----
+
+Write flow::
+. `StorageProxy.mutateWithTriggers()` fires any registered `ITrigger` implementations first.
+. For logged batches, the mutation set is written to the batchlog before any replicas are contacted.
+. If a target replica is down, the coordinator stores a hint locally for later delivery.
+. Counter mutations are serialized through a designated leader replica to prevent lost increments.
+. `WriteResponseHandler` unblocks the client response as soon as the consistency level threshold is met.
+
+---
+
+== 6. Replica Execution (Reads)
+
+When a `ReadCommand` arrives at a replica, `ReadCommand.executeLocally()` runs the actual data lookup.
+The read path consults the memtable first, then walks one or more SSTables, producing an `UnfilteredPartitionIterator` that merges all sources.
+
+Key package::
++
+----
+org.apache.cassandra.db
+org.apache.cassandra.db.rows
+----
+
+Key classes::
++
+----
+ReadCommand                    -- Carries the query predicate and executes locally
+UnfilteredPartitionIterator    -- Lazy iterator over partitions including tombstones
+UnfilteredRowIterator          -- Lazy iterator over rows and range tombstones within a partition
+MergeIterator                  -- Merges multiple UnfilteredRowIterators in clustering order
+Memtable                       -- In-memory write buffer; first source consulted on a read
+SSTableReader                  -- Wraps an on-disk SSTable; consulted after the memtable
+----
+
+Read path steps::
+. The memtable is scanned for matching rows.
+. Each relevant SSTable is opened and its Bloom filter is checked to skip files that cannot contain the key.
+. Live SSTable iterators and the memtable iterator are merged by clustering key using `MergeIterator`.
+. Tombstones and TTL-expired cells are applied during the merge to produce the live result set.
+. The final rows are serialized and returned to the coordinator.
+
+For the on-disk mechanics of this step, see the SSTable Read Path documentation (pending publication under `internals/sstable-read-path.adoc`).
+
+---
+
+== 7. Replica Execution (Writes)
+
+`Mutation.apply()` commits the write locally, touching both the CommitLog and the memtable.
+This is the point at which a write becomes durable (CommitLog) and immediately readable (memtable).
+
+Key package::
++
+----
+org.apache.cassandra.db
+org.apache.cassandra.db.commitlog
+----
+
+Key classes::
++
+----
+Mutation              -- Container for one partition's column updates; apply() drives the write
+CommitLog             -- Append-only durability log; written before the memtable is updated
+CommitLogSegment      -- Manages a single on-disk commitlog file and its fsync lifecycle
+Memtable              -- In-memory write buffer; default implementation is TrieMemtable in Cassandra 6
+TrieMemtable          -- Trie-indexed memtable introduced in Cassandra 6; replaces SkipListMemtable
+SecondaryIndexManager -- Coordinates updates to all secondary indexes for a mutation
+ViewManager           -- Applies materialized view delta logic for each mutation
+----
+
+Write path steps::
+. `Mutation.apply()` serializes the mutation to the `CommitLog` segment.
+. The memtable is updated atomically after the CommitLog write succeeds.
+. `SecondaryIndexManager` notifies all registered indexes (SAI and legacy 2i) of the new data.
+. `ViewManager` computes the delta between old and new values and enqueues materialized view mutations.
+. Any `ITrigger` implementations registered on the table are called with the mutation before it is applied.
+
+[NOTE]
+====
+In Cassandra 6 the default memtable implementation is `TrieMemtable`, which uses a trie data structure for reduced memory overhead and improved scan performance relative to the previous `SkipListMemtable`.
+====
+
+---
+
+== 8. Accord Transaction Path
+
+Accord-based transactions (LWT replacements and explicit `BEGIN TRANSACTION` blocks) bypass the `StorageProxy` read/write paths and enter through `AccordService`.
+Rather than routing individual mutations, Accord runs a multi-phase consensus protocol — Preaccept, Accept, and Commit — to establish a total order for conflicting operations across replicas.
+
+Key package::
++
+----
+org.apache.cassandra.service.accord
+----
+
+Key classes::
++
+----
+AccordService          -- Entry point for Accord transactions from the CQL layer
+AccordCommandStore     -- Per-shard durable state for in-progress transactions
+TxnId                  -- Globally unique transaction identifier assigned at Preaccept
+----
+
+Transaction phases (high-level)::
+. *Preaccept*: The coordinator proposes a `TxnId` and dependency set to the replica quorum.
+. *Accept*: If there is disagreement on the dependency set, a second round reaches consensus.
+. *Commit*: Once the dependency set is agreed, the coordinator broadcasts the committed transaction for execution.
+
+For a detailed treatment of the Accord protocol and its integration with Cassandra's storage layer, see xref:architecture/accord-architecture.adoc[Accord Architecture].
+For CQL semantics on top of Accord, see xref:architecture/cql-on-accord.adoc[CQL on Accord].
+
+---
+
+== 9. Response and Serialization
+
+After the coordinator has collected enough replica responses, it assembles the result set and encodes a `Message.Response` frame for the client.
+Error conditions — timeouts, unavailable exceptions, read/write failures — each produce a typed error response with a protocol-defined error code.
+
+Key package::
++
+----
+org.apache.cassandra.transport.messages
+org.apache.cassandra.cql3
+----
+
+Key classes::
++
+----
+ResultMessage             -- Wraps a result set, void, schema change, or prepared response
+ResultMessage.Rows        -- Holds the row set and column metadata for a SELECT result
+PagingState               -- Opaque continuation token embedded in the response for paged queries
+ReadTimeoutException      -- Surfaced when CL is not satisfied within the read timeout
+WriteTimeoutException     -- Surfaced when CL is not satisfied within the write timeout
+UnavailableException      -- Surfaced when insufficient replicas are alive to attempt the operation
+----
+
+Response flow::
+. The coordinator builds a `ResultMessage.Rows` with column metadata and serialized row data.
+. If the result set was truncated by the page size, a `PagingState` token is embedded in the response.
+. The response is encoded as a native protocol frame and written to the Netty channel.
+. On timeout or unavailability, the appropriate typed exception is caught and converted to a protocol error frame with the relevant error code.
+
+---
+
+== Key Source Files Summary
+
+The table below consolidates the most important classes by pipeline stage.
+All classes are under `src/java/` in the Cassandra repository unless noted.
+
+[cols="1,2", options="header"]
+|===
+| Stage
+| Key Classes
+
+| Transport
+| `Server`, `Message.Request`, `Message.Response`, `Frame`
+
+| Parsing
+| `QueryProcessor`, `CqlParser`, `CqlLexer`, `CQLStatement`
+
+| Planning
+| `SelectStatement`, `ModificationStatement`, `QueryOptions`, `Restrictions`, `Selection`
+
+| Coordinator (Read)
+| `StorageProxy.read`, `StorageProxy.readRegular`, `ReadCallback`, `SpeculativeRetryPolicy`
+
+| Coordinator (Write)
+| `StorageProxy.mutate`, `StorageProxy.mutateWithTriggers`, `WriteResponseHandler`, `BatchlogManager`
+
+| Replica (Read)
+| `ReadCommand`, `UnfilteredPartitionIterator`, `UnfilteredRowIterator`, `MergeIterator`
+
+| Replica (Write)
+| `Mutation.apply`, `CommitLog`, `TrieMemtable`, `SecondaryIndexManager`, `ViewManager`
+
+| Accord
+| `AccordService`, `AccordCommandStore`, `TxnId`
+
+| Response
+| `ResultMessage.Rows`, `PagingState`, `ReadTimeoutException`, `WriteTimeoutException`
+|===

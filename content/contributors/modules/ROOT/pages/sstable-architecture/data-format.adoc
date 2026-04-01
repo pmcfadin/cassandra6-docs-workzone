@@ -1,0 +1,429 @@
+= SSTable Data Format
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+This page is the reference contributors need when debugging data corruption, implementing new cell types, or understanding how CQL values map to bytes on disk.
+It covers the binary layout of `Data.db` in full, from partition headers through cell flags and collection encoding, and documents the metadata tables in `Statistics.db`.
+Readers working on compaction, repair, or a new storage engine feature will find the on-disk contract described here.
+Source links point to the canonical Java classes so you can navigate directly to the serialization code.
+
+---
+
+== Partition Layout in Data.db
+
+`Data.db` is a flat sequence of partitions, written in token order (ascending by partition key hash).
+Each partition is self-contained: a reader can skip from one partition to the next using the index in `Index.db` without parsing the interior.
+
+A partition has four logical sections:
+
+. *Partition header* — partition key + deletion info
+. *Static row* (optional) — one row containing static column values, if any exist
+. *Unfiltered sequence* — interleaved regular rows and range tombstone markers, in clustering key order
+. *End-of-partition marker* — a sentinel that terminates the sequence
+
+=== Partition Header
+
+[cols="1,1,3", options="header"]
+|===
+| Field | Type | Description
+
+| Key length
+| u16 (big-endian)
+| Byte length of the raw partition key that follows
+
+| Key bytes
+| `key_length` bytes
+| Serialized partition key; encoding depends on the partition key type(s) in the SerializationHeader
+
+| Deletion timestamp
+| i64 (big-endian)
+| `Long.MIN_VALUE` if no partition tombstone exists; otherwise the deletion timestamp in microseconds
+
+| Local deletion time
+| i32 (big-endian)
+| `Integer.MAX_VALUE` if no partition tombstone; otherwise the local wall-clock time (seconds since epoch) when the tombstone was created
+|===
+
+Partition keys are always big-endian regardless of the VInt convention used for interior values.
+
+=== Partitions Are Token-Sorted
+
+Partitions appear in the file in token order, not key order.
+Two partitions with very different key bytes can be adjacent if their hashed tokens are consecutive.
+The token ordering is determined by the partitioner (typically Murmur3) and is recorded in `TOC.txt`.
+
+---
+
+== Row Layout
+
+Each row in the unfiltered sequence begins with a *flags byte* that controls what fields follow.
+
+=== Row Flags Byte
+
+[cols="1,1,4", options="header"]
+|===
+| Bit | Name | Meaning
+
+| 0x01
+| `IS_END_OF_PARTITION`
+| Marks the end-of-partition sentinel; no further fields follow
+
+| 0x02
+| `IS_STATIC`
+| This is the static row; no clustering key follows
+
+| 0x04
+| `HAS_TIMESTAMP`
+| Row-level timestamp is present; cells may inherit it
+
+| 0x08
+| `HAS_TTL`
+| Row-level TTL is present; cells may inherit it
+
+| 0x10
+| `HAS_DELETION`
+| Row-level tombstone (timestamp + local deletion time) is present
+
+| 0x20
+| `HAS_ALL_COLUMNS`
+| All non-PK columns are present; no column presence bitmap follows
+
+| 0x40
+| `HAS_COMPLEX_DELETION`
+| At least one non-frozen collection column has a complex deletion
+
+| 0x80
+| `EXTENSION_FLAG`
+| Reserved for future extensions
+|===
+
+=== Row Fields (in order)
+
+After the flags byte, the following fields appear in order, each conditional on the corresponding flag:
+
+. *Clustering key* — serialized according to the table's clustering column types from the SerializationHeader; absent for static rows
+. *Row timestamp* — VInt, delta-encoded from the baseline in SerializationHeader; present if `HAS_TIMESTAMP`
+. *Row TTL* — VInt, delta-encoded; present if `HAS_TTL`
+. *Row local deletion time* — VInt, delta-encoded; present if `HAS_TTL`
+. *Row deletion* — timestamp (VInt) + local deletion time (VInt); present if `HAS_DELETION`
+. *Column presence bitmap* — a bit per non-PK column indicating which columns have cells; omitted if `HAS_ALL_COLUMNS`
+. *Cell data* — one cell entry per column whose presence bit is set (see Cell Encoding below)
+
+---
+
+== Cell Encoding
+
+Each cell begins with a *cell flags byte* followed by conditional fields.
+
+=== Cell Flags Byte
+
+[cols="1,1,4", options="header"]
+|===
+| Bit | Name | Meaning
+
+| 0x01
+| `IS_DELETED`
+| Cell is a tombstone; no value bytes follow
+
+| 0x02
+| `IS_EXPIRING`
+| Cell carries a TTL countdown; expiry fields follow
+
+| 0x04
+| `HAS_EMPTY_VALUE`
+| Cell has a logical empty value (e.g., `null` representation for some types); no value bytes follow
+
+| 0x08
+| `USE_ROW_TIMESTAMP`
+| Inherit timestamp from the enclosing row header; no per-cell timestamp
+
+| 0x10
+| `USE_ROW_TTL`
+| Inherit TTL and local deletion time from the enclosing row header; no per-cell TTL fields
+
+| 0x20
+| `HAS_COMPLEX_DELETION`
+| Used on the first cell of a non-frozen collection; indicates a collection-level tombstone precedes the cells
+|===
+
+=== Cell Fields (in order)
+
+. *Timestamp* — VInt, delta-encoded from row/partition baseline; omitted if `USE_ROW_TIMESTAMP`
+. *TTL* — VInt, delta-encoded; present only if `IS_EXPIRING` and not `USE_ROW_TTL`
+. *Local deletion time* — VInt, delta-encoded; present if `IS_EXPIRING` or `IS_DELETED`
+. *Value* — value length as VInt, followed by that many raw bytes; absent if `IS_DELETED`, `HAS_EMPTY_VALUE`, or the type has a fixed serialized width implied by the SerializationHeader
+
+---
+
+== VInt and Delta Encoding
+
+=== Variable-Length Integers (VInt)
+
+Cassandra uses a custom variable-length integer encoding for most numeric fields inside rows and cells.
+The high bit of each byte is a continuation flag: `1` means more bytes follow, `0` means this is the last byte.
+The remaining 7 bits of each byte contribute to the value, little-endian within the VInt.
+
+.VInt byte-length by value range
+[cols="2,1", options="header"]
+|===
+| Value range | Bytes used
+
+| 0 – 127
+| 1
+
+| 128 – 16,383
+| 2
+
+| 16,384 – 2,097,151
+| 3
+
+| and so on…
+|
+|===
+
+=== ZigZag Encoding for Signed Values
+
+Signed VInts (timestamps, deletion times) use ZigZag encoding before being stored as an unsigned VInt.
+ZigZag maps negative numbers to odd positive integers, interleaving positive and negative values:
+
+----
+encode(n) = (n << 1) ^ (n >> 63)   // Java long arithmetic
+
+ 0 → 0
+-1 → 1
+ 1 → 2
+-2 → 3
+ 2 → 4
+ ...
+----
+
+This keeps small absolute values small on disk regardless of sign.
+
+=== Delta Encoding
+
+Timestamps, TTLs, and local deletion times are stored as *deltas from a baseline*, not absolute values.
+The baseline is recorded in the SerializationHeader inside `Statistics.db`.
+
+For a table where most writes share the same approximate timestamp (a common case), the delta fits in 1–2 VInt bytes even though the absolute microsecond timestamp requires 8 bytes.
+Row-level timestamps and TTLs serve a second level of delta: cells that match the row's values need not store any per-cell timestamp at all (signaled by `USE_ROW_TIMESTAMP` / `USE_ROW_TTL`).
+
+---
+
+== Deletion Types
+
+Cassandra supports five distinct kinds of deletion, each with different scope and on-disk representation.
+
+=== Partition Tombstone
+
+Triggered by `DELETE FROM t WHERE pk = ?` with no clustering predicate.
+Stored in the partition header as a deletion timestamp + local deletion time.
+Supersedes every row and cell within the partition for any read whose timestamp is before the tombstone.
+
+=== Row Tombstone
+
+Triggered by `DELETE FROM t WHERE pk = ? AND ck = ?`.
+Stored in the row's deletion fields (`HAS_DELETION` flag set) as a timestamp + local deletion time.
+Applies to all cells in that clustering row.
+
+=== Cell Tombstone
+
+Triggered by setting a column to `null` in an `UPDATE` or `INSERT`.
+Stored at the individual cell level with `IS_DELETED` set; no value bytes follow.
+
+=== Range Tombstone
+
+Triggered by `DELETE FROM t WHERE pk = ? AND ck > ? AND ck < ?` (or any range predicate on clustering columns).
+Stored as a pair of *markers* in the unfiltered sequence:
+
+* *Open marker* — flags byte with `IS_RANGE_TOMBSTONE_MARKER` set + bound (start of range) + deletion info
+* *Close marker* — same structure, marks the end of the deleted range
+
+Every clustering row whose key falls inside an open-to-close marker pair is treated as deleted if its timestamp is before the range tombstone's timestamp.
+Multiple range tombstones can be interleaved; open and close markers must be strictly balanced.
+
+=== TTL Expiry
+
+Not a tombstone in the traditional sense.
+Expiring cells carry a TTL (seconds) and a local deletion time (wall-clock time when expiry will occur).
+Once `now > local_deletion_time`, the cell is treated as deleted on read.
+The cell's bytes remain on disk until compaction, when the cell's TTL expiry time has passed *and* `gc_grace_seconds` has elapsed.
+
+=== `gc_grace_seconds`
+
+All tombstone types (partition, row, cell, range) are subject to `gc_grace_seconds`.
+A tombstone is eligible for purging by compaction only after it is at least `gc_grace_seconds` old.
+This grace period ensures that nodes which were down long enough to miss the tombstone have time to be repaired before the deletion marker disappears.
+
+---
+
+== Collection and UDT Encoding
+
+=== Frozen Collections
+
+A frozen collection is serialized as a *single cell* whose value is a blob containing the entire collection.
+Mutation replaces the entire blob; partial updates are not possible.
+
+Blob layout by type:
+
+.Frozen collection blob layout
+[cols="1,3", options="header"]
+|===
+| Type | Layout
+
+| `frozen<list<T>>`
+| u32 element count + serialized elements in list order
+
+| `frozen<set<T>>`
+| u32 element count + serialized elements in sorted order
+
+| `frozen<map<K,V>>`
+| u32 entry count + (serialized key + serialized value) pairs in key-sorted order
+|===
+
+=== Non-Frozen Collections
+
+A non-frozen collection is stored as *multiple cells*, one per element.
+Each cell has a *cell path* that identifies the element within the collection:
+
+* `list<T>` — cell path is a time UUID (write timestamp) that orders elements
+* `set<T>` — cell path is the serialized set element itself
+* `map<K,V>` — cell path is the serialized map key
+
+This representation allows partial updates (append to list, delete one map entry) without rewriting the entire collection.
+It also means a large non-frozen collection can produce many cells and many Index.db entries.
+
+Collection-level tombstones (e.g., `UPDATE t SET col = {} WHERE pk = ?`) are encoded as a *complex deletion* that precedes the replacement cells; readers apply the complex deletion to clear prior elements before applying the new ones.
+
+=== User-Defined Types (UDTs)
+
+UDTs follow the same frozen/non-frozen split:
+
+* *Frozen UDT* — single cell; value is field values concatenated in field-declaration order, each preceded by a u16 length prefix (`-1` for null)
+* *Non-frozen UDT* — multiple cells; cell path is the u16 field index
+
+=== Frozen vs. Non-Frozen: Operational Trade-offs
+
+[cols="1,2,2", options="header"]
+|===
+| Property | Frozen | Non-frozen
+
+| Write amplification
+| Full collection rewritten on every mutation
+| Only changed elements written
+
+| Read cost
+| Single cell read, one deserialization pass
+| All element cells read; potentially high cell count
+
+| Partial updates
+| Not supported
+| Supported (append, delete single element)
+
+| Compaction impact
+| Fewer cells, simpler tombstone tracking
+| More cells, complex deletion tracking
+|===
+
+---
+
+== Statistics.db
+
+`Statistics.db` contains SSTable-level metadata that readers, compaction, and repair use without opening `Data.db`.
+It is written once at flush time and replaced atomically on compaction.
+
+=== StatsMetadata
+
+[cols="1,3", options="header"]
+|===
+| Field | Description
+
+| Bloom filter FP chance
+| Target false positive rate used when the Bloom filter in `Filter.db` was built
+
+| Compression ratio
+| Ratio of compressed size to uncompressed size; used by size-tiered compaction strategy for size estimation
+
+| Min/max timestamps
+| Minimum and maximum write timestamps of any live cell in the SSTable (microseconds)
+
+| Min/max local deletion time
+| Minimum and maximum local deletion times; used to skip SSTables whose tombstones can't cover a read timestamp
+
+| Min/max clustering values
+| Per-column min and max of clustering key values; enables range-based SSTable skipping on reads
+
+| Partition size histogram
+| Approximate histogram of partition sizes in bytes; used for monitoring and compaction sizing
+
+| Column count distribution
+| Histogram of cells-per-row; feeds compaction heuristics
+
+| Total rows
+| Estimated count of rows (not partitions); used in repair stream estimation
+
+| Total range tombstones
+| Count of range tombstone markers; high values signal potential read-path overhead
+
+| Total cells
+| Count of all cells written; used in compaction throughput accounting
+
+| Repaired-at timestamp
+| Wall-clock time when this SSTable was last included in an incremental repair; `0` if unrepaired
+
+| Compaction level
+| Current LCS level (`0` for non-LCS SSTables); written on each LCS compaction
+|===
+
+=== SerializationHeader
+
+The SerializationHeader is the *schema embedded inside each SSTable*.
+It is written at flush time and reflects the table schema as it existed at that moment.
+
+Contents:
+
+* *Partition key type* — the type (or composite type) used to serialize partition keys
+* *Clustering column types* — ordered list of types for the clustering columns
+* *Regular column types* — map of column name to type for non-static, non-PK columns
+* *Static column types* — map of column name to type for static columns
+* *Timestamp baseline* — the minimum timestamp seen during the flush; used as the delta-encoding origin
+* *TTL baseline* — the minimum TTL seen during the flush
+* *Local deletion time baseline* — the minimum local deletion time seen during the flush
+
+The SerializationHeader enables an SSTable to be read even after a live schema change (e.g., a column was dropped or a type was altered), because the reader uses the embedded type information rather than the live schema to deserialize values.
+It also provides the baselines that make delta encoding effective.
+
+---
+
+== Key Source Files
+
+[cols="2,3", options="header"]
+|===
+| Area | Key Class
+
+| Partition serialization
+| `org.apache.cassandra.db.rows.UnfilteredSerializer`
+
+| Row encoding
+| `org.apache.cassandra.db.rows.Row`, `org.apache.cassandra.db.rows.BufferCell`
+
+| Cell flags
+| `org.apache.cassandra.db.rows.Cell`
+
+| Range tombstones
+| `org.apache.cassandra.db.RangeTombstone`
+
+| Statistics
+| `org.apache.cassandra.io.sstable.metadata.StatsMetadata`
+
+| Serialization header
+| `org.apache.cassandra.db.SerializationHeader`
+
+| Collections
+| `org.apache.cassandra.db.marshal.CollectionType`
+
+| UDTs
+| `org.apache.cassandra.db.marshal.UserType`
+|===

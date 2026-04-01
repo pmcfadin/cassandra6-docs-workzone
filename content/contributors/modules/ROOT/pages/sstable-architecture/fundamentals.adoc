@@ -1,0 +1,345 @@
+= SSTable Fundamentals
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+SSTables are the persistent backbone of Cassandra's storage engine: every mutation that survives the write path eventually lands on disk as part of an immutable SSTable file set.
+This page covers what every contributor needs to know before working on storage-related code: what SSTables are, what files they comprise, how they evolved across Cassandra versions, and how they interact with the operating system's IO layer.
+No single piece of the storage engine can be understood in isolation — the component anatomy, the format versioning, and the IO model are tightly coupled, and this page builds the shared vocabulary that the rest of the SSTable Architecture section assumes.
+
+---
+
+== What Are SSTables
+
+SSTables (Sorted String Tables) are immutable, append-only files that persist Cassandra's in-memory state to disk.
+They are the storage layer output of an LSM-tree (Log-Structured Merge-Tree) design, which Cassandra shares in spirit with systems like LevelDB and RocksDB, though the details differ significantly.
+
+The LSM design shapes every storage decision:
+
+Write path summary::
+A client mutation is appended to the Write-Ahead Log (WAL) for crash safety, then applied to the active in-memory `TrieMemtable`.
+When the memtable exceeds its memory budget (or when a flush is explicitly triggered), Cassandra sorts and serializes it to a new SSTable on disk.
+No in-place update of any existing file occurs.
+
+Immutability as a design invariant::
+Once written, an SSTable is never modified.
+This property enables multiple reader threads to access the same SSTable concurrently without locking.
+It also makes compaction safe: a compaction job merges source SSTables into a new output SSTable and then atomically swaps the references, with no window where a reader can observe a partially-written result.
+
+Changes accumulate, compaction reconciles::
+When a row is updated or deleted, the new version is written to a new SSTable alongside the old one.
+Cassandra's compaction process periodically merges SSTables, discards obsolete data (superseded cells, expired tombstones), and produces a smaller, more compact result.
+The read path must merge all live SSTables on every query until compaction catches up.
+
+Key implication for contributors::
+Any code that modifies SSTable behavior must account for the fact that SSTables on disk were written by potentially older code.
+Format versioning, backward-compatible metadata evolution, and the `Descriptor` abstraction exist precisely because old SSTables must remain readable across software upgrades.
+
+---
+
+== The Component Family
+
+An SSTable is not a single file — it is a family of files that together represent one flushed or compacted dataset.
+Each component has a specific role and a defined lifecycle.
+The canonical list of components for a given SSTable is recorded in `TOC.txt` (see xref:sstable-architecture/fundamentals.adoc#toc-barrier[The TOC.txt Publication Barrier]).
+
+=== Component Reference
+
+`Data.db`::
+The primary data file.
+Stores serialized partition and row data, optionally compressed in fixed-size chunks.
+All other index and metadata components ultimately point into offsets in `Data.db`.
+
+`Index.db` (BIG format)::
+A per-partition index that maps key digests to `Data.db` byte offsets.
+In wide-partition tables, it also stores a _promoted index_ of row-level offsets within each partition.
+Replaced by `Partitions.db` and `Rows.db` in BTI format.
+
+`Summary.db` (BIG format only)::
+A coarse-grained, sampled index over `Index.db`.
+The read path uses `Summary.db` to narrow the binary search range before seeking into `Index.db`, avoiding a full scan of the index.
+Not present in BTI format, where the trie structure provides equivalent navigation.
+
+`Partitions.db` (BTI format)::
+A trie-based partition index that replaces `Index.db` in the BTI format.
+Encodes the partition key space as a prefix trie for fast, memory-efficient key lookups.
+
+`Rows.db` (BTI format)::
+A trie-based row index that replaces the promoted-index portion of `Index.db` in the BTI format.
+Enables efficient navigation within wide partitions.
+
+`Filter.db`::
+A serialized Bloom filter.
+The read path queries the Bloom filter before touching any other file.
+A negative result (partition definitely not present) avoids all disk IO for that SSTable entirely.
+A positive result (partition possibly present) proceeds to the index.
+See xref:sstable-architecture/read-path.adoc[Read Path] for Bloom filter FPR tuning.
+
+`Statistics.db`::
+SSTable-level metadata: timestamp ranges, column histograms, estimated partition count, repair metadata, minimum and maximum token values, and the `SerializationHeader` that describes the encoded row format.
+Written first during flush — before `Data.db` — so that it is available for compaction selection decisions even before data is committed.
+
+`CompressionInfo.db`::
+Present only when compression is enabled.
+Records the compression algorithm, the chunk length, the total uncompressed data length, and a chunk-offset map that allows the reader to seek to any compressed chunk without decompressing preceding chunks.
+Modern formats include per-chunk CRCs within this file.
+
+`Digest.crc32`::
+A coarse end-to-end integrity digest over `Data.db` (or in some format variants, over the concatenated component data).
+Used during validation and scrub to detect bit-level corruption.
+
+`TOC.txt`::
+A plain-text manifest listing all component file names for this SSTable.
+The publication barrier: an SSTable is not visible to readers until `TOC.txt` exists and is complete.
+See xref:sstable-architecture/fundamentals.adoc#toc-barrier[The TOC.txt Publication Barrier].
+
+=== BIG Format Directory Listing Example
+
+A typical SSTable in the BIG format (used through Cassandra 4.x) produces these files:
+
+----
+nb-1-big-CompressionInfo.db
+nb-1-big-Data.db
+nb-1-big-Digest.crc32
+nb-1-big-Filter.db
+nb-1-big-Index.db
+nb-1-big-Statistics.db
+nb-1-big-Summary.db
+nb-1-big-TOC.txt
+----
+
+The filename structure follows the pattern `{prefix}-{generation}-{format}-{Component}.db`, where `{format}` identifies the SSTable format version (e.g., `big`, `bti`) and `{generation}` is a monotonically increasing integer assigned at flush or compaction time.
+
+=== BTI Format Directory Listing Example
+
+An SSTable in the BTI format (Cassandra 5.0+) replaces `Index.db` and `Summary.db` with trie-based alternatives:
+
+----
+nb-1-bti-CompressionInfo.db
+nb-1-bti-Data.db
+nb-1-bti-Digest.crc32
+nb-1-bti-Filter.db
+nb-1-bti-Partitions.db
+nb-1-bti-Rows.db
+nb-1-bti-Statistics.db
+nb-1-bti-TOC.txt
+----
+
+---
+
+== Format Evolution
+
+Cassandra has evolved its SSTable format three times.
+Each generation added capability while maintaining the recognizable multi-file layout.
+
+=== big (Cassandra 3.x and 4.x)
+
+The classic SSTable format.
+Uses a digest-based partition index (`Index.db`) with a two-level lookup: `Summary.db` narrows the search range, then `Index.db` provides the exact offset.
+Wide partitions use a promoted index stored inline in `Index.db` for intra-partition row navigation.
+Still the default format in Cassandra 4.x and the format most existing SSTables on production systems use.
+
+=== mc / mm (Cassandra 4.x)
+
+Iterative improvements on the `big` foundation.
+Introduced revised header and version flags, added support for new metadata fields in `Statistics.db`, and tightened encoding in several component files.
+The component file set is identical to `big`; only internal binary encoding changed.
+Existing tooling that processes `big` SSTables requires minimal adaptation for `mc`/`mm`.
+
+=== BTI (Cassandra 5.0)
+
+B-Tree/Trie Indexed format.
+The most significant structural change since the `big` format: the digest-based partition index and its sampled summary are replaced by a prefix trie encoded in `Partitions.db` and `Rows.db`.
+This is architecturally aligned with `TrieMemtable`, which also uses a trie structure, making the flush path a more direct serialization of the in-memory representation.
+BTI provides faster key lookups, lower memory overhead for index structures, and better worst-case performance for high-cardinality keyspaces.
+
+See xref:sstable-architecture/read-path.adoc[Read Path: Lookups and Indexes] for a detailed walkthrough of how BTI index traversal differs from BIG binary search.
+
+[cols="1,1,2", options="header"]
+|===
+| Format
+| Version(s)
+| Index approach
+
+| big
+| 3.x, 4.x (default)
+| Digest-based `Index.db` + sampled `Summary.db`
+
+| mc / mm
+| 4.x (iterative)
+| Same as big; encoding improvements only
+
+| BTI
+| 5.0+
+| Trie-based `Partitions.db` + `Rows.db`
+|===
+
+---
+
+[#toc-barrier]
+== The TOC.txt Publication Barrier
+
+`TOC.txt` is the last file written during an SSTable flush, and its existence is the signal that an SSTable is complete and safe to use.
+This ordering is not a convention — it is a correctness requirement.
+
+=== Write Order
+
+The flush sequence enforces this dependency chain:
+
+[source]
+----
+1. Statistics.db        (metadata available for compaction selection)
+2. Data.db + Index.db   (primary data and partition index, written together)
+3. Summary.db           (sampled index; requires Index.db to be complete)
+4. Filter.db            (Bloom filter; serialized after all keys are known)
+5. CompressionInfo.db   (chunk map; finalized after Data.db is sealed)
+6. Digest.crc32         (integrity digest; computed over finalized Data.db)
+7. TOC.txt              (manifest; written and fsync'd last)
+----
+
+All component files are fsync'd to durable storage before `TOC.txt` is written.
+`TOC.txt` itself is fsync'd after writing.
+
+=== Crash Safety
+
+If Cassandra crashes during a flush, partial component files may exist on disk.
+On restart, Cassandra scans the data directory for SSTable file sets.
+Any directory listing with component files but no corresponding `TOC.txt` is treated as an incomplete flush and discarded.
+The WAL ensures the mutation is replayed and the flush retried from scratch.
+
+This means no special recovery logic is needed for partial flushes: the absence of `TOC.txt` is the complete signal.
+
+=== TOC Self-Inclusion
+
+`TOC.txt` must list itself among the component files.
+This is a self-inclusion requirement: a `TOC.txt` that does not include `TOC.txt` is malformed and will cause validation errors.
+The write logic in `SSTableWriter` handles this automatically, but contributors modifying the flush pipeline must preserve this invariant.
+
+=== Implications for Tooling
+
+Any tool that reads SSTables — `sstablelister`, `sstableutil`, compaction selectors, streaming components — uses `TOC.txt` as the authoritative component manifest.
+Do not attempt to infer the component set by scanning filenames; the `TOC.txt`-based approach is canonical.
+
+---
+
+== Disk and IO Model
+
+Understanding how Cassandra reads compressed SSTables matters for any contributor working on read performance, IO scheduling, or compression tuning.
+
+=== Chunked Compression
+
+When compression is enabled, `Data.db` is divided into fixed-size compressed chunks rather than being compressed as a single stream.
+The chunk size defaults to 16 KiB but is configurable per table (typical production values are 32-64 KiB).
+
+`CompressionInfo.db` stores:
+
+* The compression algorithm identifier (e.g., `LZ4Compressor`, `SnappyCompressor`, `ZstdCompressor`)
+* The configured chunk length (uncompressed)
+* The total uncompressed data length
+* A chunk-offset map: for each chunk, the byte offset of that chunk's compressed bytes in `Data.db`
+* Optional per-chunk CRCs (present in modern format variants)
+
+This structure allows the reader to seek directly to any chunk without decompressing preceding chunks — a requirement for random read access to wide partitions.
+
+=== Chunk Size Tradeoffs
+
+[cols="1,2,2", options="header"]
+|===
+| Chunk size
+| Benefit
+| Cost
+
+| Smaller (16-32 KiB)
+| Lower read amplification for random point lookups
+| More chunks to track in `CompressionInfo.db`; less compression ratio
+
+| Larger (64-128 KiB)
+| Better compression ratio; higher scan throughput
+| Larger minimum IO unit; increased read amplification for point lookups
+|===
+
+Reads must always decompress a full chunk even if only one row within it is needed.
+Chunk boundaries are aligned to the chunk size, so a read that crosses a boundary requires decompressing two chunks.
+
+=== Memory-Mapped vs. Buffered IO
+
+Cassandra supports two IO strategies for reading SSTable data:
+
+Memory-mapped IO (`mmap`)::
+`Data.db` (and index files) are mapped into the JVM process address space using the OS `mmap` syscall.
+Reads translate to virtual memory accesses; the OS page cache handles the actual IO.
+Well-suited for sequential scan patterns and for frequently-accessed hot ranges that remain in the page cache between accesses.
+The OS handles readahead and eviction automatically.
+
+Buffered IO (`pread`)::
+Reads are issued as explicit `pread` syscalls with caller-controlled buffers.
+Gives the application direct control over which data is read and when, with no implicit OS readahead.
+Better suited for random access patterns where OS readahead would waste IO bandwidth.
+
+The choice between these strategies is a configuration concern (`disk_access_mode` in `cassandra.yaml`); contributors to IO-sensitive paths should understand which mode is active in a given deployment.
+
+=== Bloom Filter IO Avoidance
+
+The Bloom filter in `Filter.db` is loaded into heap memory when the SSTable is opened.
+Before any index or data file is touched, the read path checks the in-memory Bloom filter:
+
+* Negative result (partition _definitely_ not present): no IO is performed for this SSTable.
+  The read path moves to the next candidate SSTable immediately.
+* Positive result (partition _possibly_ present): the read proceeds to index lookup and data fetch.
+
+The false positive rate (FPR) of the Bloom filter determines how often a positive result leads to a wasted IO.
+A lower FPR requires more memory for the filter structure.
+See xref:sstable-architecture/read-path.adoc[Read Path: Lookups and Indexes] for FPR configuration and the tradeoff analysis.
+
+---
+
+== Key Source Files
+
+The following table maps SSTable concepts to their primary implementation locations in the Cassandra source tree.
+All packages are under `org.apache.cassandra`.
+
+[source]
+----
+Component          | Key Class / Package
+-------------------|--------------------------------------------------
+SSTable Reader     | io.sstable.SSTableReader
+SSTable Writer     | io.sstable.SSTableWriter
+Descriptor         | io.sstable.Descriptor
+Compression        | io.compress.CompressionMetadata
+Bloom Filter       | utils.bloom.BloomFilter
+Statistics         | io.sstable.metadata.StatsMetadata
+Serialization Hdr  | io.sstable.metadata.SerializationHeader
+BTI Format         | io.sstable.format.bti (package)
+BIG Format         | io.sstable.format.big (package)
+TOC Management     | io.sstable.SSTable (component listing methods)
+----
+
+`Descriptor` is particularly important: it encodes the generation number, format version, and directory location of an SSTable, and it is passed through almost every storage-layer API.
+If you see a method accepting a `Descriptor`, you are in SSTable-specific code.
+
+---
+
+== What's Next
+
+This page establishes the vocabulary and structural grounding for the five pages that follow.
+Each page goes deeper on one aspect of SSTable behavior:
+
+xref:sstable-architecture/write-path.adoc[Write Path: CQL to Disk]::
+Traces the full mutation pipeline from a CQL write through the coordinator, the replica write handler, WAL append, memtable update, and flush to a finished SSTable.
+Covers `CommitLog`, `TrieMemtable`, and `SSTableWriter` in detail.
+
+xref:sstable-architecture/data-format.adoc[SSTable Data Format]::
+Documents the on-disk binary encoding for partitions, rows, cells, and collections inside `Data.db`.
+Covers the `SerializationHeader`, cell flags, deletion info encoding, and collection layout.
+
+xref:sstable-architecture/read-path.adoc[Read Path: Lookups and Indexes]::
+Walks through how a partition key lookup navigates from Bloom filter to index to `Data.db`.
+Covers the BIG two-level lookup (Summary + Index), the BTI trie traversal, and the promoted-index / `Rows.db` paths for intra-partition row scans.
+
+xref:sstable-architecture/compaction-lifecycle.adoc[Compaction and Tombstone Lifecycle]::
+Explains how compaction strategies select and merge SSTables, how tombstones propagate and expire, and how repair and incremental compaction interact with the SSTable lifecycle.
+
+xref:sstable-architecture/reference.adoc[SSTable Reference]::
+A compact reference: the format version matrix, filename encoding cheat sheet, key class index, bundled diagnostic tools (`sstablelister`, `sstabledump`, `sstableutil`), and a glossary of SSTable terms.

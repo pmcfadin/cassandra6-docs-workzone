@@ -1,0 +1,613 @@
+= Read Path: Lookups and Indexes
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+How Cassandra finds data on disk is one of the most important things a storage contributor needs to understand.
+This page covers the complete read path from Bloom filter to `Data.db`, for both BIG and BTI formats, plus secondary and storage-attached indexes.
+The mechanics here shape every read-latency tradeoff in the storage engine, and every contributor working on index structures, compaction, or read amplification needs to understand them.
+Class names are pinned to Cassandra 5.0 source.
+
+---
+
+== The Read Decision Tree
+
+When a coordinator routes a read to a replica, the local read path on that replica must determine whether each candidate SSTable contains the requested partition and, if so, where.
+The decision tree is a sequence of progressively more expensive checks, each designed to short-circuit before performing unnecessary IO.
+
+=== BIG Format Flow
+
+[source]
+----
+1. Bloom filter (Filter.db)     -- O(1), in-memory; negative = stop, no IO
+2. Summary.db binary search     -- O(log s), in-memory; narrow Index.db region
+3. Index.db binary search       -- O(log n), disk read; find Data.db offset
+4. Data.db seek + read          -- O(1) seek + decompression
+----
+
+A negative Bloom result terminates the search for that SSTable with no disk IO at all.
+A positive result advances to the two-level index: a binary search over the in-memory summary narrows to a range in `Index.db`, then a binary search within that region finds the exact `Data.db` position.
+
+=== BTI Format Flow
+
+[source]
+----
+1. Bloom filter (Filter.db)     -- O(1), in-memory; negative = stop, no IO
+2. Partitions.db trie walk      -- O(|key|), disk traversal; find position
+3. Check position sign          -- positive → Rows.db; negative → Data.db direct
+4. (wide only) Rows.db lookup   -- row index for intra-partition navigation
+5. Data.db seek + read          -- O(1) seek + decompression
+----
+
+BTI replaces binary search over a sampled summary with a trie walk whose cost is proportional to key length rather than index size.
+There is no equivalent of `Summary.db` in BTI — the trie itself provides navigation.
+
+=== Complexity Summary
+
+[cols="2,2,3", options="header"]
+|===
+|Step |BIG complexity |BTI complexity
+
+|Bloom check
+|O(k) — k hash function evaluations
+|O(k) — identical
+
+|Index navigation
+|O(log s) summary + O(log n) index binary search
+|O(\|key\|) trie walk
+
+|Data read
+|O(1) seek
+|O(1) seek
+
+|Wide partition navigation
+|O(log r) promoted index binary search
+|O(\|clustering-key\|) `Rows.db` trie walk
+|===
+
+Where s = summary entry count, n = partition count in the SSTable, \|key\| = key byte length, r = row index entry count.
+
+---
+
+== Bloom Filter
+
+The Bloom filter is a probabilistic data structure that answers a single question: could this partition key be in this SSTable?
+A negative answer is definitive — the partition is definitely absent and no IO is required.
+A positive answer means the partition is possibly present; the read path continues to the index.
+
+`Filter.db` is loaded into heap memory when the SSTable is opened and remains resident for the lifetime of the SSTable reader.
+
+=== Hash Algorithm
+
+Cassandra uses a 128-bit Murmur3 hash of the partition key, split into two 64-bit halves `h1` and `h2`.
+The k individual bit positions are computed via double hashing:
+
+[source]
+----
+h(i) = h1 + i * h2     (for i in 0 .. k-1)
+bit_position(i) = h(i) mod m
+----
+
+This avoids computing k independent hashes while producing outputs with negligible correlation.
+Each `h(i)` addresses a single bit in the filter's `m`-bit array; all k bits must be set for a positive result.
+
+=== Parameters and FPR
+
+The false positive rate (FPR) for a Bloom filter with k hash functions, m bits, and n stored partitions is:
+
+[source]
+----
+p ≈ (1 - e^(-kn/m))^k
+----
+
+Cassandra derives k and m from the target FPR configured in the table definition.
+The per-table setting is `bloom_filter_fp_chance`, defaulting to 0.01 (1% false positive rate).
+Lower FPR = more memory for the filter; higher FPR = more wasted IO from false positives triggering index lookups.
+
+Optimal k for a given p:
+
+[source]
+----
+k = -log2(p)      (rounded to nearest integer)
+----
+
+=== Filter.db Binary Format
+
+[cols="1,1,1,2", options="header"]
+|===
+|Field |Type |Endianness |Notes
+
+|`hash_count`
+|u32
+|big
+|Number of hash functions k
+
+|`bit_count`
+|u32
+|big
+|Total bits m in the filter array
+
+|`bit_array`
+|bytes
+|—
+|ceil(m / 8) bytes; MSB-first within each byte
+|===
+
+=== Tuning
+
+Increasing `bloom_filter_fp_chance` (toward 1.0) reduces filter memory but raises the rate of wasted index lookups.
+Decreasing it (toward 0.0) increases filter memory but reduces false positives.
+For write-heavy tables where reads are rare, a high FPR is acceptable.
+For read-heavy tables with large SSTable counts, a low FPR (0.001 or lower) may be worth the memory cost.
+
+---
+
+== Partition Index (BIG Format)
+
+`Index.db` maps every partition key in an SSTable to its byte offset in `Data.db`.
+It is written sequentially during flush and must be read non-sequentially during lookups (binary search within a region of the file).
+
+=== Index.db Entry Format
+
+Each entry in `Index.db` encodes:
+
+* The partition key (either as a full digest/token, or with a length prefix in NB format)
+* The `Data.db` byte offset, encoded as a VInt for compactness
+
+BIG format supports two entry variants:
+
+Non-prefixed (legacy big)::
+  Full partition key followed by the `Data.db` offset.
+  No leading length field; the key length is derived from the key type.
+
+Length-prefixed (NB format)::
+  A VInt key length prefix followed by the key bytes, then the VInt offset.
+  Supports variable-length keys without schema-level length knowledge.
+
+VInt encoding allows small offsets (early in the file) to consume fewer bytes, producing a more compact index for dense keyspaces.
+
+=== Summary.db: Sampled Index
+
+`Summary.db` holds a sampled subset of `Index.db` entries, selected at a configurable interval (`index_interval` in `cassandra.yaml`, default 128 entries per sample).
+The summary is sorted by token, loaded entirely into memory, and used as the entry point for partition lookups.
+
+Binary search flow:
+
+[source]
+----
+1. Binary search Summary.db  → find two adjacent sample entries
+                                bounding the target token
+2. Seek Index.db to the byte
+   offset of the lower bound  → start of search region
+3. Binary search within the
+   Index.db region             → find the exact partition entry
+4. Read the Data.db offset     → seek and read partition
+----
+
+The summary reduces worst-case Index.db IO from a full file scan to a bounded region scan proportional to the sample interval.
+
+=== Token-Range Iteration
+
+For range scans (e.g., `SELECT ... WHERE token(pk) > X AND token(pk) < Y`), the read path:
+
+. Binary searches Summary.db to find the entry at or before the low-token bound.
+. Iterates forward through Index.db entries, reading partitions in token order.
+. Stops when the token exceeds the upper bound.
+
+This means range scans over many partitions are sequential IO within the bounded Index.db region, which is cache-friendly.
+
+---
+
+== Promoted Index (Wide Partitions)
+
+For partitions with many clustering rows, storing only the partition's `Data.db` start offset is insufficient — reading any specific row would require scanning the entire partition.
+The promoted index solves this by embedding a mini-index within the partition's `Index.db` entry.
+
+=== Structure
+
+The promoted index maps clustering key ranges to `Data.db` offsets within the partition:
+
+[source]
+----
+Partition entry (Index.db):
+  partition_key
+  Data.db_offset
+  [promoted index block count]
+  [for each block]:
+    first_clustering_key
+    last_clustering_key
+    Data.db_offset_within_partition
+    row_count (in block)
+----
+
+=== When It Is Generated
+
+The promoted index is written only when a partition exceeds the `column_index_size` threshold (default 16 KiB in `cassandra.yaml`).
+Narrow partitions — those under the threshold — have no promoted index in their `Index.db` entry.
+The read path checks whether a promoted index is present before deciding whether to scan or seek within the partition.
+
+=== Slice Reads
+
+When a query requests a clustering key range (a slice), the read path:
+
+. Locates the partition in `Index.db`.
+. Reads the promoted index blocks.
+. Binary searches the block list to find the first block whose range overlaps the requested clustering range.
+. Seeks `Data.db` to that block's offset.
+. Reads rows forward until the clustering range is exhausted.
+
+This is critical for time-series workloads, where a single partition may contain millions of rows but a query targets only a narrow time window.
+
+---
+
+== BTI Format: Trie-Based Index
+
+BTI replaces `Index.db` + `Summary.db` with two trie-indexed files: `Partitions.db` (partition trie) and `Rows.db` (row index trie).
+The design motivation is to eliminate worst-case O(log n) binary search in favor of O(|key|) trie traversal, and to reduce memory overhead by preserving prefix sharing from `TrieMemtable` to disk.
+
+=== Byte-Comparable Keys
+
+Partition keys are encoded as byte-comparable sequences before trie insertion.
+Byte-comparable encoding preserves the token ordering of the original keys, which means trie traversal naturally visits partitions in the same order as a token-sorted binary search would.
+
+=== Trie Walk (Partitions.db)
+
+A partition lookup walks the trie one byte at a time, matching each key byte to a trie branch:
+
+[source]
+----
+1. Start at trie root (stored at known offset in Partitions.db)
+2. For each byte b of the byte-comparable partition key:
+   a. Load the current trie node
+   b. Follow the branch for b (or conclude: partition not present)
+3. At the leaf node: read the position value
+4. Decode position:
+   a. positive value → row index offset in Rows.db (wide partition)
+   b. negative value → ~value = direct Data.db offset (narrow partition)
+----
+
+The sign of the position value is the BTI format's index disambiguation trick (see also xref:sstable-architecture/write-path.adoc[Write Path]).
+Contributors must preserve this convention when modifying trie writer or reader code.
+
+=== Rows.db: Trie Row Index
+
+For wide partitions (those above the `column_index_size` threshold), the row-level index is stored in `Rows.db` as a separate trie indexed by clustering key bytes.
+A leaf node in `Rows.db` encodes a `Data.db` offset for the row block at that clustering key position.
+
+For narrow partitions, `Rows.db` is bypassed entirely — the negative position value in `Partitions.db` provides the `Data.db` offset directly.
+
+=== Incremental Construction
+
+The partition trie is built in a single pass during flush via `IncrementalTrieWriter`.
+Only the active path from the root to the current key is kept in memory at any time; trie nodes are finalized and written to `Partitions.db` as soon as their subtrees are complete.
+This bounds memory use during flush regardless of partition count.
+
+=== Shortest Unique Prefix Optimization
+
+`PartitionIndexBuilder` uses a one-key lookahead to write only the shortest prefix of each key that distinguishes it from the next key.
+This reduces the trie's stored key bytes for high-cardinality keyspaces with shared prefixes, shrinking `Partitions.db` without affecting lookup correctness.
+
+=== Performance Comparison with BIG Format
+
+[cols="2,2,2", options="header"]
+|===
+|Characteristic |BIG format |BTI format
+
+|Lookup complexity
+|O(log s + log n) — summary search + index binary search
+|O(\|key\|) — trie walk
+
+|Uniform key distribution
+|Comparable performance
+|Comparable performance
+
+|Skewed key distribution (long shared prefixes)
+|Same O(log n) regardless of skew
+|Benefits from prefix sharing; fewer node loads
+
+|Memory for index navigation
+|Summary.db resident in heap
+|No separate summary; trie nodes read on demand
+
+|Worst-case page reads
+|Proportional to index depth
+|Proportional to key length (bounded)
+
+|Prefix preservation
+|None
+|Preserved from TrieMemtable through disk
+|===
+
+For uniform key distributions, BTI and BIG offer comparable read latency.
+For workloads with high key cardinality and long shared prefixes (e.g., compound partition keys with repeated prefix components), BTI's prefix sharing and O(|key|) trie walk provide a meaningful worst-case improvement.
+
+---
+
+== Point Reads vs Slices vs Range Scans
+
+=== Point Read
+
+A point read targets a single partition key.
+
+[source]
+----
+BIG: Bloom → Summary binary search → Index.db binary search
+     → Data.db offset → seek + decompress chunk(s)
+BTI: Bloom → Partitions.db trie walk → position decode
+     → (Rows.db if wide) → Data.db offset → seek + decompress chunk(s)
+----
+
+For narrow partitions, a single disk seek into `Data.db` follows the index lookup.
+For wide partitions with no clustering constraint, the entire partition is read sequentially from the partition start offset.
+
+=== Slice Read
+
+A slice read targets a partition key plus a clustering key range.
+
+[source]
+----
+BIG: Point read path to partition → check promoted index
+     → binary search promoted index blocks → seek Data.db to matching block
+     → read rows forward until range exhausted
+BTI: Point read path to partition → Rows.db trie walk for clustering start
+     → seek Data.db to row block → read rows forward until range exhausted
+----
+
+Slice reads are the normal access pattern for time-series and collection-heavy schemas.
+Without the promoted index (BIG) or `Rows.db` (BTI), a slice read would require scanning the entire partition from the start.
+
+=== Range Scan
+
+A range scan targets a token range, returning partitions across multiple partition keys.
+
+[source]
+----
+BIG: Binary search Summary.db for low-token bound
+     → iterate Index.db entries in token order
+     → for each matching partition: read from Data.db
+     → stop when token exceeds upper bound
+BTI: Walk Partitions.db trie to low-token prefix
+     → iterate trie leaves in byte-comparable order
+     → for each matching partition: read from Data.db
+     → stop when token exceeds upper bound
+----
+
+Range scans are inherently multi-SSTable: all SSTables whose token ranges overlap the scan range are candidates.
+The read path merges results across SSTables using a priority queue sorted by token, resolving conflicting versions via timestamp.
+
+---
+
+== Secondary Indexes (2i)
+
+Cassandra's legacy secondary indexes (referred to as 2i) are per-node, per-table indexes stored as separate internal SSTable sets alongside the base table.
+
+=== Query Flow
+
+[source]
+----
+1. Client issues query with non-partition-key predicate
+2. Coordinator broadcasts to all replicas (or subset by CL)
+3. Each replica:
+   a. Looks up index SSTable(s) for matching index values
+   b. Extracts base table partition keys from index rows
+   c. Fetches matching rows from base table SSTables
+   d. Returns results to coordinator
+4. Coordinator merges, deduplicates, applies LIMIT
+----
+
+The scatter-gather step (3c) is a local operation: the index and base table rows are on the same node.
+However, each node independently performs the lookup, so the full result set is assembled from all participating replicas.
+
+=== Consistency Considerations
+
+Index and base table updates are not atomic.
+A write to the base table updates the index in the same local write path, but if the write fails partway through (e.g., before the index SSTable is flushed), a brief window exists where the index and base table are inconsistent.
+Cassandra uses a read-before-write to clean up stale index entries on read, but stale entries may persist until compaction or explicit cleanup.
+
+=== Index SSTable Structure
+
+Index SSTables use the same SSTable format (BIG or BTI) as the base table.
+The indexed value becomes the partition key of the index SSTable, and the base table's partition key becomes a clustering column within each index partition.
+This means low-cardinality columns (few distinct index values) produce wide index partitions; high-cardinality columns produce narrow ones.
+
+2i is best suited to:
+
+* Low-cardinality columns queried alongside the partition key
+* Equality predicates
+* Workloads that can tolerate eventually-consistent index state
+
+Approximate lookup complexity: O(log S + K) for equality lookups, where S = index SSTable count and K = matching keys per SSTable.
+
+---
+
+== Storage Attached Indexes (SAI)
+
+Storage Attached Indexes (SAI) are Cassandra's modern secondary index implementation, introduced in Cassandra 4.0 and significantly extended in subsequent releases.
+Unlike 2i, SAI indexes are co-located with their base SSTable as per-column segment files rather than as fully independent SSTables.
+
+=== Segment-Based Design
+
+Each SAI index column produces one segment file per SSTable.
+The segment file contains the column-level index for all rows in that SSTable.
+When SSTables are compacted, their corresponding SAI segments are merged into a new unified segment alongside the compacted SSTable.
+This keeps the index in sync with the data without requiring cross-SSTable index state.
+
+=== Supported Query Types
+
+[cols="1,2", options="header"]
+|===
+|Query type |Mechanism
+
+|Numeric equality and range
+|B-tree structure within the segment; scans the range and returns matching row IDs
+
+|Text equality and prefix
+|Trie-based term index within the segment
+
+|Vector similarity (ANN)
+|Approximate nearest neighbor graph (e.g., HNSW) within the segment
+|===
+
+=== Query Flow
+
+[source]
+----
+1. Client issues query with SAI-indexed predicate
+2. On each replica:
+   a. For each candidate SSTable: scan matching SAI segment(s)
+   b. Collect row IDs matching the predicate
+   c. Sort and deduplicate row IDs
+   d. Fetch corresponding rows from Data.db
+   e. Apply any remaining row-level predicates
+3. Return results to coordinator
+----
+
+The row ID step is important: SAI returns internal row identifiers from the segment scan, then fetches the actual row data from `Data.db` using those IDs.
+This is a two-phase lookup per SSTable — segment scan, then data fetch — but avoids the scatter-gather across nodes that characterizes 2i.
+
+=== Complexity
+
+[cols="2,2", options="header"]
+|===
+|Query type |Approximate complexity
+
+|Numeric equality / range
+|O(log S + R) — S = segment count, R = matching row IDs
+
+|Text equality / prefix
+|O(\|prefix\| + R)
+
+|Vector KNN (k nearest neighbors)
+|O(C × B × log S) — C = candidates per search, B = beam width, S = segment count
+|===
+
+=== Vector Search
+
+SAI vector indexes (available in Cassandra 5.0+) use per-segment approximate nearest neighbor structures.
+Each SSTable's SAI segment contains an ANN graph for the indexed vector column.
+At query time, each segment is searched independently for the k nearest neighbors, the per-segment results are merged and re-ranked by actual distance, and the global top-k is returned.
+This design trades recall accuracy (approximation) for bounded search time even over large SSTable counts.
+
+---
+
+== How to Find a Row by Key: Quick Reference
+
+=== BIG Format (6 Steps)
+
+[source]
+----
+1. Load Filter.db into memory (on SSTable open; cached for lifetime)
+2. Compute Murmur3 hash of partition key → check Bloom filter
+   STOP if negative (partition definitely not in this SSTable)
+3. Binary search in-memory Summary.db for target token
+   → identify lower and upper Index.db byte offsets
+4. Seek Index.db to lower offset; binary search the region
+   → find partition entry: key match + Data.db offset
+   STOP if not found (partition not in this SSTable)
+5. Seek Data.db to the recorded offset
+   → decompress the chunk containing the partition header
+6. Read unfiltered row sequence; apply clustering / column filters
+   → return matching rows to the read coordinator
+----
+
+For wide partitions with a clustering predicate, insert between steps 4 and 5:
+
+[source]
+----
+4a. Check promoted index in the Index.db entry
+4b. Binary search promoted index blocks for clustering range
+4c. Use the matched block's Data.db offset (overrides step 5 offset)
+----
+
+=== BTI Format (5 Steps)
+
+[source]
+----
+1. Load Filter.db into memory (on SSTable open; cached for lifetime)
+2. Compute Murmur3 hash of partition key → check Bloom filter
+   STOP if negative
+3. Walk Partitions.db trie, matching byte-comparable key bytes
+   → reach leaf node containing a position value
+   STOP if trie walk exhausted without match (partition not present)
+4. Decode position value:
+   a. Negative → bitwise complement gives direct Data.db offset → skip to step 5
+   b. Positive → use as Rows.db offset → walk clustering trie for row block offset
+5. Seek Data.db to resolved offset → decompress chunk → return matching rows
+----
+
+=== When a Lookup Fails
+
+[cols="1,3", options="header"]
+|===
+|Failure point |Diagnosis
+
+|Bloom filter false negative impossible
+|Bloom filters cannot produce false negatives; if the filter says absent, the partition is absent in this SSTable
+
+|Summary hit but Index.db miss
+|Partition was deleted; tombstone or compacted away; or key comparison mismatch (check schema)
+
+|Index.db hit but Data.db seek returns wrong partition
+|Corrupted offset; check `Digest.crc32` and run `sstablescrub`
+
+|BTI trie walk terminates mid-key
+|Partition key not present in this SSTable (normal); or trie corruption (run validation)
+
+|Promoted index / Rows.db hit but rows absent
+|Rows were deleted after the promoted index was written; tombstones will be resolved at compaction
+|===
+
+---
+
+== Key Source Files
+
+[cols="2,3", options="header"]
+|===
+|Concept |Primary Class / Package
+
+|Bloom filter
+|`org.apache.cassandra.utils.BloomFilter` +
+`org.apache.cassandra.utils.BloomCalculations`
+
+|Bloom filter serialization
+|`org.apache.cassandra.utils.obs.OffHeapBitSet`
+
+|BIG partition index reader
+|`org.apache.cassandra.io.sstable.format.big.BigTableScanner` +
+`org.apache.cassandra.io.sstable.IndexSummary`
+
+|BIG promoted index
+|`org.apache.cassandra.io.sstable.format.big.RowIndexEntry`
+
+|BTI partition trie reader
+|`org.apache.cassandra.io.sstable.format.bti.PartitionIndex`
+
+|BTI row trie reader
+|`org.apache.cassandra.io.sstable.format.bti.RowIndexReader`
+
+|SSTable reader (shared)
+|`org.apache.cassandra.io.sstable.SSTableReader`
+
+|Secondary index (2i)
+|`org.apache.cassandra.index.internal.CassandraIndex`
+
+|SAI index
+|`org.apache.cassandra.index.sai` (package)
+
+|SAI vector index
+|`org.apache.cassandra.index.sai.disk.v1.vector` (package)
+
+|IncrementalTrieWriter (BTI construction)
+|`org.apache.cassandra.io.tries.IncrementalTrieWriter`
+|===
+
+Source references (Cassandra 5.0.0 tag):
+
+* https://github.com/apache/cassandra/blob/cassandra-5.0.0/src/java/org/apache/cassandra/utils/BloomFilter.java[BloomFilter.java]
+* https://github.com/apache/cassandra/blob/cassandra-5.0.0/src/java/org/apache/cassandra/io/sstable/IndexSummary.java[IndexSummary.java]
+* https://github.com/apache/cassandra/blob/cassandra-5.0.0/src/java/org/apache/cassandra/io/sstable/format/bti/PartitionIndex.java[PartitionIndex.java]
+* https://github.com/apache/cassandra/blob/cassandra-5.0.0/src/java/org/apache/cassandra/io/sstable/SSTableReader.java[SSTableReader.java]
+* https://github.com/apache/cassandra/tree/cassandra-5.0.0/src/java/org/apache/cassandra/index/sai[SAI package]
+* https://github.com/apache/cassandra/tree/cassandra-5.0.0/src/java/org/apache/cassandra/io/tries[Trie infrastructure]

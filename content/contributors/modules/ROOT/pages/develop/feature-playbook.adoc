@@ -1,0 +1,261 @@
+= Feature Development Playbook
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+This page is the end-to-end guide for developing a new feature in Cassandra.
+It applies to all non-trivial code contributions: new features, significant subsystem changes, and anything that touches user-visible behavior, compatibility, or the upgrade path.
+Work through the sections in order during active development — each section maps to a gate you need to clear before moving to the next phase.
+
+== Before You Write Code
+
+Alignment before implementation prevents wasted work and difficult late-stage review.
+The level of pre-work required depends on the scope of the change.
+
+=== When a JIRA Ticket Alone Is Enough
+
+A JIRA ticket without a mailing list discussion is sufficient for:
+
+* Small, self-contained bug fixes with no behavior change for callers
+* Internal cleanup or refactoring that does not affect APIs, config, or wire protocol
+* Test-only changes
+* Documentation fixes
+
+Create the ticket early, describe the problem and your intended approach, and proceed.
+
+=== When to Start a Dev List Thread
+
+Start a thread on https://lists.apache.org/list.html?dev@cassandra.apache.org[dev@cassandra.apache.org] for any change that:
+
+* Affects user-visible behavior, even subtly
+* Adds, removes, or modifies a configuration parameter
+* Changes a CQL API, driver-facing behavior, or the native protocol
+* Touches the upgrade path or serialization formats
+* Crosses subsystem boundaries in non-obvious ways
+
+To start a thread:
+
+. Send an email to `dev@cassandra.apache.org`
+. Use the subject prefix `[DISCUSS]` followed by a short description of the change
+. In the body: describe the problem you are solving, your proposed approach, and which subsystems are affected
+. Link the JIRA ticket in the email
+
+Wait for substantive feedback before committing to a design.
+Committer feedback during discussion shapes the design far more cheaply than review feedback after implementation.
+
+=== When a CEP Is Required
+
+A https://cwiki.apache.org/confluence/display/CASSANDRA/Cassandra+Enhancement+Proposals[Cassandra Enhancement Proposal (CEP)] is required for:
+
+* Major new features that add significant surface area to the system
+* Architecture changes that affect multiple subsystems
+* Any change to distributed behavior, including consensus, replication, or failure detection
+* Changes to on-disk formats or wire protocols
+
+A CEP is a written design document submitted for community review before implementation begins.
+It is not a substitute for a JIRA ticket — both are required.
+The CEP review process takes time; start it before writing significant code.
+
+=== Identify Subsystem Owners Early
+
+Cassandra has informal ownership by subsystem.
+Looping in the right reviewers early avoids surprises during patch review.
+Use xref:orientation/expert-discovery.adoc[Expert Discovery] to find the committers who are active in the subsystem your change touches.
+
+NOTE: Reaching out on the dev list or JIRA before submitting a patch is not required for small fixes, but it is strongly encouraged for anything that will require multiple review rounds.
+
+== Branch and Targeting
+
+=== Choosing the Right Branch
+
+* **Bug fixes**: target the earliest affected release branch (e.g., `cassandra-4.1` if the bug exists there).
+  Fixes merge forward through newer branches to `trunk`.
+* **New features**: target `trunk`, which tracks the next major version.
+* **Backports**: only after the feature is stable on `trunk`, and require explicit PMC approval.
+  Do not assume a feature will be backported.
+
+The merge order is always from older to newer:
+
+----
+cassandra-4.1 -> cassandra-5.0 -> trunk
+----
+
+=== Branch Naming
+
+Use the convention `<issue-key>-<short-description>`:
+
+[source,bash]
+----
+git checkout -b CASSANDRA-12345-add-guardrail-for-batch-size
+----
+
+Keep the short description lowercase and hyphen-separated.
+The issue key ensures the branch is traceable from JIRA.
+
+WARNING: Do not target a release branch for a new feature.
+Release branches are reserved for bug fixes and backports.
+A patch submitted against the wrong branch will be redirected during review.
+
+== Supporting Artifacts
+
+Code changes alone are not enough for most non-trivial contributions.
+The following artifacts are required depending on the nature of your change.
+
+=== NEWS.txt
+
+Required for any user-visible change.
+Add one line per item, placed in the correct version section at the top of the file.
+The entry should describe what changed from a user's perspective, not how it was implemented.
+
+[source,bash]
+----
+# Example entry in NEWS.txt
+ * Added guardrail for batch size to prevent large batches from degrading cluster performance (CASSANDRA-12345)
+----
+
+=== Documentation
+
+If your change affects operator configuration, adds new commands, or changes user-visible behavior, you must either update or add the relevant docs pages, or file a follow-up JIRA ticket for the documentation gap and link it from your patch JIRA.
+
+Do not close a patch JIRA with a documentation gap unfiled.
+
+=== Generated Documentation
+
+If your change adds a new nodetool command or a new `cassandra.yaml` parameter, the generated reference docs must be regenerated.
+See xref:generated-docs/index.adoc[Generated Documentation] for the regeneration procedure.
+Include the regenerated output in your patch.
+
+=== Protocol Specification
+
+If your change modifies the native protocol — new opcodes, changed message structure, new flags — update the protocol spec in `doc/native_protocol_v*.spec`.
+Link the spec update to the JIRA ticket.
+
+=== Compatibility Notes
+
+If your change affects upgrade safety or wire compatibility, document this explicitly:
+
+* In the commit message body
+* In the relevant upgrade documentation
+* In NEWS.txt if the constraint is user-visible
+
+Do not assume reviewers will infer compatibility consequences from the code.
+
+== Validation Before Review
+
+Run validation before marking your patch as ready for review.
+Reviewers expect you to have done this work; submitting an untested patch wastes everyone's time.
+
+=== Unit Tests
+
+Run the unit tests for every package your change touches.
+See xref:build-test/test-selection-matrix.adoc[Test Selection Matrix] for guidance on which tests to run based on what you changed.
+
+[source,bash]
+----
+# Run tests for a specific module
+ant test -Dtest.name=MyChangedTest
+
+# Run all tests in a package
+ant test -Dtest.name="org.apache.cassandra.mypackage.*"
+----
+
+=== Distributed Tests (dtests)
+
+Run dtests for any change that touches:
+
+* Replication or coordinator logic
+* Node startup, shutdown, or join/leave behavior
+* Gossip or failure detection
+* Streaming or repair
+* Anything that involves multiple nodes communicating
+
+[source,bash]
+----
+# From the cassandra-dtest repo
+pytest test_my_feature.py -v
+----
+
+=== Upgrade Tests
+
+Run upgrade tests if your change affects:
+
+* On-disk SSTable formats
+* Schema serialization
+* Gossip or internode messaging formats
+* Bootstrap or streaming behavior across versions
+
+=== Performance-Sensitive Changes
+
+For changes in hot paths — read/write path, compaction, messaging — run a benchmark or profiling session before requesting review.
+See xref:build-test/profiling.adoc[Profiling and Performance] for tooling and methodology.
+Include the results (before/after numbers or flamegraphs) in the JIRA ticket.
+Reviewers cannot evaluate performance impact from code alone.
+
+=== Final Check Before Requesting Review
+
+Confirm:
+
+* NEWS.txt entry is included in the patch (if required)
+* Docs are updated or a follow-up ticket is filed and linked
+* Generated docs are regenerated (if nodetool or yaml changed)
+* All tests pass locally
+
+== Review Expectations
+
+Reviewers will look for the following.
+Understand these expectations before requesting review, not after receiving feedback.
+
+=== Correctness and Test Coverage
+
+* Logic is correct under concurrent and distributed conditions
+* Edge cases are handled and tested
+* Tests cover both the happy path and failure scenarios
+* Test names describe what they are testing
+
+=== Backward Compatibility and Upgrade Safety
+
+* The change does not break existing clients, drivers, or operators upgrading from a supported version
+* Any compatibility constraints are explicitly documented
+* Serialized formats remain readable after upgrade if the format did not change intentionally
+
+=== Performance and Operational Impact
+
+* Hot-path changes have benchmark or profiling data attached
+* The change does not introduce new sources of GC pressure, lock contention, or blocking I/O on critical threads
+* Operational consequences (e.g., increased heap use, new background threads, changed compaction behavior) are described in the ticket
+
+=== Generated Surface Completeness
+
+* If a new nodetool subcommand was added, the generated docs reflect it
+* If a new `cassandra.yaml` parameter was added, the generated reference includes it with the correct default and description
+
+=== For Larger Changes
+
+Expect multiple review rounds.
+Committers may request:
+
+* Perf data if the change is in a hot path
+* A CEP if the scope expands during review
+* Additional test coverage for edge cases uncovered during review
+* Splitting the patch into smaller reviewable pieces
+
+TIP: A patch that is too large to review in a single sitting is a patch that is likely to sit unreviewed.
+Consider breaking large features into a series of smaller, independently reviewable patches.
+
+== Checklist Before Submitting
+
+Use this checklist before marking your patch as ready for review on JIRA.
+
+* [ ] JIRA ticket created and assigned
+* [ ] Dev list discussion started (if the change affects user-visible behavior, APIs, config, wire protocol, or upgrade path)
+* [ ] CEP filed (if the change is a major feature, architecture change, or affects distributed behavior or on-disk formats)
+* [ ] Correct branch targeted (`trunk` for new features; earliest affected branch for bug fixes)
+* [ ] Unit tests pass locally for all touched packages
+* [ ] Integration/dtest coverage added for any change involving distributed behavior
+* [ ] Upgrade tests run (if on-disk format, schema serialization, or topology behavior is affected)
+* [ ] NEWS.txt entry added (required for all user-visible changes)
+* [ ] Docs updated or a follow-up JIRA ticket filed and linked for doc gaps
+* [ ] Generated docs regenerated and included in the patch (if nodetool or `cassandra.yaml` changed)
+* [ ] Reviewers identified using xref:orientation/expert-discovery.adoc[Expert Discovery] and looped in early

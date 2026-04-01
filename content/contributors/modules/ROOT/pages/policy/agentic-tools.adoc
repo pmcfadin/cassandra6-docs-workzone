@@ -1,0 +1,117 @@
+= Agentic Tools and Cassandra Development
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Agentic AI tools — such as Claude Code, GitHub Copilot, Cursor, and similar systems — can autonomously read files, write code, run tests, and submit changes with minimal per-step human direction.
+They can accelerate Cassandra contribution work when applied to the right tasks.
+They can also introduce subtle, hard-to-spot errors when applied to the wrong ones, particularly in a system as complex as Cassandra where correctness constraints are not always visible from code structure alone.
+
+This page describes where these tools are genuinely useful in a Cassandra contribution workflow, where they are not, and what a contributor is responsible for regardless of how much of a patch an agent produced.
+It is not an endorsement or a rejection of any specific tool.
+Use whichever tools help you contribute high-quality, reviewable, source-grounded changes.
+
+== What Agentic Tools Are Good At
+
+Agentic tools perform well on tasks that are bounded, verifiable, and do not require deep system-specific judgment.
+The common thread across good use cases is that a contributor can check the output in a reasonable amount of time without needing to re-derive the entire reasoning chain.
+
+* *Codebase exploration* — Quickly locating where a subsystem lives, which classes participate in a code path, what tests exist for a component, and how a feature is wired together. This is useful early in a contribution when you are building a mental model of the code.
+* *Boilerplate generation* — Generating test scaffolding, Ant task configurations, repetitive CQL fixture setup, or mechanical code patterns that follow a clear existing template in the codebase.
+* *Documentation drafting* — Producing a first draft of AsciiDoc content that a contributor then reviews, edits for accuracy, and grounds with source citations. Documentation drafts from agents must not be submitted without contributor review.
+* *Commit message and JIRA description drafting* — Summarizing what a patch does and why, based on the diff and surrounding context. Always verify the result: agents frequently misstate the scope of a change or reference the wrong ticket.
+* *Running and re-running test commands* — Executing unit or integration tests repeatedly on the contributor's behalf, collecting results, and surfacing failures for investigation. Particularly useful for long test suites where the agent can manage re-runs while you review output.
+
+== What Agentic Tools Are Not Good At
+
+Some Cassandra contribution tasks require reasoning that current agentic tools do not perform reliably.
+Using an agent for these tasks without heavy verification introduces risk to the patch and to downstream users.
+The following categories have produced the most problems in practice and warrant explicit caution.
+
+* *Deep distributed systems reasoning* — An agent cannot reliably reason about TCM state transitions, mixed-version gossip behavior, or the ordering semantics of Accord without extensive Cassandra-specific context loaded into its session.
+  Claims about consistency, durability, or failure handling from an agent should be verified against the source before any patch or doc relies on them.
+* *Compatibility judgment* — Agents may not correctly identify when a change requires a CEP, a dev list discussion, a compaction strategy compatibility note, or an upgrade test.
+  They do not have reliable knowledge of Cassandra's compatibility policy, which is enforced by reviewers and committers, not tools.
+* *Review routing* — Agents cannot reliably identify who the right reviewers are for a given subsystem change.
+  Subsystem ownership is not encoded in a static CODEOWNERS file — it is discoverable through JIRA history and git log, not inferred from file paths alone.
+
+NOTE: For anything in the "not good at" list, always verify the agent's output against the Cassandra source and consult xref:orientation/expert-discovery.adoc[Expert Discovery] for reviewer routing.
+
+== Before Letting an Agent Commit or Submit
+
+An agent acting on your behalf is acting under your name.
+You are accountable for every change it commits or submits for review.
+The speed advantage of agentic tools disappears quickly if the resulting patch requires multiple rounds of revision because the contributor could not explain or defend what was submitted.
+Before any agent-produced change lands in a patch or pull request:
+
+. Review every change the agent proposes before it is committed or submitted for review. Read the diff as you would read a patch from any other contributor.
+. Run the relevant tests yourself — do not rely solely on the agent's test run output without reading what was tested, what was skipped, and whether the test scope covers the change.
+. Check the commit message for accuracy: confirm the JIRA ticket number, the target branch, and the content description match what was actually changed.
+. Confirm that any `NEWS.txt`, doc, or generated-doc changes required by the patch are included. See xref:develop/patch-classification.adoc[Patch Classification] for what changes require what documentation updates.
+. Verify that no third-party code was introduced without a compatible license. Agents sometimes produce code that closely resembles existing open-source implementations without attribution.
+
+WARNING: Reviewers will expect you to answer questions about your patch. If an agent produced code you do not understand, you are not ready to submit that code for review. Take the time to read, run, and understand every line before opening a review.
+
+== Working With Context Files
+
+Agentic tools produce better output when given explicit context about the project.
+Without context, an agent will make inferences about project conventions — build tool usage, test naming, deprecation status of internal APIs — that may be wrong.
+Providing relevant files at the start of a session costs nothing and materially improves output quality.
+
+Useful context files to load at the start of a Cassandra agentic session:
+
+* `CONTRIBUTING.md` — contribution workflow and review process expectations
+* `NEWS.txt` — format and conventions for user-visible change entries
+* `doc/modules/cassandra/pages/` — existing doc structure, for doc-related tasks
+* Relevant test files in `test/unit/` or `test/distributed/` — to show the agent what test patterns are expected in the area you are modifying
+* The file or files you intend to change — do not assume the agent has read them; load them explicitly
+
+Providing the xref:internals/internals-map.adoc[Internals Map] as context helps agents navigate the codebase correctly and reduces the chance of generating code that references the wrong subsystem or uses a deprecated internal API.
+
+TIP: Scope the agent's context to the subsystem you are working in. A large context covering unrelated parts of the codebase increases the chance of the agent making incorrect assumptions about cross-subsystem boundaries.
+
+== Commit Message Conventions When Using Agents
+
+Cassandra commit messages follow the format `CASSANDRA-XXXXX: Short description`, optionally followed by a longer explanation in the body.
+There is no ASF requirement to declare AI tool usage in commit messages.
+However, if a significant portion of the patch was scaffolded by an agentic tool, noting it in the commit message helps reviewers calibrate their review and is consistent with the project's transparency norms.
+"Significant" means the agent produced the structural shape of the change — not that you used a tool to run tests or generate a boilerplate class that you then edited heavily.
+
+A suggested format:
+
+[source,text]
+----
+CASSANDRA-XXXXX: Short description of change
+
+[Longer explanation of why the change was made, what alternatives were
+considered, and any relevant context for reviewers.]
+
+Patch scaffolded with AI assistance; reviewed, tested, and owned by contributor.
+----
+
+This declaration is not required.
+It is encouraged when the agent produced a substantial structural contribution — not for minor edits or test runs.
+Do not use it as a disclaimer that shifts accountability away from you: the contributor who submits a patch owns it regardless of how it was produced.
+
+== ASF Policy and Accountability
+
+The Apache Software Foundation requires that all code and documentation submitted to ASF projects is contributed by a human with an active Individual Contributor License Agreement (ICLA) on file.
+Agentic tool output is treated as generated content: it is not a separate contributor and has no legal standing with the ASF.
+The tool vendor is also not a contributor and has no obligation to the project.
+
+The contributor who reviews, approves, and submits an agent-produced patch is its owner.
+That contributor is accountable for:
+
+* Correctness of the code or documentation
+* Compatibility with existing behavior, protocols, and upgrade paths
+* Compliance with ASF licensing requirements — all content in a patch must be free of third-party license obligations the agent may have introduced without attribution
+* Accuracy of the JIRA ticket description and commit message
+* Responding to reviewer questions and addressing review feedback
+
+This accountability is identical to the accountability for any other patch.
+The method of production does not alter the contributor's obligations to the project or the community.
+If a patch causes a regression or an upgrade problem, the contributor — not the tool — is the point of contact for diagnosis and resolution.
+
+See xref:policy/ai-contribution.adoc[AI-Assisted Contribution Policy] for the full policy, including guidance on generated documentation and reference content.

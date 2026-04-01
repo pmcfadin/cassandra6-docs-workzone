@@ -1,0 +1,224 @@
+= Patch Classification
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Cassandra patches are not all equal.
+The class of a change determines what tests are required, what docs must be updated, who needs to review it, and whether a release note is needed.
+This page defines the patch classes used informally in the Cassandra project and makes those expectations explicit.
+When requirements differ between classes, apply the requirements of the most demanding class that applies to your change.
+
+== Patch Classes
+
+=== Bug Fix
+
+Corrects incorrect behavior without changing intended semantics.
+
+[cols="1,3", options="header"]
+|===
+| Requirement | Expectation
+
+| Required Tests
+| Unit test that reproduces the bug and confirms the fix; dtest if the incorrect behavior involved distributed coordination or cluster state
+
+| Required Docs
+| Usually not required unless the behavior was previously documented incorrectly — update any doc that described the now-fixed behavior as intentional
+
+| Required Stakeholders
+| Committer active in the affected area
+
+| Release Note
+| Yes — add an entry to `NEWS.txt` under the appropriate version
+|===
+
+=== Refactor
+
+Restructures code without changing external behavior or semantics.
+
+[cols="1,3", options="header"]
+|===
+| Requirement | Expectation
+
+| Required Tests
+| Existing tests must continue to pass; no new tests are typically required unless test coverage was absent before the refactor
+
+| Required Docs
+| Not required
+
+| Required Stakeholders
+| Committer familiar with the affected subsystem
+
+| Release Note
+| No — unless the refactor changes any observable behavior, however minor
+|===
+
+=== Internal Cleanup
+
+Removes dead code, improves naming, fixes compiler warnings, or upgrades internal APIs with no user-visible effect.
+
+[cols="1,3", options="header"]
+|===
+| Requirement | Expectation
+
+| Required Tests
+| Existing tests must pass
+
+| Required Docs
+| Not required
+
+| Required Stakeholders
+| Any committer
+
+| Release Note
+| No
+|===
+
+=== User-Visible Feature
+
+Adds new functionality accessible to operators, users, or client applications.
+
+[cols="1,3", options="header"]
+|===
+| Requirement | Expectation
+
+| Required Tests
+| Unit tests and dtests; upgrade tests if the feature changes cluster coordination behavior; performance validation if the feature touches a hot path
+
+| Required Docs
+| Required — operator docs, configuration reference, or developer docs depending on the exposed surface; see xref:generated-docs/index.adoc[Generated Documentation] if the feature adds or changes nodetool output or `cassandra.yaml` parameters
+
+| Required Stakeholders
+| Committer active in the area plus dev list discussion before implementation begins for non-trivial features
+
+| Release Note
+| Yes — prominently in `NEWS.txt`
+|===
+
+=== Breaking or Disruptive Change
+
+Removes, renames, or incompatibly changes behavior that existing users depend on.
+
+[cols="1,3", options="header"]
+|===
+| Requirement | Expectation
+
+| Required Tests
+| Full test suite must pass; upgrade tests required; client compatibility tests required if the native protocol is affected
+
+| Required Docs
+| Required — must document the breaking change, the migration path, and the affected version range; operator upgrade docs must be updated
+
+| Required Stakeholders
+| PMC plus dev list discussion; may require a Cassandra Enhancement Proposal (CEP) for broad or protocol-level breaks
+
+| Release Note
+| Yes — marked prominently, with migration instructions inline or linked
+|===
+
+WARNING: Breaking changes require dev list consensus *before* the patch is written, not after.
+Arriving with a finished patch that breaks compatibility puts reviewers in an unfair position.
+
+=== Upgrade-Sensitive Change
+
+Changes behavior that affects rolling upgrades, node join, repair, or compaction across mixed-version clusters.
+
+[cols="1,3", options="header"]
+|===
+| Requirement | Expectation
+
+| Required Tests
+| Upgrade tests required; mixed-version dtest scenarios required where available in the test suite
+
+| Required Docs
+| Upgrade docs must be updated to describe the version boundary and any operator action required
+
+| Required Stakeholders
+| Developer familiar with the upgrade and topology subsystems
+
+| Release Note
+| Yes — include upgrade instructions, not just a description of the change
+|===
+
+NOTE: If you are unsure whether your bug fix affected cluster state in a way that mixed-version clusters may have persisted, treat it as upgrade-sensitive.
+
+=== Generated-Surface Change
+
+Changes nodetool commands, `cassandra.yaml` parameters, metrics names, or the native protocol in ways that require regenerating reference documentation.
+
+[cols="1,3", options="header"]
+|===
+| Requirement | Expectation
+
+| Required Tests
+| Unit tests plus regeneration and review of the affected generated docs
+
+| Required Docs
+| Generated docs must be regenerated — see xref:generated-docs/index.adoc[Generated Documentation] for the regeneration workflow
+
+| Required Stakeholders
+| Committer plus a docs reviewer to confirm the regenerated output is accurate
+
+| Release Note
+| Yes if the change is user-visible; not required for internal metric renames with no operator impact
+|===
+
+== Quick Reference Table
+
+[cols="2,1,1,2,1", options="header"]
+|===
+| Patch Class | Tests | Docs | Stakeholders | Release Note
+
+| Bug Fix
+| Unit + dtest if distributed
+| Optional
+| Area committer
+| Yes
+
+| Refactor
+| Existing must pass
+| —
+| Subsystem committer
+| —
+
+| Internal Cleanup
+| Existing must pass
+| —
+| Any committer
+| —
+
+| User-Visible Feature
+| Unit + dtest + perf
+| Required
+| Area committer + dev list
+| Yes
+
+| Breaking Change
+| Full suite + upgrade + client compat
+| Required
+| PMC + dev list (± CEP)
+| Yes (prominent)
+
+| Upgrade-Sensitive
+| Upgrade + mixed-version dtest
+| Required
+| Upgrade subsystem developer
+| Yes (with instructions)
+
+| Generated-Surface
+| Unit + regen review
+| Required (regen)
+| Committer + docs reviewer
+| Yes if user-visible
+|===
+
+== When in Doubt
+
+- If you are unsure which class applies, treat the patch as the higher-class option and reduce scope after discussion, not before.
+- A bug fix that touches distributed behavior should be treated as upgrade-sensitive if the bug could have affected persisted cluster state.
+- Refactors that touch hot paths (compaction, read/write path, messaging) should include a brief profiling note in the JIRA ticket — even if no regression is found, the note signals that the question was asked.
+- When a patch spans multiple classes — for example, a bug fix that also changes a `cassandra.yaml` parameter name — apply the requirements of the most demanding class across all dimensions: the stricter test bar, the broader stakeholder set, and the more prominent release note format.
+- If your change is genuinely novel and no class fits, raise it on the dev list before submitting. Novel patch types are usually either under-scoped features or under-noticed breaking changes.
+
+TIP: The xref:develop/compatibility-checklist.adoc[Compatibility Checklist] provides a per-area breakdown of what compatibility means for storage, protocol, configuration, and API surfaces.

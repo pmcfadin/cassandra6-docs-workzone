@@ -1,0 +1,224 @@
+= Your First Deep Contribution
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+This page walks through a first deep contribution end-to-end.
+It uses a single concrete example to show how to move from "I found a bug" to "my patch is committed."
+The techniques apply to any contributor bug fix, not just this specific case — use the example as an anchor while you learn the workflow, then apply the same steps to whatever you are actually fixing.
+
+The example: a contributor notices that `nodetool getlogginglevels` outputs logger names in non-deterministic order, making the output hard to diff across runs.
+This is medium-difficulty work: it involves understanding one subsystem, writing a test, and navigating a complete review cycle.
+
+== Step 1: Find and Understand the Issue
+
+Before writing any code, make sure the problem is real and not already fixed or intentional.
+
+. Go to https://issues.apache.org/jira/browse/CASSANDRA[JIRA] and search for existing tickets.
+  Use terms like `getlogginglevels` or `logging levels order`.
+  If no ticket exists, file one.
+. For our example, file: `CASSANDRA-XXXXX: nodetool getlogginglevels output is non-deterministic`.
+  In the description, explain the observed behavior, why it matters (diffs are unreadable, automation breaks), and include a short reproduction showing two runs with different output order.
+. Read any tickets linked from your new one — a related ticket may have context that changes your approach.
+. Ask yourself: is this a bug or intended behavior?
+  For our example, non-deterministic output is clearly unintentional — the JMX API makes no ordering guarantee, but users reasonably expect alphabetical output from a list command.
+
+NOTE: Filing a JIRA ticket before writing code is not bureaucracy — it creates the canonical record that reviewers, release managers, and future contributors will use.
+Never submit a patch without a ticket.
+
+== Step 2: Orient Yourself in the Codebase
+
+Use the xref:internals/internals-map.adoc[Internals Map] to identify which subsystem owns the code you need to change.
+
+. Open the Internals Map and find the Tools section.
+  `nodetool getlogginglevels` maps to the `tools/nodetool/` package.
+. Locate the relevant class:
+
+[source,bash]
+----
+# Run from the root of the cassandra source repo
+grep -r "getlogginglevels\|GetLoggingLevels" src/java/ --include="*.java" -l
+----
+
+This will point you to `src/java/org/apache/cassandra/tools/nodetool/GetLoggingLevels.java` and the JMX endpoint it calls.
+
+[start=3]
+. Read the implementation.
+  The command class calls a JMX method that returns a map of logger names to levels.
+  Trace the data flow: where does the map come from?
+  What type is it?
+. For our example: if the JMX endpoint returns a `HashMap`, the iteration order is non-deterministic.
+  A `TreeMap` would give sorted order automatically, or the caller could sort the entries before printing.
+  This is a small, contained fix — exactly the right scope for a first deep contribution.
+
+TIP: Read the code before forming a solution. The right fix in this case depends on whether sorting belongs in the JMX layer or the nodetool command layer. Reading both sides first prevents a round-trip in review.
+
+== Step 3: Write a Failing Test First
+
+Writing the test before the fix confirms that you understand the bug and gives reviewers confidence in your change.
+
+. Find the existing test class for the nodetool command.
+  Search for `GetLoggingLevelsTest` or look in `test/unit/org/apache/cassandra/tools/nodetool/`.
+. Write a test that:
+  * Adds multiple loggers in non-alphabetical order.
+  * Calls `getlogginglevels`.
+  * Asserts that the output is in sorted (alphabetical) order.
+
+[source,java]
+----
+@Test
+public void testGetLoggingLevelsAreSorted()
+{
+    // arrange: set logging levels for several loggers out of alphabetical order
+    StorageService.instance.setLoggingLevel("org.apache.cassandra.service", "DEBUG");
+    StorageService.instance.setLoggingLevel("org.apache.cassandra.db", "WARN");
+    StorageService.instance.setLoggingLevel("org.apache.cassandra.auth", "INFO");
+
+    // act: call getlogginglevels
+    List<String> names = captureLoggingLevelNames();
+
+    // assert: names must appear in alphabetical order
+    List<String> sorted = new ArrayList<>(names);
+    Collections.sort(sorted);
+    assertEquals("Logger names must be alphabetically sorted", sorted, names);
+}
+----
+
+[start=3]
+. Run the test to confirm it fails before you change any production code:
+
+[source,bash]
+----
+ant test -Dtest.name=GetLoggingLevelsTest#testGetLoggingLevelsAreSorted
+----
+
+A failing test is the correct outcome here.
+If the test passes without any fix, either your test is wrong or the bug was already fixed in the branch you are working on.
+
+== Step 4: Fix the Bug
+
+With a failing test in place, make the minimal change to production code that makes the test pass.
+
+. For our example: locate where the logger map is assembled or returned.
+  If the JMX endpoint builds a `HashMap`, change it to a `TreeMap`.
+  If the `HashMap` comes from a library you cannot control, sort the entries in `GetLoggingLevels.java` before printing.
+. Keep the fix minimal.
+  Do not refactor surrounding code, rename variables, or reorganize unrelated methods.
+  Any change beyond what is needed for the fix makes the diff harder to review and risks introducing regressions.
+. Run the test again to confirm it now passes:
+
+[source,bash]
+----
+ant test -Dtest.name=GetLoggingLevelsTest#testGetLoggingLevelsAreSorted
+----
+
+. Run the full nodetool test suite to confirm you have not broken anything adjacent:
+
+[source,bash]
+----
+ant test -Dtest.tag=nodetool
+----
+
+WARNING: A fix that makes your new test pass but breaks an existing test is not ready for review. Always run the broader suite before submitting.
+
+== Step 5: Check What Else Needs to Change
+
+A passing test is not the end of your work — consult the project conventions to make sure you have covered everything.
+
+. Consult xref:develop/patch-classification.adoc[Patch Classification].
+  For our example this is a bug fix with no API change — it lands in the lowest-ceremony category.
+. Does this change affect nodetool output?
+  Yes — the output order changes.
+  Check whether generated documentation needs regeneration: xref:generated-docs/index.adoc[Generated Documentation].
+  For a sorted-output fix, the generated reference page content is identical (same loggers, just reordered), so regeneration is likely not required, but verify.
+. Does this need a `NEWS.txt` or `CHANGES.txt` entry?
+  Minor output ordering fixes typically do not, but confirm by reading recent entries in those files on `trunk` and matching the pattern.
+. Does this need a distributed test (dtest)?
+  Consult xref:build-test/test-selection-matrix.adoc[Test Selection Matrix].
+  A nodetool command fix covered by a unit test generally does not require a dtest — but if the fix touches the JMX layer and you want to validate behavior across a real cluster, adding one is welcome.
+
+NOTE: "Checking what else needs to change" is not about generating extra work — it is about shipping a complete patch that does not bounce back in review for missing pieces.
+
+== Step 6: Identify Your Reviewers
+
+Do not guess at reviewers — use systematic discovery.
+
+. Use xref:orientation/expert-discovery.adoc[Expert Discovery] to find who reviews changes in the `tools/` subsystem.
+  The expert guide describes discovery methods including git history and JIRA component filtering.
+. Look at recent commits to the affected file:
+
+[source,bash]
+----
+git log --format='%an <%ae>' -- src/java/org/apache/cassandra/tools/nodetool/GetLoggingLevels.java \
+  | sort | uniq -c | sort -rn | head -10
+----
+
+For our example, anyone who has recently committed to `GetLoggingLevels.java` or related nodetool files is a good candidate.
+
+[start=3]
+. Cross-reference git history results with JIRA activity.
+  Search the CASSANDRA project for recent tickets with component `nodetool` and look at who reviewed and resolved them.
+. Note two or three names.
+  You do not need unanimous agreement on reviewers — one committer +1 is the minimum to proceed.
+
+== Step 7: Submit Your Patch
+
+. Follow xref:patch-review/patches.adoc[Contributing Code Changes] for the full submission workflow.
+. Push your branch to your GitHub fork of `apache/cassandra`.
+. Open a pull request against the correct upstream branch (usually `trunk` for bug fixes unless the bug exists only in a maintenance branch).
+. Use a PR title that includes the JIRA number:
++
+----
+CASSANDRA-XXXXX: nodetool getlogginglevels output is now sorted alphabetically
+----
+
+. In the JIRA ticket:
+  * Assign it to yourself.
+  * Set the status to *Patch Available*.
+  * Link the GitHub PR in the ticket.
+. @-mention the reviewers you identified in Step 6 either on the JIRA ticket or in the PR description.
+  A short note like "This touches the nodetool tools layer — would appreciate a look from anyone familiar with it" is enough to explain the ask.
+
+== Step 8: Respond to Review
+
+Review is a dialogue, not a verdict.
+Treat every comment as a question worth answering, even if you disagree with the suggestion.
+
+. Common feedback for first contributions:
+  * Add a test case covering an edge condition you missed.
+  * Explain in a code comment why you sorted at this layer and not another.
+  * Tighten the commit message to describe the user-visible behavior change, not the implementation detail.
+. For each comment:
+  * If you are making the requested change, push the update to the same branch and reply "done" with a brief note on what changed.
+  * If you disagree, explain your reasoning calmly and ask for clarification before overriding the feedback.
+  * If the comment is a question, answer it directly in the thread, not just in the code.
+
+TIP: Reply to every reviewer comment, even just to say "done."
+Reviewers scan for unaddressed comments before approving, and a silent push of updates can leave them uncertain whether you read their feedback.
+
+[start=3]
+. After addressing all comments, ask for re-review explicitly.
+  Reviewers work across many tickets — they will not always notice that you pushed an update.
+
+== What You Learned From This Example
+
+Walking through this one bug fix, you exercised the full contribution workflow:
+
+* **Using the Internals Map** to find the right code quickly rather than searching blind.
+* **Writing a failing test first** to prove you understand the bug and give reviewers a concrete validation artifact.
+* **Keeping the fix minimal** so the diff is easy to review and the risk surface stays small.
+* **Using Patch Classification and the Test Selection Matrix** to scope the work correctly and avoid missing required pieces.
+* **Finding reviewers systematically** using git history and JIRA, instead of guessing or pinging the wrong people.
+* **Closing the loop in review** by responding to every comment and asking for re-review explicitly.
+
+Every contribution you make after this one follows the same cycle.
+The subsystems change, the complexity varies, but the workflow is the same: understand the problem, reproduce it in a test, fix it minimally, scope the surrounding work, find the right reviewers, and see it through.
+
+== Unresolved Questions
+
+* Does `expert-discovery.adoc` include a nodetool / tools subsystem entry? If not, the Step 6 guidance is incomplete.
+* Confirm whether `patch-classification.adoc` exists at the xref path used above — update xref if the file is at a different path.
+* Confirm whether `test-selection-matrix.adoc` exists at the xref path used above — update xref if needed.
+* The test code sample uses `StorageService.instance.setLoggingLevel()` as a placeholder — verify the actual API for setting test logger levels in the nodetool unit test infrastructure before promoting this page past draft status.

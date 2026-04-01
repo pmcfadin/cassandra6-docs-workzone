@@ -1,0 +1,465 @@
+= SSTable Reference
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+This page consolidates reference material for SSTable contributors: the versioning matrix, type mappings, encoding formats, tool usage, and a glossary.
+Use it as a lookup companion to the other SSTable Architecture pages — xref:sstable-architecture/fundamentals.adoc[Fundamentals], xref:sstable-architecture/data-format.adoc[Data Format], and xref:sstable-architecture/write-path.adoc[Write Path].
+
+---
+
+== Versioning Matrix
+
+Each Cassandra release series uses a specific on-disk format version.
+The version string is the prefix on every SSTable component filename (for example, `nb-1-big-Data.db`).
+
+[cols="1,1,3", options="header"]
+|===
+| Cassandra Version | SSTable Format | Notable On-Disk Changes
+
+| 3.0–3.x
+| `mc` (BIG)
+| Introduced `mc` format; new fields in Statistics.db; established the component layout still used in 4.x
+
+| 4.0–4.x
+| `md` / `me` (BIG)
+| Compression improvements; expanded metadata in Statistics.db; incremental metadata versioning between `md` and `me`
+
+| 5.0+
+| `nb` (BIG) / `na` (BTI)
+| BTI format added (`na`); TrieMemtable as flush output; per-chunk CRC32 in `nb`; new `Partitions.db` and `Rows.db` components in BTI
+|===
+
+The format identifier encodes both a version letter sequence and a format type (`big` for BIG, `bti` for BTI).
+A Cassandra node will refuse to open an SSTable whose format version it does not recognize.
+
+---
+
+== CQL Type to SSTable Encoding
+
+The table below maps each CQL primitive and collection type to its on-disk byte representation in `Data.db`.
+All multi-byte integers are big-endian unless otherwise noted.
+
+[cols="2,3,1", options="header"]
+|===
+| CQL Type | Byte Encoding | Size (bytes)
+
+| `text`, `varchar`
+| UTF-8 bytes, no null terminator
+| variable
+
+| `int`
+| 4-byte big-endian signed integer
+| 4
+
+| `bigint`
+| 8-byte big-endian signed integer
+| 8
+
+| `float`
+| 4-byte IEEE 754 single-precision
+| 4
+
+| `double`
+| 8-byte IEEE 754 double-precision
+| 8
+
+| `boolean`
+| `0x00` (false) or `0x01` (true)
+| 1
+
+| `blob`
+| Raw bytes, no framing
+| variable
+
+| `uuid`, `timeuuid`
+| 16 bytes, MSB first
+| 16
+
+| `timestamp`
+| 8-byte milliseconds since Unix epoch
+| 8
+
+| `inet`
+| 4 bytes for IPv4, 16 bytes for IPv6; no length prefix (caller knows from cell value length)
+| 4 or 16
+
+| `decimal`
+| 4-byte big-endian scale + unscaled `BigInteger` bytes (minimal two's complement)
+| variable
+
+| `varint`
+| Minimal two's complement `BigInteger` bytes (no fixed width)
+| variable
+
+| `frozen<collection>`
+| Single cell; entire collection serialized as a blob with type-specific internal encoding
+| variable
+
+| non-frozen collection
+| Multi-cell; one cell per element; each cell carries a path (see collection cell paths below)
+| variable
+
+| `frozen<UDT>`
+| Single cell; concatenated field values, each prefixed with a 2-byte length or `0xFFFF` for null
+| variable
+
+| `vector<float, N>`
+| N × 4-byte IEEE 754 floats, contiguous, no framing
+| N × 4
+|===
+
+=== Collection Cell Paths
+
+Non-frozen collections use a cell path to identify each element within the partition:
+
+[cols="1,2", options="header"]
+|===
+| Collection Kind | Cell Path Value
+
+| `list`
+| TimeUUID (used as a unique, time-ordered token for the list element)
+
+| `set`
+| Serialized element bytes (the element itself is the path)
+
+| `map`
+| Serialized key bytes (the map key is the path)
+|===
+
+---
+
+== Encoding Quick Reference
+
+=== VInt (Variable-Length Integer)
+
+VInt is used throughout SSTable internals for lengths, offsets, and counters.
+
+[cols="2,3", options="header"]
+|===
+| Property | Detail
+
+| Continuation flag
+| High bit of each byte: `1` = more bytes follow, `0` = last byte
+
+| Range
+| 1 byte encodes values 0–127; up to 9 bytes for a full signed 64-bit value
+
+| Common uses
+| Cell value lengths, row offsets within partitions, counter values, index entry sizes
+|===
+
+Example byte sequences:
+
+[source]
+----
+0x00        → 0
+0x7F        → 127
+0x80 0x01   → 128
+0xFF 0x7F   → 16383
+----
+
+=== ZigZag Encoding (Signed Integers)
+
+ZigZag maps signed integers to unsigned so that small negative values remain small after encoding.
+It is applied before VInt when the value is expected to be a small signed delta.
+
+Mapping formula (for 64-bit): `n → (n << 1) ^ (n >> 63)`
+
+[cols="1,1", options="header"]
+|===
+| Signed input | ZigZag unsigned output
+
+| 0  | 0
+| -1 | 1
+| 1  | 2
+| -2 | 3
+| 2  | 4
+| -N | 2N - 1
+| N  | 2N
+|===
+
+=== Delta Encoding
+
+Delta encoding reduces storage when most cells in a partition share similar timestamp or TTL values.
+
+[cols="1,3", options="header"]
+|===
+| Delta target | How it is stored
+
+| Cell timestamp relative to row timestamp
+| `cell_timestamp - row_timestamp` (ZigZag + VInt)
+
+| Row timestamp relative to header baseline
+| `row_timestamp - header_baseline` (ZigZag + VInt)
+
+| Cell TTL relative to row TTL
+| `cell_ttl - row_ttl` (ZigZag + VInt)
+
+| Row TTL relative to header baseline
+| `row_ttl - header_baseline` (ZigZag + VInt)
+|===
+
+Baseline values (`minTimestamp`, `minTTL`) are stored in the `SerializationHeader` section of `Statistics.db`.
+Reading code reconstructs the absolute value by adding the delta back to the appropriate baseline.
+
+=== Cell Flags Byte
+
+Each cell in `Data.db` is preceded by a single flags byte.
+Bits are numbered 0 (LSB) to 7 (MSB).
+
+[cols="1,2,3", options="header"]
+|===
+| Bit | Flag Name | Meaning
+
+| 0
+| `IS_DELETED`
+| Cell is a tombstone (deletion marker)
+
+| 1
+| `IS_EXPIRING`
+| Cell has a TTL and will expire at `local_deletion_time`
+
+| 2
+| `HAS_EMPTY_VALUE`
+| Cell has no value bytes (zero-length value, not null)
+
+| 3
+| `HAS_TIMESTAMP`
+| Cell carries its own timestamp (not inherited from row)
+
+| 4
+| `HAS_TTL`
+| Cell carries its own TTL (not inherited from row)
+
+| 5
+| `USE_ROW_TIMESTAMP`
+| Cell timestamp equals the enclosing row's timestamp; no per-cell timestamp stored
+
+| 6
+| `USE_ROW_TTL`
+| Cell TTL equals the enclosing row's TTL; no per-cell TTL stored
+
+| 7
+| `IS_COUNTER`
+| Cell is a counter cell; value is a 8-byte counter shard context
+|===
+
+---
+
+== Reference Walkthroughs
+
+=== Point Read Walkthrough (BIG Format)
+
+The steps below trace a single-partition point read through the BIG format component chain.
+
+[source]
+----
+1. Hash the partition key with Murmur3 → 128-bit token
+
+2. Check Filter.db (Bloom filter)
+   → Negative result: partition definitely absent, stop here
+   → Positive result: proceed (false positives are possible)
+
+3. Binary search Summary.db for the sampled token nearest the target
+   → Summary.db holds one index entry per index_interval partitions
+   → Returns a byte offset into Index.db
+
+4. Seek to the Summary.db offset in Index.db
+   Binary search the Index.db region for the exact partition key
+   → Returns a byte offset into Data.db
+
+5. If the SSTable is compressed:
+   → Look up the Data.db offset in CompressionInfo.db to find the chunk offset
+   → Read the compressed chunk
+   → Verify the trailing 4-byte CRC32 (NB format only)
+   → Decompress the chunk
+
+6. Read the partition header at the Data.db offset
+   → Confirm partition key matches (guard against index false positives)
+   → Check partition deletion timestamp
+
+7. Scan or seek within the unfiltered sequence
+   → Apply clustering key bounds from the query
+   → Merge with results from other SSTables at the read coordinator
+----
+
+=== Chunk CRC Verification (NB Format)
+
+The `nb` format appends a 4-byte CRC32 after each compressed chunk in `Data.db`.
+
+[source]
+----
+1. Locate the compressed chunk via CompressionInfo.db offset
+
+2. Read compressed_length bytes (from CompressionInfo.db chunk entry)
+
+3. Read the next 4 bytes as a big-endian u32 → expected_crc
+
+4. Compute CRC32 over the compressed_length bytes
+
+5. Compare computed CRC32 with expected_crc
+   → Match:   chunk is intact, proceed to decompression
+   → Mismatch: chunk is corrupt; do not decompress; report corruption
+
+6. After decompression, verify that uncompressed size equals the value
+   recorded in CompressionInfo.db (decompression bomb protection)
+----
+
+---
+
+== Tools Quick Reference
+
+All tools are located in the Cassandra source tree under `tools/bin/`.
+Run them against a stopped node or a snapshot copy — never against live data files that Cassandra is actively using.
+
+[CAUTION]
+====
+Always verify that `TOC.txt` is present before running any tool.
+A missing `TOC.txt` indicates an incomplete or partially written SSTable that tools may misread.
+Always take a snapshot with `nodetool snapshot` before running `sstablescrub` or any destructive operation.
+====
+
+[cols="2,3,2,3", options="header"]
+|===
+| Tool | Command | When To Use | Notes
+
+| `sstabledump`
+| `tools/bin/sstabledump <path-to-sstable>`
+| Debugging data content; verifying cell values and tombstones
+| Outputs JSON; reads Data.db directly; can be slow on large files
+
+| `sstablemetadata`
+| `tools/bin/sstablemetadata <path-to-sstable>`
+| Inspecting SSTable properties without reading row data
+| Shows partition count, min/max timestamps, compression info, estimated row count
+
+| `sstablescrub`
+| `tools/bin/sstablescrub <keyspace> <table>`
+| Rebuilding SSTables that fail to open due to corruption
+| Destructive: drops unreadable rows; always snapshot first
+
+| `sstableverify`
+| `tools/bin/sstableverify <keyspace> <table>`
+| Validating SSTable integrity before an upgrade or after hardware events
+| Non-destructive; safe to run on live snapshots
+|===
+
+---
+
+== Compression Algorithms
+
+[cols="1,2,1,1,3", options="header"]
+|===
+| Algorithm | Frame Format | Typical Ratio | CPU Cost | Notes
+
+| LZ4
+| Frame header + compressed blocks + end mark
+| Moderate (~2:1)
+| Very low
+| Default in many Cassandra deployments; favors speed over ratio
+
+| Snappy
+| Compressed-length prefix + compressed bytes
+| Moderate (~2:1)
+| Low
+| Google-originated; fast decompression; no framing overhead
+
+| Deflate
+| zlib-wrapped DEFLATE stream
+| High (~3:1)
+| Moderate
+| Better compression ratio at the cost of higher CPU
+
+| Zstd
+| Frame header + data blocks + optional checksum
+| High (~3:1)
+| Low–moderate
+| Best ratio/speed tradeoff; available in Cassandra 4.x+
+|===
+
+Per-chunk CRC32 applies in the `nb` format regardless of which algorithm is selected.
+All algorithms are subject to decompression bomb protection: the decompressor verifies that uncompressed output size does not exceed the `chunk_length` recorded in `CompressionInfo.db`.
+
+---
+
+== Glossary
+
+BIG::
+The classic multi-file SSTable format used from Cassandra 1.x through 5.x.
+Components include `Data.db`, `Index.db`, `Summary.db`, `Filter.db`, `Statistics.db`, `CompressionInfo.db`, `Digest.crc32` (or `.sha1`), and `TOC.txt`.
+
+Bloom Filter::
+A probabilistic data structure stored in `Filter.db` that answers "is this partition key possibly present?" with a tunable false-positive rate (FPR).
+A negative answer is always correct; a positive answer may be a false positive.
+
+BTI (B-Tree/Trie Indexed)::
+The newer SSTable format introduced in Cassandra 5.0.
+Replaces `Index.db` and `Summary.db` with trie-based `Partitions.db` and `Rows.db` components for faster lookups and reduced memory overhead.
+
+Delta Encoding::
+Storing a value as the difference from a known baseline rather than as an absolute value.
+Used for timestamps and TTLs to reduce the magnitude (and therefore the VInt byte count) of stored values.
+
+FPR (False Positive Rate)::
+The probability that a Bloom filter incorrectly reports a partition key as present.
+Configurable per table via `bloom_filter_fp_chance`; lower FPR requires more memory.
+
+gc_grace_seconds::
+A table-level setting that controls how long Cassandra retains tombstones before they are eligible for compaction-based deletion.
+Prevents tombstones from being removed before they propagate to all replicas.
+
+LCS (Leveled Compaction Strategy)::
+A compaction strategy that organizes SSTables into size-tiered levels.
+Provides better read performance and more predictable space amplification than STCS.
+
+Memtable::
+The in-memory, mutable data structure that accumulates writes before they are flushed to disk as a new SSTable.
+Multiple implementations exist; see TrieMemtable.
+
+Merkle Tree::
+A hash tree used during Cassandra's `repair` operation to identify data divergence between replicas.
+Each leaf covers a token range; nodes are built from SHA-256 hashes of the data.
+
+Promoted Index::
+An embedded mini-index within `Index.db` (BIG format) for wide partitions.
+Stores clustering key offsets within a partition so that a point read does not have to scan from the partition start.
+Stored inline after the partition key entry in `Index.db`.
+
+SerializationHeader::
+A metadata section in `Statistics.db` that stores the baseline timestamp and TTL values used for delta encoding, along with the column schema at write time.
+Read during SSTable open to initialize decoders.
+
+SSTable (Sorted String Table)::
+An immutable, append-only file set that persists flushed or compacted Cassandra data.
+SSTables are the durable output of the LSM-tree write path; they are never modified in place after initial write.
+
+STCS (Size-Tiered Compaction Strategy)::
+The default compaction strategy.
+Groups SSTables of similar size into compaction jobs; well-suited for write-heavy workloads.
+
+TOC.txt (Table of Contents)::
+The manifest file that lists every valid component file belonging to an SSTable.
+Cassandra atomically writes `TOC.txt` last during a flush or compaction, making its presence the publication barrier: an SSTable without `TOC.txt` is incomplete and will not be opened.
+
+TrieMemtable::
+The byte-ordered prefix trie memtable introduced as the default in Cassandra 5.0.
+Replaces the `SkipListMemtable` for the common case; provides faster in-order iteration during flush and improved memory locality.
+
+TWCS (Time Window Compaction Strategy)::
+A compaction strategy designed for time-series data.
+Groups SSTables by write time into fixed-size windows, then compacts within each window; minimizes compaction work on data that is written once and read rarely.
+
+UCS (Unified Compaction Strategy)::
+An experimental compaction strategy in Cassandra 4.x+ that unifies STCS and LCS behavior under a single configurable framework.
+
+VInt (Variable-Length Integer)::
+A space-efficient integer encoding where each byte's high bit is a continuation flag.
+Values 0–127 fit in one byte; larger values use 2–9 bytes.
+Used pervasively in SSTable internals for lengths, offsets, and counts.
+
+ZigZag Encoding::
+A mapping from signed integers to unsigned integers that keeps small-magnitude negative numbers small after encoding.
+Applied before VInt when the value may be negative (for example, signed timestamp deltas).

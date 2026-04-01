@@ -1,0 +1,195 @@
+= Contribution Ladder
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Contributing to Cassandra does not require a deep understanding of the entire codebase.
+Most valuable contributions start small and local.
+The ladder below describes the natural progression from first contact with the codebase to complex cross-cutting feature work.
+You do not need to complete every rung — skip to the level that matches your familiarity and goals.
+
+== Rung 1: Documentation or Test-Only Contribution
+
+The lowest-friction entry point.
+No distributed systems expertise required.
+
+Good starting contributions include fixing a typo, clarifying an AsciiDoc page, adding a missing test case, or improving an inline comment.
+These changes are small, self-contained, and reviewable by anyone — and they teach you the full contribution workflow without requiring you to understand the runtime behavior of the system.
+
+*JIRA filter:*
+https://issues.apache.org/jira/issues/?jql=project%20%3D%20CASSANDRA%20AND%20(labels%20%3D%20documentation%20OR%20labels%20%3D%20test)%20AND%20status%20!%3D%20Resolved[`labels = documentation OR labels = test` in Cassandra JIRA]
+
+*What you will learn:*
+
+* How the contribution workflow operates end-to-end
+* How to run the relevant tests locally
+* How to submit a patch and respond to review feedback
+
+*Key pages:*
+
+* xref:patch-review/patches.adoc[Contributing Code Changes]
+* xref:documentation/index.adoc[Working on Documentation]
+
+== Rung 2: First Code Contribution (Bug Fix)
+
+Fixing a real bug in a constrained scope.
+This rung introduces you to reading production code, tracing a failure to its source, and writing a targeted test that proves the fix works.
+
+Good examples include fixing an edge case in error handling, correcting a config validation bug, or fixing a nodetool output issue.
+These bugs are bounded — they live in one class or one method — and reviewing them does not require understanding the broader system.
+
+*JIRA filter:*
+https://issues.apache.org/jira/issues/?jql=project%20%3D%20CASSANDRA%20AND%20labels%20%3D%20lhf%20AND%20status%20!%3D%20Resolved[Low hanging fruit (`lhf` label)] — these are explicitly marked as good starting points by committers.
+
+*What you will learn:*
+
+* Where a specific bug lives in the codebase
+* How to write a targeted test that proves the fix works
+* How review feedback works in practice
+
+*Key pages:*
+
+* xref:internals/internals-map.adoc[Internals Map] — find the right class for the bug you are fixing
+* xref:build-test/test-selection-matrix.adoc[Test Selection Matrix] — pick the right tests to run
+
+TIP: Pick a bug in an area you already understand from a user or operator perspective.
+A networking bug is harder than a CQL validation bug if you have not read the networking code.
+Starting in familiar territory means you can evaluate whether the fix is actually correct.
+
+== Rung 3: First Subsystem Deep Dive
+
+Spending real time understanding one subsystem before contributing to it.
+
+Good examples include reading all the classes in `org.apache.cassandra.db.compaction`, understanding the gossip state machine, or tracing the SSTable write path end-to-end.
+The goal is not to memorize the code — it is to build a mental model of how one part of the system works so that you can reason about changes to it.
+
+*Approach:*
+
+. Use xref:internals/internals-map.adoc[Internals Map] to identify the entry points for the subsystem you chose.
+. Read the code, following the call graph into and out of the subsystem.
+. Write notes in a local document or leave questions in a JIRA comment — this creates a record and often surfaces discussions with committers.
+
+*What you will learn:*
+
+* How one subsystem works internally
+* What the test coverage looks like and where the gaps are
+* Where the rough edges and known technical debt live
+
+After completing this rung, you are qualified to fix bugs in that subsystem, review patches that touch it, and find your own improvement opportunities without being assigned a ticket.
+
+NOTE: This rung does not require submitting any code.
+Reading deeply and asking informed questions on the dev list is a legitimate contribution.
+Committers notice contributors who engage thoughtfully before they write a single line.
+
+== Rung 4: Bug Fix With Non-Trivial Test Coverage
+
+A bug fix that requires new distributed tests, upgrade tests, or multi-scenario coverage.
+These are bugs where a unit test is not sufficient — the failure mode involves multiple nodes, specific timing, or version interactions.
+
+Good examples include fixing a repair race condition with a new `dtest`, or fixing a mixed-version incompatibility with an upgrade test.
+
+*What you will learn:*
+
+* How the distributed test framework (`dtest`) works
+* How to reason about multi-node failure scenarios
+* How to write and run upgrade tests that span two Cassandra versions
+
+*Key pages:*
+
+* xref:build-test/debugging.adoc[Debugging Cassandra]
+* xref:build-test/test-selection-matrix.adoc[Test Selection Matrix]
+
+WARNING: Distributed tests are slower and flakier than unit tests by nature.
+Budget time to run them multiple times and distinguish genuine failures from environmental noise.
+The test selection matrix explains which test categories are required for which types of changes.
+
+== Rung 5: First Feature With Bounded Scope
+
+Adding a new feature that is confined to a single subsystem and does not require a CEP-level discussion.
+The feature should be additive, backward-compatible, and reviewable without cross-subsystem context.
+
+Good examples include adding a new guardrail, adding a new `nodetool` subcommand, or adding a new virtual table.
+These changes extend the system without altering existing behavior for existing users.
+
+*Prerequisites:*
+
+. Complete Rungs 1–3 in at least one relevant subsystem.
+. File a JIRA ticket describing the feature and why it belongs in the project.
+. Announce on the https://lists.apache.org/list.html?dev@cassandra.apache.org[dev mailing list] so committers can signal concerns before you invest in implementation.
+
+*What you will learn:*
+
+* How to scope a feature so that it can be reviewed incrementally
+* How to write `NEWS.txt` entries and update generated documentation surfaces
+* How the project evaluates new features for scope and maintainability
+
+*Key pages:*
+
+* xref:develop/feature-playbook.adoc[Feature Development Playbook]
+* xref:develop/patch-classification.adoc[Patch Classification]
+
+== Rung 6: Cross-Cutting Feature or Architectural Change
+
+A change that touches multiple subsystems, requires a dev list discussion or a Cassandra Enhancement Proposal (CEP), or affects upgrade paths between versions.
+
+Good examples include a new consistency option, a new compaction strategy, or a change to the native protocol.
+These changes require coordinating reviewers across subsystems, reasoning about upgrade compatibility, and often producing a written design document that the community can evaluate before implementation begins.
+
+*Prerequisites:*
+
+* Deep familiarity with at least one affected subsystem (Rung 3 minimum)
+* Active participation in the dev community — you are known to the committers who will review your work
+* A written proposal on the dev list, or a CEP for significant changes
+
+*What you will learn:*
+
+* How the project manages cross-cutting concerns without a central architect
+* How to run upgrade tests that validate compatibility across supported versions
+* How to work with reviewers who each own a different part of the system
+
+*Key pages:*
+
+* xref:develop/compatibility-checklist.adoc[Compatibility Checklist]
+* xref:orientation/expert-discovery.adoc[Expert Discovery]
+
+NOTE: CEPs are not a gatekeeping mechanism — they are a coordination tool.
+The goal is to surface concerns early so that large investments do not land in a direction the community cannot accept.
+Starting the conversation informally on the dev list before drafting a formal CEP is encouraged.
+
+== Finding Issues At Each Rung
+
+Use these JIRA labels to find work at the right level for where you are now.
+
+[cols="1,2,3", options="header"]
+|===
+| Rung | JIRA Labels to Search | Description
+
+| 1
+| `documentation`, `test`
+| Docs and test improvements — no runtime knowledge required
+
+| 2
+| `lhf`, `beginner`
+| Low hanging fruit and constrained bugs marked by committers
+
+| 3
+| _(any subsystem)_
+| Deep-read issues before writing code — build your mental model first
+
+| 4
+| `dtest`, `upgrade`
+| Bugs that require distributed or upgrade test coverage
+
+| 5
+| _(new feature scope)_
+| Bounded features and enhancements in a single subsystem
+
+| 6
+| _(dev list discussion)_
+| Major features, architectural changes, and CEP-level work
+|===
+
+TIP: If you are unsure which rung fits you, start at Rung 1 or 2.
+The contribution workflow is the same at every level — getting comfortable with it early means you can focus on the technical content when the stakes are higher.

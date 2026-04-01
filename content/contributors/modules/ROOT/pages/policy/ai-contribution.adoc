@@ -1,0 +1,132 @@
+= AI-Assisted Contribution Policy
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+AI-assisted tools are now a normal part of software development.
+Contributors may use AI for code exploration, summarization, scaffolding, test generation, and documentation drafting.
+The Cassandra project welcomes this where it improves productivity, with one non-negotiable principle: the contributor is fully accountable for everything they submit.
+This policy applies to all contribution types — code patches, test additions, configuration changes, and documentation — wherever AI tooling played a material role.
+It makes the rules explicit so there is no ambiguity about what is permitted, what is required, and where the project draws the line.
+
+== The Core Principle
+
+The contributor who submits a patch owns it — regardless of how it was produced.
+
+"An AI wrote this" is not a defense for incorrect behavior, missing tests, broken compatibility, or architectural shortcuts.
+Reviewers evaluate the patch on its merits.
+They are not required to treat AI-generated code differently — but they may ask questions that probe whether the contributor understands the code they submitted.
+
+If a reviewer asks "why did you implement it this way?" the contributor must be able to answer from their own understanding.
+A patch that a contributor cannot explain is a patch that is not ready to submit.
+
+== Permitted Uses
+
+These uses of AI tooling are explicitly permitted and encouraged where they improve quality:
+
+* *Code exploration* — using AI to navigate an unfamiliar subsystem and build context before making changes
+* *Summarization* — using AI to summarize commit history, JIRA context, or existing implementations
+* *Scaffolding* — using AI to draft boilerplate or skeleton implementations, reviewed and edited by the contributor before submission
+* *Test generation* — using AI to suggest test cases, then reviewing, running, and validating them
+* *Documentation drafting* — using AI to draft AsciiDoc content, then reviewing for accuracy and source grounding
+* *Commit message drafting* — using AI to suggest a commit message, then editing for precision
+
+NOTE: There is no prohibition on using AI tooling at any stage of the contribution process.
+The constraint is on what gets submitted, not on how the contributor works.
+
+== Required Practices
+
+These practices are mandatory for all AI-assisted contributions.
+They apply whether the AI produced one function or the entire patch.
+
+*Tests are mandatory regardless of code origin.*
+AI-generated code must be tested to the same standard as hand-written code.
+There are no exceptions based on how the code was produced.
+See xref:build-test/test-selection-matrix.adoc[Test Selection Matrix] for which tests apply to which kind of change.
+
+*The contributor must understand the code they submit.*
+If a reviewer asks about an implementation choice, the contributor must be able to answer from their own understanding — not by re-asking the AI.
+A contributor who cannot explain their patch is not ready to submit it.
+
+*Generated code does not substitute for required design discussion.*
+If a change requires a dev list thread or a Cassandra Enhancement Proposal (CEP) — see xref:develop/feature-playbook.adoc[Feature Development Playbook] — an AI-generated implementation does not replace that discussion.
+The design discussion is about architecture and consensus, not about who or what produced the code.
+
+*Source claims must be verified.*
+If AI tooling suggests a behavior, default value, or compatibility guarantee, verify it against the Cassandra source before including it in the patch or commit message.
+Unverified claims that reach the commit log cause downstream problems for operators, documentation, and future contributors.
+
+*Public design and review channels remain authoritative.*
+Decisions made on the dev mailing list and in JIRA take precedence over AI suggestions.
+If an AI tool recommends an approach that conflicts with a prior dev list decision, the dev list decision stands.
+
+*Reviewers are not required to accept partial understanding.*
+A reviewer who suspects a contributor does not understand their own patch may ask targeted questions.
+If the contributor cannot answer them, the reviewer may request that the patch be reworked.
+This is not a judgment about the tool used — it is standard review practice applied consistently.
+
+WARNING: AI tools can produce confident-sounding but incorrect output about Cassandra internals, configuration defaults, and protocol compatibility.
+Always validate against the source.
+
+== Disclosure
+
+Disclosure of AI tool use is not currently required by the Cassandra project.
+
+However, contributors are encouraged to note AI tool use in the commit message or JIRA comment if a significant portion of the patch was AI-generated — not as a disclaimer, but as useful context for reviewers.
+
+A reasonable threshold: if AI tooling produced the structure or logic of a function rather than just filling in syntax, noting it is courteous.
+If AI only suggested a variable name or formatted a block comment, no note is needed.
+
+Example commit message note:
+
+----
+(Scaffolded with AI assistance, reviewed and tested by contributor)
+----
+
+TIP: Noting AI tool use in the JIRA comment is often more useful than the commit message, since it gives reviewers context before they look at the diff.
+
+== Documentation Contributions
+
+AI-assisted documentation drafting is permitted and common in this workzone.
+
+All documentation contributions must meet the same standards as authored prose, regardless of how the draft was produced.
+
+=== Standards for AI-assisted doc contributions
+
+* Claims are grounded in the Cassandra source, not inferred from AI output
+* No invented defaults, compatibility guarantees, or version-specific behaviors
+* All content reviewed by the contributor before upstream submission
+* Admonitions (NOTE, WARNING, IMPORTANT) reflect accurate project behavior, not AI assumptions
+
+=== Workflow
+
+Documentation drafted with AI assistance follows the same path as any other doc contribution.
+Draft in the workzone, validate against source, submit via JIRA or GitHub, and go through standard review.
+The workzone's review gates exist precisely because AI-assisted drafts require the same source-grounding check as handwritten content.
+
+See xref:documentation/index.adoc[Working on Documentation] for the full documentation contribution workflow, including review gates before content moves upstream to `apache/cassandra` or `apache/cassandra-website`.
+
+== ASF Generative Tooling Guidance
+
+The Apache Software Foundation has issued guidance on generative AI use in ASF projects.
+Cassandra follows ASF policy.
+
+The key ASF requirement is that generated content must be reviewed and owned by a human contributor with an active Individual Contributor License Agreement (ICLA).
+The ICLA covers all contributions, regardless of how they were produced.
+
+See https://www.apache.org/legal/[ASF Legal Resources] for the current policy and any updates.
+
+NOTE: ASF policy on generative AI is an evolving area.
+If you have questions about a specific use case, ask on the dev mailing list before submitting.
+
+== Summary Checklist
+
+Before submitting any AI-assisted contribution:
+
+* [ ] I understand the code I am submitting and can explain implementation choices to a reviewer
+* [ ] Tests are included, pass locally, and meet the standard for this patch type
+* [ ] I have not bypassed required design discussion with AI-generated code
+* [ ] Source claims in the patch and commit message are verified against the Cassandra repo
+* [ ] Generated content complies with ASF generative tooling policy and is covered by my ICLA

@@ -1,0 +1,492 @@
+= Compaction and Tombstone Lifecycle
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Compaction is how Cassandra reclaims disk space, purges tombstones, and controls read amplification over time.
+As SSTables accumulate from memtable flushes, compaction merges them according to a chosen strategy, applying tombstone shadowing rules and expiring TTL data in the process.
+Understanding compaction strategies and tombstone lifecycle is essential for contributors working on storage, performance, or data integrity.
+This page covers tombstone semantics, `gc_grace_seconds`, strategy tradeoffs, lifecycle tooling, concurrency, repair, backups, and checksum verification.
+
+== Tombstone Types and Reconciliation
+
+Cassandra represents deleted data as tombstones rather than overwriting existing bytes.
+During a read or compaction merge, tombstones shadow older data according to their timestamps.
+There are four tombstone types:
+
+Partition tombstone::
+  Marks an entire partition as deleted.
+  Produced by `DELETE FROM table WHERE partition_key = ?` with no clustering restriction.
+  Shadows all rows and cells in the partition with a timestamp older than the tombstone's deletion time.
+
+Row tombstone::
+  Marks a single clustering row as deleted.
+  Produced by `DELETE FROM table WHERE partition_key = ? AND clustering_col = ?`.
+  Shadows all cells within that row that have a timestamp older than the tombstone.
+
+Cell tombstone::
+  Marks a single column value as deleted.
+  Produced by `DELETE col FROM table WHERE ...`.
+  Shadows only the specific cell.
+
+Range tombstone::
+  Marks a range of clustering keys as deleted (bounded by an open and a close marker).
+  Produced by range-based `DELETE` statements with clustering column inequalities.
+  During reads, the range bounds are checked per row; rows within the interval with an older timestamp are suppressed.
+
+TTL expiry::
+  Cells written with a `USING TTL` clause carry an expiration timestamp.
+  Once a cell's TTL has elapsed, it is treated as deleted during reads and compaction.
+  Expired cells produce synthetic tombstones during compaction so the space can eventually be reclaimed.
+
+=== Reconciliation Rules
+
+When multiple SSTables are merged — during a read or compaction — the reconciliation rules are:
+
+* The value with the highest timestamp wins.
+* A tombstone with timestamp `T` shadows all data (values, row inserts, other tombstones) with timestamp `< T`.
+* Range tombstones are applied per-row: a row is suppressed if it falls within an active range tombstone interval and its timestamp is older than the range tombstone.
+* Multiple tombstones for the same target (e.g., two cell tombstones for the same column) resolve the same way — highest timestamp wins.
+
+For the binary encoding of each tombstone type on disk, see xref:sstable-architecture/data-format.adoc[SSTable Data Format].
+
+Key classes:
+
+* `org.apache.cassandra.db.rows.Row`
+* `org.apache.cassandra.db.rows.RangeTombstoneBoundMarker`
+* `org.apache.cassandra.db.DeletionTime`
+* `org.apache.cassandra.db.partitions.UnfilteredPartitionIterator`
+
+== gc_grace_seconds and Tombstone Purging
+
+Tombstones cannot be removed from disk the moment they are written.
+A deleted record must have its tombstone propagated to all replicas — typically via anti-entropy repair — before the tombstone itself can be discarded.
+If a tombstone were purged before reaching an out-of-sync replica, the previously deleted data could re-appear when that replica is consulted: the "zombie data" problem.
+
+`gc_grace_seconds` (default: 864,000 seconds / 10 days) is the minimum time a tombstone is retained on disk.
+It establishes the window within which repair is expected to have run and propagated the deletion.
+
+=== Purge Conditions
+
+Compaction purges a tombstone only when *both* conditions are met:
+
+. The tombstone's local deletion time is older than `gc_grace_seconds`.
+. There are no overlapping SSTables (in other levels or tiers) that could contain live data with a timestamp older than the tombstone — i.e., the compaction has complete visibility of all data the tombstone shadows.
+
+Condition 2 means tombstone purging is tied to the compaction strategy's ability to see all relevant SSTables.
+LCS, with non-overlapping key ranges per level, generally purges tombstones more predictably than STCS where many overlapping SSTables may exist across tiers.
+
+=== Zombie Data Risk
+
+If `nodetool repair` has not run within the `gc_grace_seconds` window:
+
+* A tombstone may be purged on a repaired node.
+* A replica that missed the deletion still holds the original data.
+* After the tombstone is gone, reads may see the deleted data return from the stale replica.
+
+*Operational implication*: repair must run regularly — at minimum within every `gc_grace_seconds` interval for every table.
+Tables with aggressive tombstone workloads (e.g., time-series with frequent deletes) should be evaluated for shorter `gc_grace_seconds` paired with more frequent repair.
+
+Key classes:
+
+* `org.apache.cassandra.db.compaction.CompactionController` (determines purgeability)
+* `org.apache.cassandra.db.compaction.Purger`
+
+== Compaction Strategies
+
+Cassandra supports four compaction strategies.
+Each makes different tradeoffs across write amplification, read amplification, and space amplification.
+
+Write amplification (WA)::
+  How many times a byte is written to disk relative to the original write.
+  Higher WA means more compaction I/O overhead.
+
+Read amplification (RA)::
+  How many SSTables must be consulted to answer a read.
+  Higher RA means slower point reads.
+
+Space amplification (SA)::
+  How much extra disk space is used relative to the live data size.
+  Higher SA means more temporary or redundant data on disk.
+
+=== Size-Tiered Compaction (STCS)
+
+STCS groups SSTables of similar size into tiers.
+When a tier accumulates enough SSTables (controlled by `min_threshold` / `max_threshold`, default 4), they are merged into a larger SSTable.
+Over time, tiers grow: small SSTables merge into medium, medium into large.
+
+* *Write amplification*: low — each flush produces one small SSTable; compaction happens in batches only when a tier threshold is reached.
+* *Read amplification*: high — many SSTables of overlapping key ranges may exist simultaneously; a point read may need to consult all of them.
+* *Space amplification*: high — during a compaction, the new SSTable coexists on disk with the inputs until the merge is complete, temporarily doubling the data footprint for that tier.
+* *Best for*: write-heavy, append-mostly workloads where write throughput is the primary concern and occasional higher read latency is acceptable.
+
+[WARNING]
+====
+STCS with a large number of active SSTables can lead to significant read latency degradation.
+Monitor `SSTablesPerReadHistogram` when using STCS under read-heavy load.
+====
+
+Key class: `org.apache.cassandra.db.compaction.SizeTieredCompactionStrategy`
+
+=== Leveled Compaction (LCS)
+
+LCS organizes SSTables into discrete levels (L0, L1, L2, ...).
+Each level beyond L0 enforces non-overlapping key ranges — every key appears in at most one SSTable per level.
+Levels grow 10x in target size from one level to the next (`fanout_size`, default 10).
+SSTables are promoted from L0 to L1 and onward as each level fills.
+
+* *Write amplification*: high — data is rewritten at each level promotion; a byte written may be rewritten many times as it moves through levels.
+* *Read amplification*: low — at most one SSTable per level per key range; a point read touches at most `number_of_levels` SSTables.
+* *Space amplification*: low — non-overlap means there is minimal redundant data; typically ~10% overhead above live data size.
+* *Best for*: read-heavy workloads, frequent updates to the same keys, workloads where predictable low-latency point reads are required.
+
+Key class: `org.apache.cassandra.db.compaction.LeveledCompactionStrategy`
+
+=== Time-Window Compaction (TWCS)
+
+TWCS partitions SSTables into time windows (e.g., 1 hour or 1 day, configured via `compaction_window_unit` and `compaction_window_size`).
+Within an active window, size-tiered compaction runs as data accumulates.
+Once a window closes, its SSTables are treated as immutable and are not compacted across window boundaries.
+
+* *Write amplification*: low within the active window (same as STCS tier behavior); zero across closed windows.
+* *Read amplification*: low for recent data (bounded within the current window); moderate for queries spanning many historical windows.
+* *Space amplification*: moderate — each window retains its own SSTables until TTL expiry allows full purge.
+* *Best for*: time-series data with TTL-based expiration, append-only time-bucketed writes where data is rarely updated after initial write.
+
+[WARNING]
+====
+TWCS is not suitable for workloads that update or delete data in closed time windows.
+Updates to old data create tombstones in the current window that cannot be applied to the closed window during compaction, preventing tombstone purging and accumulating disk space.
+====
+
+Key class: `org.apache.cassandra.db.compaction.TimeWindowCompactionStrategy`
+
+=== Unified Compaction Strategy (UCS)
+
+UCS was introduced in Cassandra 5.0 as a generalized strategy designed to replace the need for strategy-specific selection.
+Rather than picking between STCS, LCS, and TWCS, operators configure `scaling_parameters` to tune UCS behavior along the tiered-to-leveled spectrum.
+
+* A scaling parameter of `T4` approximates STCS behavior.
+* A scaling parameter of `L10` approximates LCS behavior.
+* Intermediate values provide tunable tradeoffs.
+
+UCS also introduces shard-based compaction concurrency, allowing multiple compaction tasks to run in parallel on non-overlapping key ranges within the same table.
+This reduces per-compaction latency on large tables compared to a single-threaded strategy compaction.
+
+Key class: `org.apache.cassandra.db.compaction.UnifiedCompactionStrategy`
+
+=== Amplification Comparison
+
+[cols="1,1,1,1,2", options="header"]
+|===
+|Strategy |Write Amp |Read Amp |Space Amp |Best For
+
+|STCS
+|Low
+|High
+|High (~2x during compaction)
+|Write-heavy, append-mostly workloads
+
+|LCS
+|High
+|Low
+|Low (~10% overhead)
+|Read-heavy, frequent key updates, low-latency point reads
+
+|TWCS
+|Low (within window)
+|Low (recent); moderate (historical)
+|Moderate (per-window)
+|Time-series with TTL expiry, time-bucketed access patterns
+
+|UCS
+|Configurable
+|Configurable
+|Configurable
+|General purpose; tunable via `scaling_parameters`
+|===
+
+=== Tombstone Purging by Strategy
+
+Each strategy's ability to purge tombstones depends on its overlap characteristics:
+
+* *STCS*: Tombstones may be delayed if old SSTables with overlapping key ranges have not yet been merged into the same compaction. The more tiers exist simultaneously, the longer purge may be deferred.
+* *LCS*: Non-overlapping ranges at L1+ provide high confidence that a compaction merging two SSTables has complete key coverage. Tombstone purging is more predictable. L0 accumulation can still defer purges temporarily.
+* *TWCS*: Purging is effective when an entire closed window can be compacted together (all data expired past `gc_grace_seconds`). Cross-window tombstones (deleting data in older windows) are not reliably purged.
+* *UCS*: Inherits the purge behavior of its configured scaling mode; shard-based compaction improves predictability by limiting the key range each compaction task must reason about.
+
+== SSTable Lifecycle Operations
+
+Several offline tools support SSTable maintenance and diagnosis.
+All tools operate on the immutable SSTable files; they do not modify live SSTables in place.
+
+`sstablescrub`::
+  Rebuilds a potentially corrupt SSTable by re-serializing all readable data into a new SSTable.
+  Skips partitions that cannot be deserialized and optionally records skipped data for manual review.
+  Use when `sstableverify` reports corruption or when a node fails to read specific partitions.
+
+`sstableverify`::
+  Validates SSTable integrity by checking checksums and attempting to parse all partitions.
+  Does not modify any files.
+  Use as a health check before and after restore operations, or after hardware events.
+
+`sstablemetadata`::
+  Reads and displays `Statistics.db` contents without deserializing row data.
+  Outputs timestamps (min/max/local deletion time), partition counts, estimated droppable tombstone counts, compression ratio, and level information.
+  Useful for quickly assessing the age and tombstone density of SSTables without a full read.
+
+`sstabledump`::
+  Deserializes all partitions and outputs SSTable contents as JSON.
+  Useful for debugging data corruption, verifying write correctness, or inspecting tombstone state.
+  Can be expensive on large SSTables; prefer filtering by key range for production triage.
+
+For usage syntax and output examples for each tool, see xref:sstable-architecture/reference.adoc[SSTable Reference].
+
+Key classes:
+
+* `org.apache.cassandra.tools.SSTableMetadata`
+* `org.apache.cassandra.tools.SSTableDump`
+* `org.apache.cassandra.tools.SSTableVerify`
+* `org.apache.cassandra.tools.SSTableScrub`
+
+== Compaction Concurrency and Atomicity
+
+Compaction and normal reads run concurrently.
+The SSTable lifecycle during compaction follows a strict atomicity protocol to prevent data loss or corruption:
+
+. *Compaction begins*: The compaction task selects input SSTables and registers them in the compaction set.
+   Ongoing reads can still access the input SSTables normally.
+. *New SSTable written*: The compaction writes the merged output to new SSTable files.
+   The new SSTable is not yet visible to readers.
+. *Atomic swap*: Once the new SSTable is fully written and its `TOC.txt` is published, `ColumnFamilyStore` atomically updates the live SSTable set — adding the new SSTable and removing the inputs from the live set.
+   After the swap, new reads use the new SSTable.
+. *Deferred deletion*: Input SSTables are not immediately deleted.
+   They are marked for deletion but remain on disk until all active readers that were using them release their references.
+   Only after the reference count reaches zero are the files removed.
+
+This protocol ensures that a read starting before the swap completes safely against the old SSTables, while reads starting after the swap use the new SSTable exclusively.
+There is no window where the merged data is unavailable.
+
+Key classes:
+
+* `org.apache.cassandra.db.ColumnFamilyStore` (live SSTable set management)
+* `org.apache.cassandra.db.compaction.CompactionManager` (compaction scheduling and execution)
+* `org.apache.cassandra.db.compaction.CompactionStrategy` (strategy interface)
+* `org.apache.cassandra.io.sstable.SSTableDeletingTask` (deferred deletion)
+
+== Repair and Data Movement
+
+=== Anti-Entropy Repair
+
+Cassandra's repair mechanism detects and corrects inconsistencies between replicas using Merkle trees:
+
+. Each replica builds a Merkle tree from its SSTable data for a given token range.
+. Coordinators compare the Merkle trees across replicas.
+. For tree nodes that differ, the affected token ranges are streamed between replicas to synchronize the data.
+. After streaming, SSTables that participated in a successful full repair are marked as *repaired* in `Statistics.db`.
+
+Full repair (default)::
+  Builds Merkle trees from all SSTables and marks them as repaired on completion.
+  Provides the strongest consistency guarantee.
+
+Incremental repair (`--incremental`)::
+  Builds Merkle trees only from *unrepaired* SSTables, streaming only the delta.
+  Lighter weight but requires careful tracking of repaired state.
+  Compaction strategies can be configured to compact repaired and unrepaired SSTables separately, preventing repaired tombstones from being prematurely purged by compaction against unrepaired data.
+
+=== Repaired vs. Unrepaired Tracking
+
+The repaired/unrepaired SSTable distinction directly affects compaction and tombstone purging:
+
+* Compaction only considers tombstone purge eligibility when it has complete visibility of all SSTables that could contain shadowed data.
+* By default, compaction treats repaired and unrepaired SSTables as separate compaction groups, preventing a tombstone in a repaired SSTable from being purged if overlapping unrepaired SSTables might contain the shadowed data.
+* The `only_purge_repaired_tombstones` option (per-table setting) enforces this separation explicitly.
+
+=== Streaming
+
+SSTable file transfers occur during repair, bootstrap, decommission, and rebuild operations:
+
+* The sender identifies the relevant SSTables for the requested token ranges.
+* SSTable sections (a range-bounded subset of a file) are transferred rather than whole files.
+* The receiver writes incoming data to new local SSTables with a new generation identifier.
+* After each SSTable is received, the receiver validates checksums and checks `TOC.txt` component completeness before marking the SSTable available.
+* On checksum failure, the received SSTable is discarded; the sender retries.
+
+Key classes:
+
+* `org.apache.cassandra.streaming.StreamSession`
+* `org.apache.cassandra.repair.RepairSession`
+* `org.apache.cassandra.service.ActiveRepairService`
+
+== Backups and Snapshots
+
+SSTable immutability is the property that makes Cassandra's backup mechanisms efficient.
+Because SSTables are never modified after they are written, hardlinks can be used to create zero-copy point-in-time backups.
+
+=== Snapshots
+
+A snapshot is created via `nodetool snapshot` (or automatically before certain operations like `TRUNCATE`).
+Cassandra creates hardlinks to all current SSTable component files for the specified keyspace/table in:
+
+----
+<data_dir>/<keyspace>/<table>-<uuid>/snapshots/<snapshot_name>/
+----
+
+Because SSTables are immutable, the hardlinked files remain valid even as new SSTables are written and old ones are compacted away.
+Disk space is consumed only when the snapshot's hardlinked files are the last remaining reference to an SSTable — at that point, deleting the snapshot frees the space.
+
+=== Incremental Backups
+
+When `incremental_backups: true` is set in `cassandra.yaml`, Cassandra creates a hardlink to each newly flushed SSTable in:
+
+----
+<data_dir>/<keyspace>/<table>-<uuid>/backups/
+----
+
+Incremental backups accumulate continuously; they should be periodically offloaded to external storage and cleaned up to prevent unbounded disk growth.
+Together with a base snapshot, incremental backups provide point-in-time recovery at the granularity of individual flushes.
+
+=== Restore
+
+To restore from a snapshot or incremental backup:
+
+. Copy the SSTable component files back to the table's data directory.
+   All components listed in `TOC.txt` must be present; partial copies are unsafe.
+. Validate `Digest.crc32` and per-chunk CRCs before activating.
+. Run `nodetool refresh` to load the restored SSTables without restarting the node.
+   Alternatively, restart the node; Cassandra re-discovers SSTables from the data directory on startup.
+. After loading, compaction will normalize any overlap introduced by restoring older SSTables alongside newer ones.
+
+== Checksums and Integrity Verification
+
+Cassandra maintains checksums at multiple levels to detect corruption during read, compaction, streaming, and repair.
+
+=== Per-Chunk CRC (NB Format)
+
+In the NB format (used since Cassandra 4.0, default in 5.x), `Data.db` stores compressed chunk data where each chunk is immediately followed by a 4-byte big-endian CRC32 of that chunk's compressed bytes.
+When Cassandra reads a compressed chunk, it verifies the trailing CRC before decompressing.
+A CRC mismatch indicates corruption in that specific chunk; Cassandra will not return data from a corrupt chunk.
+
+The chunk boundaries and offsets are tracked in `CompressionInfo.db`:
+
+* Chunk `n` starts at `chunk_offsets[n]`.
+* The compressed length of chunk `n` is `chunk_offsets[n+1] - chunk_offsets[n] - 4` (subtracting the trailing 4-byte CRC word).
+
+=== Digest.crc32
+
+`Digest.crc32` provides end-to-end integrity for an entire SSTable component.
+It is written at flush completion, covering the full serialized content of `Data.db` (and potentially other components, depending on format version).
+
+* During compaction, `Digest.crc32` is verified before reading input SSTables.
+* During streaming, the receiver verifies `Digest.crc32` after receiving all chunks.
+* During repair, `Digest.crc32` is checked when the Merkle tree is built from an SSTable.
+
+=== Checksum Coverage Summary
+
+[cols="2,1,1,2", options="header"]
+|===
+|Component |Per-Chunk CRC |Digest.crc32 |Notes
+
+|`Data.db` (NB format)
+|Yes (trailing u32 per chunk)
+|Yes
+|Both chunk-level and file-level coverage
+
+|`Data.db` (BIG format)
+|No
+|Yes
+|File-level only; no per-chunk verification during read
+
+|`Index.db`
+|No
+|Yes
+|Covered by end-to-end digest only
+
+|`Filter.db`
+|No
+|Yes
+|Covered by end-to-end digest only
+
+|`Statistics.db`
+|No
+|Yes
+|Covered by end-to-end digest only
+
+|`CompressionInfo.db`
+|No
+|Yes
+|Covered by end-to-end digest only
+
+|`Partitions.db` (BTI)
+|No
+|Yes
+|Covered by end-to-end digest only
+
+|`Rows.db` (BTI)
+|No
+|Yes
+|Covered by end-to-end digest only
+|===
+
+=== Checksum Failure Handling
+
+When a checksum fails:
+
+* *During read*: The read fails with a `CorruptSSTableException`.
+  The node logs the failure and may mark the SSTable as suspect.
+  If the data is available from a replica, the coordinator can retry against the replica.
+* *During compaction*: The compaction is aborted for that SSTable.
+  `sstablescrub` can attempt to recover readable partitions.
+* *During streaming or repair*: The received SSTable is discarded.
+  The transfer is retried; persistent failures abort the session.
+
+For checksum format details and the full component coverage matrix, see xref:sstable-architecture/reference.adoc[SSTable Reference].
+
+Key classes:
+
+* `org.apache.cassandra.io.util.DataIntegrityMetadata`
+* `org.apache.cassandra.io.compress.CompressedSequentialWriter`
+* `org.apache.cassandra.exceptions.CorruptSSTableException`
+
+== Key Source Files
+
+[cols="2,3", options="header"]
+|===
+|Area |Primary Source References (Cassandra 5.0.0)
+
+|Tombstone types and reconciliation
+|https://github.com/apache/cassandra/tree/cassandra-5.0.0/src/java/org/apache/cassandra/db/rows[db/rows package] +
+https://github.com/apache/cassandra/blob/cassandra-5.0.0/src/java/org/apache/cassandra/db/DeletionTime.java[DeletionTime.java]
+
+|Compaction controller / tombstone purging
+|https://github.com/apache/cassandra/blob/cassandra-5.0.0/src/java/org/apache/cassandra/db/compaction/CompactionController.java[CompactionController.java] +
+https://github.com/apache/cassandra/blob/cassandra-5.0.0/src/java/org/apache/cassandra/db/compaction/Purger.java[Purger.java]
+
+|Compaction strategies
+|https://github.com/apache/cassandra/blob/cassandra-5.0.0/src/java/org/apache/cassandra/db/compaction/SizeTieredCompactionStrategy.java[SizeTieredCompactionStrategy.java] +
+https://github.com/apache/cassandra/blob/cassandra-5.0.0/src/java/org/apache/cassandra/db/compaction/LeveledCompactionStrategy.java[LeveledCompactionStrategy.java] +
+https://github.com/apache/cassandra/blob/cassandra-5.0.0/src/java/org/apache/cassandra/db/compaction/TimeWindowCompactionStrategy.java[TimeWindowCompactionStrategy.java] +
+https://github.com/apache/cassandra/blob/cassandra-5.0.0/src/java/org/apache/cassandra/db/compaction/UnifiedCompactionStrategy.java[UnifiedCompactionStrategy.java]
+
+|Compaction manager and lifecycle
+|https://github.com/apache/cassandra/blob/cassandra-5.0.0/src/java/org/apache/cassandra/db/compaction/CompactionManager.java[CompactionManager.java] +
+https://github.com/apache/cassandra/blob/cassandra-5.0.0/src/java/org/apache/cassandra/db/ColumnFamilyStore.java[ColumnFamilyStore.java]
+
+|Offline tools
+|https://github.com/apache/cassandra/blob/cassandra-5.0.0/src/java/org/apache/cassandra/tools/SSTableMetadata.java[SSTableMetadata.java] +
+https://github.com/apache/cassandra/blob/cassandra-5.0.0/src/java/org/apache/cassandra/tools/SSTableDump.java[SSTableDump.java]
+
+|Repair
+|https://github.com/apache/cassandra/blob/cassandra-5.0.0/src/java/org/apache/cassandra/service/ActiveRepairService.java[ActiveRepairService.java] +
+https://github.com/apache/cassandra/tree/cassandra-5.0.0/src/java/org/apache/cassandra/repair[repair package]
+
+|Streaming
+|https://github.com/apache/cassandra/blob/cassandra-5.0.0/src/java/org/apache/cassandra/streaming/StreamSession.java[StreamSession.java] +
+https://github.com/apache/cassandra/tree/cassandra-5.0.0/src/java/org/apache/cassandra/streaming[streaming package]
+
+|Checksums and integrity
+|https://github.com/apache/cassandra/blob/cassandra-5.0.0/src/java/org/apache/cassandra/io/util/DataIntegrityMetadata.java[DataIntegrityMetadata.java] +
+https://github.com/apache/cassandra/blob/cassandra-5.0.0/src/java/org/apache/cassandra/io/compress/CompressedSequentialWriter.java[CompressedSequentialWriter.java]
+|===

@@ -1,16 +1,40 @@
 * xref:home::index.adoc[Home]
 * xref:index.adoc[Contributors]
+* Orientation
+** xref:orientation/roadmap.adoc[Contributor Roadmap]
+** xref:orientation/expert-discovery.adoc[Expert Discovery]
+** xref:orientation/contribution-ladder.adoc[Contribution Ladder]
+** xref:orientation/first-deep-contribution.adoc[First Deep Contribution]
 * Architecture
 ** xref:architecture/index.adoc[Architecture Overview]
 ** xref:architecture/dynamo.adoc[Dynamo]
 ** xref:architecture/accord.adoc[Accord]
 *** xref:architecture/accord-architecture.adoc[Accord Architecture]
 *** xref:architecture/cql-on-accord.adoc[CQL on Accord]
+* Codebase Internals
+** xref:internals/internals-map.adoc[Internals Map]
+** xref:internals/query-path.adoc[Query Execution Path]
+** xref:internals/messaging.adoc[Messaging and Failure Handling]
+* SSTable Architecture
+** xref:sstable-architecture/fundamentals.adoc[Fundamentals]
+** xref:sstable-architecture/write-path.adoc[Write Path]
+** xref:sstable-architecture/read-path.adoc[Read Path]
+** xref:sstable-architecture/data-format.adoc[Data Format]
+** xref:sstable-architecture/compaction-lifecycle.adoc[Compaction Lifecycle]
+** xref:sstable-architecture/reference.adoc[Reference]
 * Build and Test
 ** xref:build-test/index.adoc[Overview]
 ** xref:build-test/gettingstarted.adoc[Getting Started]
 ** xref:build-test/ide.adoc[Building and IDE Integration]
 ** xref:build-test/testing.adoc[Testing]
+** xref:build-test/test-selection-matrix.adoc[Test Selection Matrix]
+** xref:build-test/debugging.adoc[Debugging]
+** xref:build-test/profiling.adoc[Profiling and Performance]
+* Feature Development
+** xref:develop/feature-playbook.adoc[Feature Development Playbook]
+** xref:develop/patch-classification.adoc[Patch Classification]
+** xref:develop/compatibility-checklist.adoc[Compatibility Checklist]
+** xref:develop/operational-empathy.adoc[Operational Empathy]
 * Patches and Review
 ** xref:patch-review/index.adoc[Overview]
 ** xref:patch-review/patches.adoc[Contributing Code Changes]
@@ -26,3 +50,6 @@
 ** xref:release-publish/release_process.adoc[Release Process]
 * Generated Docs
 ** xref:generated-docs/index.adoc[Generated Documentation]
+* Contribution Policy
+** xref:policy/ai-contribution.adoc[AI-Assisted Contribution]
+** xref:policy/agentic-tools.adoc[Agentic Tools]

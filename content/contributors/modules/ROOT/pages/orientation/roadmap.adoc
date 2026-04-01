@@ -1,0 +1,138 @@
+= Contributor Roadmap
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Apache Cassandra welcomes contributions of many kinds: bug fixes, new features, tests, documentation, and code review.
+This roadmap helps you find the right starting path based on what you want to do and how familiar you are with the codebase.
+Each section below is written for a specific contributor goal, with a sequenced list of steps and the key pages to read.
+If you are brand new to the project, start with xref:build-test/gettingstarted.adoc[Getting Started] regardless of your goal — it covers cloning, building, and running a minimal test before you write a line of changed code.
+
+== Before You Start
+
+Every contribution path shares two prerequisites:
+
+* A working local build — see xref:build-test/gettingstarted.adoc[Getting Started].
+* A signed https://www.apache.org/licenses/contributor-agreements.html[Apache Individual Contributor License Agreement (ICLA)].
+  The ICLA is required before any patch can be committed.
+
+The https://lists.apache.org/list.html?dev@cassandra.apache.org[dev mailing list] is the primary venue for design discussion and community questions.
+The https://the-asf.slack.com/archives/CK23JSY2K[#cassandra channel on ASF Slack] is useful for quick questions, but binding decisions happen on the dev list.
+
+== Find Your Path
+
+=== I want to fix a bug
+
+Bug fixes are the most common entry point for new contributors.
+The `lhf` and `beginner` JIRA labels identify tickets that are scoped to make a first patch tractable.
+
+. Set up your environment with xref:build-test/gettingstarted.adoc[Getting Started].
+. Find a JIRA ticket tagged `lhf` (low hanging fruit) or `beginner` on the https://issues.apache.org/jira/projects/CASSANDRA[Cassandra JIRA board].
+. Assign the ticket to yourself, or leave a comment stating you are working on it, to avoid duplicate effort.
+. Read xref:patch-review/patches.adoc[Contributing Code Changes] to understand the full patch workflow: branch naming, commit format, review request process, and the Github mirror used for patch review.
+. Use xref:internals/internals-map.adoc[Cassandra Internals Map] to identify which subsystem your fix touches and who to ask for review.
+. Consult xref:orientation/contribution-ladder.adoc[Contribution Ladder] for stepped entry points if you want to build context before your first patch.
+
+=== I want to add a feature
+
+Feature contributions require more upfront alignment than bug fixes.
+The expected process depends on scope: a small, backward-compatible improvement may need only a JIRA ticket, while a change to the wire protocol or storage format requires a dev-list thread or a formal Cassandra Enhancement Proposal.
+
+. Read xref:develop/feature-playbook.adoc[Feature Development Playbook] to understand the process from idea to committed code.
+. Determine the right discussion venue: JIRA-only for small changes, dev-list discussion for medium-scope changes, or a Cassandra Enhancement Proposal (CEP) for major changes affecting compatibility or community direction.
+. Read xref:develop/patch-classification.adoc[Patch Classification Guide] to understand what reviewers expect for your patch class.
+. Work through xref:develop/compatibility-checklist.adoc[Compatibility and Upgrade Checklist] to assess your change's impact on rolling upgrades, wire protocol, and storage format.
+. Complete xref:develop/operational-empathy.adoc[Operational Empathy Checklist] before submitting to ensure the change is safe, observable, and operable in production.
+
+=== I want to learn the codebase
+
+Cassandra is a large, mature codebase.
+Structured exploration by subsystem is more effective than reading source files at random.
+The internals map, query path trace, and SSTable architecture docs are designed specifically for this kind of orientation.
+
+. Begin with xref:internals/internals-map.adoc[Cassandra Internals Map] for a structured overview of all major subsystems and their relationships, ownership, and key entry-point classes.
+. Dive into xref:sstable-architecture/fundamentals.adoc[SSTable Architecture] to understand the storage engine: memtables, SSTables, compaction strategies, and the bloom filter chain.
+. Trace a request end-to-end using xref:internals/query-path.adoc[Query Execution Path], from coordinator routing to replica execution to response assembly.
+. Study xref:internals/messaging.adoc[Messaging and Failure Handling] for how nodes communicate, detect failures, and recover in a distributed cluster.
+. Read xref:architecture/index.adoc[Architecture Overview] to situate subsystem knowledge within Cassandra's Dynamo-inspired design and the Accord consensus layer introduced in Cassandra 5.
+
+=== I want to write or fix tests
+
+Cassandra has multiple test categories with different tradeoffs in speed, determinism, and coverage.
+Knowing which type to write — and how to debug failures — is as important as writing the test itself.
+
+. Start with xref:build-test/testing.adoc[Testing] for an overview of test categories (unit, integration, distributed, fuzz, performance) and how to run each type locally and in CI.
+. Use xref:build-test/test-selection-matrix.adoc[Test Selection Matrix] to decide which test types apply to your change, matched by subsystem and change class.
+. Read xref:build-test/debugging.adoc[Debugging Locally] for techniques when tests fail intermittently or produce unexpected output, including heap dump analysis and log correlation.
+. See xref:build-test/profiling.adoc[Profiling and Performance Validation] when your change affects hot paths or you need to validate performance claims before and after a patch.
+
+=== I want to contribute documentation
+
+Cassandra documentation lives in the `cassandra-website` repository and is rendered by Antora.
+Some reference pages are generated from source; others are hand-authored prose.
+Understanding the distinction before you start prevents editing a generated file that will be overwritten on the next build.
+
+. Start with xref:documentation/index.adoc[Working on Documentation] for the documentation workflow, file structure, and how to preview changes locally using Docker and Antora.
+. Read xref:generated-docs/index.adoc[Generated Documentation] to understand which pages are machine-generated from source (and therefore not hand-edited) versus authored prose.
+. Complete xref:develop/operational-empathy.adoc[Operational Empathy Checklist] when your code change has a documentation impact — it prompts you to identify what operators and developers need to know about the change.
+
+=== I want to review patches
+
+Patch review is one of the highest-leverage contributions to the project.
+Even non-committers can review patches and their feedback shapes which changes get merged and how quickly.
+
+. Read xref:patch-review/how_to_review.adoc[Review Checklist] to understand what a thorough review covers: correctness, test coverage, compatibility impact, and operational safety.
+. Read xref:develop/patch-classification.adoc[Patch Classification Guide] to calibrate your review expectations based on the change class (trivial, safe, unsafe, major) — each class has a different bar.
+. Use xref:orientation/expert-discovery.adoc[Subsystem Expert Discovery] to identify which committers and contributors have deep knowledge of the affected subsystem, and add them as reviewers.
+
+== Quick Reference
+
+[cols="2,3,3,2", options="header"]
+|===
+| Goal
+| Start Here
+| Key Resources
+| Time to First Contribution
+
+| Fix a bug
+| xref:build-test/gettingstarted.adoc[Getting Started]
+| xref:patch-review/patches.adoc[Contributing Code Changes], xref:internals/internals-map.adoc[Internals Map]
+| 1-3 days
+
+| Add a feature
+| xref:develop/feature-playbook.adoc[Feature Playbook]
+| xref:develop/patch-classification.adoc[Patch Classification], xref:develop/compatibility-checklist.adoc[Compatibility Checklist]
+| 1-4 weeks depending on scope
+
+| Learn the codebase
+| xref:internals/internals-map.adoc[Internals Map]
+| xref:sstable-architecture/fundamentals.adoc[SSTable Architecture], xref:internals/query-path.adoc[Query Path]
+| Ongoing — start reading today
+
+| Write or fix tests
+| xref:build-test/testing.adoc[Testing]
+| xref:build-test/test-selection-matrix.adoc[Test Selection Matrix], xref:build-test/debugging.adoc[Debugging Locally]
+| 1-5 days
+
+| Contribute documentation
+| xref:documentation/index.adoc[Working on Documentation]
+| xref:generated-docs/index.adoc[Generated Documentation]
+| 1-2 days
+
+| Review patches
+| xref:patch-review/how_to_review.adoc[Review Checklist]
+| xref:develop/patch-classification.adoc[Patch Classification], xref:orientation/expert-discovery.adoc[Expert Discovery]
+| Start immediately on any open JIRA
+|===
+
+== Using AI Coding Tools
+
+Many contributors use agentic coding tools such as Claude Code, Cursor, or GitHub Copilot to navigate and modify the Cassandra codebase.
+These tools work well with large, structured codebases when given explicit context about subsystem boundaries, test categories, and compatibility constraints.
+See xref:policy/agentic-tools.adoc[Working with Agentic Coding Tools] for setup guidance specific to Cassandra, including recommended context files, prompt patterns, and known limitations.
+The xref:internals/internals-map.adoc[Cassandra Internals Map] and xref:build-test/test-selection-matrix.adoc[Test Selection Matrix] are intentionally structured for machine consumption as well as human reading — they contain explicit subsystem boundaries and test-to-subsystem mappings that agentic tools can consume directly as context.
+When using an AI tool to propose a patch, still work through the xref:develop/compatibility-checklist.adoc[Compatibility and Upgrade Checklist] and xref:develop/operational-empathy.adoc[Operational Empathy Checklist] manually — these checklists require judgment about production impact and upgrade semantics that automated tools cannot reliably supply.
+AI-assisted contributions are subject to the same review standards as any other patch.
+The contributor is responsible for understanding, verifying, and defending the correctness and completeness of the submitted change, regardless of how it was produced.

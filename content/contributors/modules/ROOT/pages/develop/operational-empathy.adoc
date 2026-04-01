@@ -1,0 +1,183 @@
+= Operational Empathy
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Cassandra is a production database that operators run in live clusters, often under strict availability requirements and narrow maintenance windows.
+A contributor who changes the storage engine, repair behavior, or startup logic is also changing what operators experience during upgrades, maintenance windows, and incidents.
+Operational empathy means thinking through those consequences before submitting a patch — not as an afterthought, but as part of the design.
+
+== Why Operational Impact Matters For Code Contributors
+
+The operator lane — node management, repair, compaction, configuration — is closely coupled to the code.
+A change that adds a background thread, changes compaction strategy behavior, or alters startup sequencing has direct operational consequences, even if the code change looks small on the diff.
+
+Reviewers will ask about operational impact for any patch that touches:
+
+* Startup and shutdown sequences
+* Repair and streaming
+* Compaction and space amplification
+* Configuration parameters or defaults
+* Nodetool output or subcommand behavior
+* Log verbosity on the hot path
+* Failure handling and JVM stability
+
+If you have thought through these questions before review, you will save time and build reviewer trust.
+If you have not, expect the review to surface them.
+
+== Does This Change Startup or Shutdown Behavior?
+
+Startup and shutdown are high-stakes sequences.
+Operators rarely watch them in normal operation, but when something goes wrong they become the entire focus of an incident.
+Changes that look safe in unit tests can cause long delays, silent partial failures, or unclean exits in production.
+
+Before submitting, answer:
+
+* Does this change add, remove, or reorder initialization steps?
+* Does this change affect how long startup takes — new I/O, schema loading, index building?
+* Does this change what happens if startup fails partway through — what state is the node left in?
+* Does this change affect graceful drain or shutdown?
+
+Checklist:
+
+* [ ] Startup sequence changes are documented in the commit message
+* [ ] Startup time impact is estimated (new I/O, schema loading, etc.)
+* [ ] Partial-startup failure behavior is tested or documented
+
+== Does This Change Repair, Streaming, or Compaction?
+
+These operations run in the background and compete with foreground read and write I/O.
+Operators schedule repair and compaction deliberately around traffic patterns.
+Changes here affect what happens during maintenance windows — which is exactly when operators have the least margin for surprises.
+
+Before submitting, answer:
+
+* Does this change when compaction is triggered or how much I/O it uses?
+* Does this change repair streaming throughput or the ordering of streamed ranges?
+* Does this change tombstone handling or space reclamation timing?
+* Does this change the behavior of any compaction strategy in ways that would affect space amplification?
+
+Checklist:
+
+* [ ] Compaction throughput or space amplification impact is understood
+* [ ] Streaming changes are tested under load, not just correctness tests
+* [ ] Repair changes are tested with tombstones and expiring data
+
+NOTE: Compaction strategy changes are particularly sensitive because operators tune strategies explicitly for their workloads.
+A change to default trigger thresholds or I/O rate limiting can break assumptions that are baked into their runbooks.
+
+== Does This Change Nodetool Output or Generated Reference Docs?
+
+Operators rely on nodetool for cluster health monitoring and routine maintenance tasks.
+`nodetool status`, `nodetool repair`, `nodetool compactionstats`, and similar commands are called in scripts, monitoring systems, and runbooks.
+Changes to their output format or behavior are breaking changes from the operator's perspective, even when the underlying code change is correct.
+
+Before submitting, answer:
+
+* Does this add, remove, or rename a nodetool command or subcommand?
+* Does this change the output format of an existing command — column order, field names, units?
+* Does this change what is logged by a nodetool operation?
+
+Checklist:
+
+* [ ] New nodetool commands have generated docs (reference xref:generated-docs/index.adoc[Generated Documentation])
+* [ ] Removed or renamed commands are deprecated first, not deleted outright
+* [ ] Output format changes are noted in `NEWS.txt`
+
+WARNING: Removing or renaming a nodetool command without a deprecation cycle will break operator scripts silently.
+If the change is necessary, deprecate in the current release and remove in the next.
+
+== Does This Affect Upgrade Safety?
+
+Rolling upgrades are the normal Cassandra upgrade path.
+Operators bring nodes up and down one at a time while the cluster continues to serve traffic.
+This means mixed-version clusters are a real production state, not a theoretical edge case.
+
+For the full compatibility rules, see xref:develop/compatibility-checklist.adoc[Compatibility Checklist].
+
+Summary checklist for operational upgrade impact:
+
+* [ ] A rolling upgrade through this change leaves the cluster operational — no split-brain, no data loss, no hard failures on mixed versions
+* [ ] Operators do not need to take manual action during the upgrade window
+* [ ] If manual action is required, it is documented in upgrade docs and `NEWS.txt`
+
+TIP: If your change requires all nodes to be on the new version before a feature activates, that is usually the right design.
+Gating on cluster version agreement avoids mixed-version hazards.
+Confirm the mechanism you are using for that gating — coordinator version checks, schema versioning, or gossip state — is consistent with how similar features are handled in the codebase.
+
+== Does This Require Operator Documentation?
+
+Not every code change requires docs, but if operators need to know about it, they need to find out from the documentation — not from a surprise at 2am.
+
+A change requires operator documentation if it:
+
+* Adds or changes a configuration parameter
+* Changes repair, compaction, or maintenance behavior in a way operators need to know about
+* Changes default behavior that operators may have tuned
+* Introduces a new operational workflow or monitoring surface
+
+Checklist:
+
+* [ ] New config parameters are documented in operator docs
+* [ ] Behavior changes visible to operators are in `NEWS.txt`
+* [ ] Operator runbooks or docs pages are updated, or a follow-up ticket is filed and linked from the patch
+
+NOTE: `NEWS.txt` is the primary channel for operator-facing change communication.
+If the change would cause a deployed operator to change their configuration, their scripts, or their monitoring, it belongs in `NEWS.txt`.
+
+== Does This Create Client-Visible Behavior Changes?
+
+Clients use CQL and the native protocol.
+Operator-facing and client-facing changes often overlap — a change to consistency level semantics or error handling may look like an internal correctness fix but show up as changed behavior in driver telemetry or application logs.
+
+Before submitting, answer:
+
+* Does this change query latency or throughput in ways a client would observe?
+* Does this change the error types or error messages returned to clients?
+* Does this change consistency level semantics or availability behavior under failure?
+
+Checklist:
+
+* [ ] Client-visible error or behavior changes are in `NEWS.txt`
+* [ ] Driver compatibility implications are considered (see xref:develop/compatibility-checklist.adoc[Compatibility Checklist])
+
+== The Quick Operational Review Checklist
+
+Before submitting your patch, check:
+
+*Startup and shutdown*
+
+* [ ] Startup sequence changes are documented in the commit message
+* [ ] Startup time impact is estimated (new I/O, schema loading, etc.)
+* [ ] Partial-startup failure behavior is tested or documented
+
+*Repair, streaming, and compaction*
+
+* [ ] Compaction throughput or space amplification impact is understood
+* [ ] Streaming changes are tested under load, not just correctness tests
+* [ ] Repair changes are tested with tombstones and expiring data
+
+*Nodetool and generated docs*
+
+* [ ] New nodetool commands have generated docs (reference xref:generated-docs/index.adoc[Generated Documentation])
+* [ ] Removed or renamed commands are deprecated first
+* [ ] Output format changes are noted in `NEWS.txt`
+
+*Upgrade safety*
+
+* [ ] A rolling upgrade through this change leaves the cluster operational
+* [ ] Operators do not need to take manual action during the upgrade window
+* [ ] If manual action is required, it is documented in upgrade docs and `NEWS.txt`
+
+*Operator documentation*
+
+* [ ] New config parameters are documented in operator docs
+* [ ] Behavior changes visible to operators are in `NEWS.txt`
+* [ ] Operator runbooks or docs pages are updated or filed as follow-up tickets
+
+*Client-visible behavior*
+
+* [ ] Client-visible error or behavior changes are in `NEWS.txt`
+* [ ] Driver compatibility implications are considered (see xref:develop/compatibility-checklist.adoc[Compatibility Checklist])

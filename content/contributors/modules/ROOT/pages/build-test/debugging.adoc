@@ -1,0 +1,218 @@
+= Debugging Cassandra
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Debugging Cassandra locally requires a few techniques that differ from typical application debugging.
+This page covers the most common debugging workflows for contributor work: attaching a debugger to unit tests, debugging dtest failures, tracing a query path, and reproducing CI failures locally.
+
+== Debugging Unit Tests
+
+=== Attaching a Debugger (IntelliJ / Eclipse)
+
+Run the target test in debug mode by passing the JDWP agent as a JVM argument:
+
+[source,bash]
+----
+ant test -Dtest.name=ClassName \
+  -Dtest.jvm.arg="-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005"
+----
+
+The test JVM suspends on startup and waits for a debugger to connect.
+In IntelliJ or Eclipse, create a *Remote JVM Debug* run configuration pointed at `localhost:5005`, then start it after the Ant command is running.
+
+NOTE: `suspend=y` is required — without it the test will proceed past your breakpoints before the debugger attaches.
+
+=== Useful JVM Flags for Debugging
+
+Pass these via `-Dtest.jvm.arg` or by editing `build.xml` locally:
+
+* `-Dcassandra.test.logback=true` — enables test-specific logback configuration from `test/conf/logback-test.xml`
+* `-Dcassandra.skip_wait_for_gossip_to_settle=0` — skips the gossip settle delay, speeds up test startup in gossip-dependent tests
+* `-ea` — enables assertions (Ant enables this by default for test tasks, but worth confirming in custom runs)
+* `-XX:+PrintGCDetails` — useful when investigating GC pauses inside test runs
+
+== Debugging Distributed Tests (dtests)
+
+=== dtest Logging
+
+dtests run nodes via CCM (Cassandra Cluster Manager).
+Each node writes logs to:
+
+----
+~/.ccm/<cluster-name>/<node-name>/logs/system.log
+----
+
+Start with `system.log` — errors and stack traces from the Cassandra process appear there.
+For verbose query tracing during a dtest, set the log level when invoking pytest:
+
+[source,bash]
+----
+pytest test_file.py::TestClass::test_method -v -s \
+  --cassandra-version=5.0 \
+  -Dcassandra.test.loglevel=DEBUG
+----
+
+=== Reproducing a dtest Failure Locally
+
+[source,bash]
+----
+cd cassandra-dtest
+
+# Install test dependencies
+pip install -r requirements.txt
+
+# Run a specific failing test
+pytest test_file.py::TestClass::test_method -v -s
+
+# Keep the CCM cluster alive after failure for inspection
+pytest test_file.py::TestClass::test_method -v -s --keep-test-dir
+----
+
+The `--keep-test-dir` flag prevents CCM from tearing down the cluster on failure, which lets you inspect logs and connect CQL shells to nodes afterward.
+
+=== Inspecting a Live CCM Cluster
+
+[source,bash]
+----
+# List CCM clusters
+ccm list
+
+# Check node status in the last active cluster
+ccm status
+
+# Connect a CQL shell to node1
+ccm node1 cqlsh
+
+# Stream node1 logs in real time
+tail -f ~/.ccm/<cluster-name>/node1/logs/system.log
+----
+
+WARNING: CCM clusters from failed dtest runs persist until explicitly removed.
+Run `ccm remove <cluster-name>` to clean up, or `ccm remove` to remove the current active cluster.
+
+== Tracing a Query Path
+
+CQL tracing captures each stage of the coordinator and replica path with microsecond timestamps.
+Enable it per session in `cqlsh`:
+
+[source,sql]
+----
+-- Enable tracing for all subsequent queries
+TRACING ON;
+SELECT * FROM ks.table WHERE pk = 1;
+----
+
+Trace output shows the operation sequence from coordinator dispatch through replica response and read repair decisions.
+Each row includes the activity description, timestamp, source node, and elapsed time.
+
+For code-level tracing, search for `Tracing.instance.trace(...)` calls in the coordinator and storage paths — these produce the entries visible in the CQL trace output.
+
+=== Following the Code Path
+
+Start at these entry points depending on the operation:
+
+* `org.apache.cassandra.service.StorageProxy` — coordinator logic for reads and writes
+* `ReadCallback` — read path response handling and consistency level tracking
+* `WriteResponseHandler` — write path acknowledgement and consistency tracking
+* `ColumnFamilyStore` — storage engine entry point
+* `Memtable` — in-memory write path
+* `SSTableReader` — on-disk read path
+
+See xref:internals/query-path.adoc[Query Execution Path] for a full code-level walkthrough.
+
+== Capturing Thread Dumps
+
+Thread dumps identify blocked or deadlocked threads.
+Capture one by sending `SIGQUIT` to the JVM process:
+
+[source,bash]
+----
+kill -3 <pid>
+----
+
+Output goes to stderr or the node log file.
+Alternatively, use `jstack`:
+
+[source,bash]
+----
+jstack <pid> > threaddump.txt
+----
+
+During a hanging Ant test, find the test JVM first:
+
+[source,bash]
+----
+# Find the test JVM PID
+jps -l | grep cassandra
+
+# Capture the thread dump
+jstack <pid>
+----
+
+When reading a thread dump, look for threads in `BLOCKED` or `WAITING` state as the first signal of deadlock or resource contention.
+A healthy running cluster should have most threads in `TIMED_WAITING` in `epoll_wait` or `park`.
+
+TIP: Take two or three thread dumps a few seconds apart.
+A thread stuck in the same `BLOCKED` frame across all dumps confirms a real lock contention rather than a transient wait.
+
+== Reproducing CI Failures Locally
+
+=== Isolating a Flaky Test
+
+If CI fails on a test that passes locally, the test may be timing-sensitive or order-dependent.
+Run it repeatedly to check for flakiness:
+
+[source,bash]
+----
+for i in {1..10}; do
+  ant test -Dtest.name=ClassName && echo "PASS $i" || echo "FAIL $i"
+done
+----
+
+Check JIRA for existing flakiness reports before investing time in a false root cause:
+https://issues.apache.org/jira/issues/?jql=project%20%3D%20CASSANDRA%20AND%20text%20%7E%20%22%3CTestName%3E%22[search JIRA for the test name].
+
+NOTE: The CircleCI test results page for a failing build shows the full test output including JVM stdout.
+Compare the CI log output line-by-line against a local failure to identify environment differences.
+
+=== Running Tests With a CI-Equivalent Environment
+
+[source,bash]
+----
+# Run the test inside an OpenJDK 17 container matching CI
+docker run --rm \
+  -v $(pwd):/cassandra \
+  -w /cassandra \
+  openjdk:17 \
+  ant test -Dtest.name=ClassName
+----
+
+This eliminates local JDK version and OS differences as variables.
+Use the same JDK major version as the failing CI job — check the CircleCI config at `.circleci/config.yml` for the exact image.
+
+== Logging During Development
+
+Cassandra uses https://logback.qos.ch/[Logback] for logging.
+To increase verbosity for a specific class during test runs, edit the test logback configuration:
+
+[source,xml]
+----
+<!-- In test/conf/logback-test.xml -->
+<logger name="org.apache.cassandra.service.StorageProxy" level="DEBUG"/>
+----
+
+To print all log output to stdout during a test run:
+
+[source,bash]
+----
+ant test -Dtest.name=ClassName -Dtest.stdout=true
+----
+
+WARNING: `-Dtest.stdout=true` produces a large volume of output for any test that touches the storage engine.
+Use it with targeted logger configuration rather than at root DEBUG level.
+
+For persistent changes across test runs during active development, set the root level in `test/conf/logback-test.xml`.
+Revert before submitting a patch — committing a modified logback config is a common review comment.
