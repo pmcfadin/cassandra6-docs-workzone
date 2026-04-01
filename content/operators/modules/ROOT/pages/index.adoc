@@ -8,6 +8,22 @@
 This section is for the people who deploy, configure, secure, monitor, and maintain Apache Cassandra clusters in production.
 Whether you are standing up your first cluster or upgrading a fleet to Cassandra 6, start here.
 
+== Find Your Phase
+
+Use this guide to jump directly to the work that matches where you are in the cluster lifecycle.
+
+Day 0 -- Plan and provision::
+xref:deployment-guide.adoc[Choose Your Deployment Model] | xref:production.adoc[Production Recommendations] | xref:tune/cost-and-rightsizing.adoc[Cost and Right-Sizing]
+
+Day 1 -- Install and configure::
+xref:install.adoc[Install] | xref:configure.adoc[Configure] | xref:secure/security.adoc[Security] | xref:tcm-overview.adoc[Understand TCM]
+
+Day 2 -- Operate in production::
+xref:operate/repair-orchestration.adoc[Repair Orchestration] | xref:observe/golden-signals.adoc[Golden Signals] | xref:backup-recovery/strategy.adoc[Backup Strategy] | xref:automate/config-as-code.adoc[Config as Code]
+
+Incident response::
+xref:troubleshoot/incident-artifacts.adoc[Collect Artifacts] | xref:observe/diagnosing-latency.adoc[Diagnose Latency] | xref:observe/diagnosing-compaction.adoc[Diagnose Compaction] | xref:troubleshoot/ai-assisted-ops.adoc[AI-Assisted Ops]
+
 == What's New for Operators in Cassandra 6
 
 * **xref:tcm-overview.adoc[Transactional Cluster Metadata (TCM)]** -- Cluster topology and schema changes are now Raft-based and transactional, replacing the gossip-driven model
@@ -86,3 +102,12 @@ Whether you are standing up your first cluster or upgrading a fleet to Cassandra
 
 * xref:guardrails-reference.adoc[Guardrails Reference]
 * xref:startup-checks-spi.adoc[Custom Startup Checks (SPI)]
+
+== Popular Runbooks
+
+* xref:upgrade/upgrade-runbook.adoc[Upgrade Runbook] -- rolling upgrade procedure with validation gates and rollback
+* xref:backup-recovery/restore-runbook.adoc[Restore Validation Runbook] -- step-by-step restore with post-restore checks
+* xref:operate/node-replacement-runbook.adoc[Node Replacement Runbook] -- decommission, replace, and validate
+* xref:operate/disk-pressure-runbook.adoc[Disk Pressure Runbook] -- immediate, short-term, and long-term actions
+* xref:backup-recovery/dr-drills.adoc[Disaster Recovery Drills] -- drill scenarios with checklists and review templates
+* xref:operate/repair-orchestration.adoc[Repair Orchestration] -- auto repair, Reaper, and systems thinking

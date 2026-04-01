@@ -1,0 +1,293 @@
+= Kubernetes Considerations for Cassandra
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Apache Cassandra can run on Kubernetes using a Kubernetes operator to manage StatefulSet lifecycle, rolling upgrades, rack placement, and persistent storage.
+This page covers the operational trade-offs involved, the Kubernetes concepts most relevant to Cassandra, storage decisions, and the boundary between what the Cassandra project documents and what the https://k8ssandra.io/[K8ssandra project] documents.
+
+For a side-by-side comparison of Kubernetes against bare metal and cloud IaaS, see xref:deployment-guide.adoc[Choose Your Deployment Model].
+
+== When Kubernetes Is a Good Fit
+
+Consider Kubernetes when the following conditions are true for your organization:
+
+. **Existing Kubernetes platform** — Your operations team already manages Kubernetes clusters and has familiarity with StatefulSets, persistent volumes, and operator patterns.
+Running Cassandra on Kubernetes adds Cassandra-specific complexity on top of existing K8s knowledge; it does not replace that knowledge.
+
+. **Declarative, GitOps-friendly operations** — Your team manages infrastructure through version-controlled manifests using Helm, Argo CD, Flux, or a similar GitOps workflow.
+Cassandra cluster configuration expressed as Kubernetes custom resources fits naturally into this model.
+
+. **Co-location with other workloads** — Your Cassandra cluster is one of many workloads managed by a platform team through a shared Kubernetes control plane.
+Centralized access control, policy enforcement, and observability pipelines apply consistently across all workloads.
+
+. **Platform-driven upgrade automation** — You want the operator to sequence rolling upgrades, enforce PodDisruptionBudgets, and manage rack-aware pod placement without manual coordination.
+
+. **Investment in operator tooling** — Your team is willing to learn and operate the K8ssandra operator, including its custom resource definitions (CRDs), Helm chart configuration, and integration with Medusa (backup) and Reaper (repair).
+
+== When Kubernetes Is NOT a Good Fit
+
+Do not run Cassandra on Kubernetes when these conditions apply:
+
+. **No existing Kubernetes expertise** — The operational burden of Kubernetes is additive, not a replacement for Cassandra operational knowledge.
+Teams that lack familiarity with pod scheduling, CSI drivers, and operator upgrade semantics will face compounded complexity during incidents.
+
+. **Latency-sensitive workloads requiring minimal scheduling jitter** — Kubernetes schedulers, CPU throttling via CFS quotas, and memory pressure evictions can introduce latency spikes that are difficult to eliminate entirely.
+Workloads with tight p99 latency requirements are better served by dedicated bare metal nodes.
+
+. **Small clusters where control plane overhead is not justified** — A three-node Cassandra cluster managed by a Kubernetes operator requires a functioning Kubernetes control plane, persistent volume provisioner, and operator controller.
+For small clusters, bare metal or cloud IaaS with Ansible is a simpler and more reliable approach.
+
+. **Inability to dedicate time to Kubernetes pre-production validation** — Running Cassandra on Kubernetes requires validating storage class performance, PDB behavior during node drains, zone-aware pod scheduling, and operator upgrade behavior before go-live.
+Skipping this validation increases the risk of data unavailability or extended recovery time during the first real incident.
+
+== Key Kubernetes Concepts for Cassandra
+
+The following Kubernetes primitives have direct bearing on how Cassandra behaves in a Kubernetes cluster.
+
+StatefulSets::
+Cassandra requires stable network identity and stable persistent storage across pod restarts.
+StatefulSets satisfy both requirements through predictable, ordinal pod naming (`cassandra-0`, `cassandra-1`, ...) and PersistentVolumeClaim (PVC) templates that survive pod deletion.
++
+Do not use Deployments or DaemonSets for Cassandra.
+Neither provides the stable identity and storage binding that Cassandra depends on for gossip, token assignment, and data directory consistency.
+
+PersistentVolumes and PersistentVolumeClaims::
+Each Cassandra pod needs its own PersistentVolumeClaim for the data directory and, where separated, the commit log directory.
+StatefulSet PVC templates ensure that each pod gets a dedicated, named volume that is not reallocated when the pod restarts or is rescheduled to a different node.
++
+The storage class backing the PVC determines performance.
+See <<storage-considerations>> for guidance on local versus network-attached volumes.
+
+TopologySpreadConstraints::
+Use `topologySpreadConstraints` to distribute Cassandra pods across availability zones (or physical racks if you have that level of node labeling).
+This is the Kubernetes equivalent of rack-aware placement via `cassandra-rackdc.properties`.
++
+A representative constraint that spreads pods evenly across zones:
++
+[source,yaml]
+----
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: DoNotSchedule
+    labelSelector:
+      matchLabels:
+        app: cassandra
+----
++
+[NOTE]
+====
+If your Kubernetes nodes are not labeled with `topology.kubernetes.io/zone`, topology spread constraints cannot enforce zone-aware placement.
+Verify node labels before relying on this mechanism.
+====
+
+PodDisruptionBudgets::
+A PodDisruptionBudget (PDB) limits simultaneous voluntary disruptions — node drains, rolling upgrades, and cluster autoscaling — to a defined maximum.
+For Cassandra, configure the PDB to allow at most one pod disruption at a time per datacenter to preserve quorum during maintenance.
++
+Example PDB for a three-node cluster:
++
+[source,yaml]
+----
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cassandra-pdb
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: cassandra
+----
++
+[WARNING]
+====
+Without a PDB, a cluster autoscaler or `kubectl drain` operation can evict multiple Cassandra pods simultaneously.
+For a three-node cluster with replication factor 3, simultaneous loss of two pods causes data unavailability.
+Always define a PDB before go-live.
+====
+
+Resource Requests and Limits::
+Set CPU and memory `requests` equal to `limits` (Guaranteed QoS class) for Cassandra pods in production.
++
+* **CPU**: Set requests and limits to the same value.
+Using a CPU limit that is significantly lower than the node's physical capacity enables CFS CPU throttling, which can cause GC pauses and elevated read latency.
+If you must set a CPU limit, set it high enough to absorb compaction and repair bursts.
+
+* **Memory**: Set `requests` and `limits` to the same value so the pod is assigned Guaranteed QoS and is not the first candidate for eviction under node memory pressure.
+The JVM heap (`-Xmx`) must fit within the container memory limit with headroom for off-heap usage (Netty, memtable, OS page cache).
+
+* **Ephemeral storage**: Set an ephemeral storage limit only if you need to protect the node from runaway log or temp file growth.
+Do not set this limit so low that it triggers pod eviction during normal compaction.
+
+[TIP]
+====
+The K8ssandra operator provides resource request and limit templates in its CassandraDatacenter custom resource.
+Use those templates rather than editing the underlying StatefulSet directly.
+====
+
+[#storage-considerations]
+== Storage Considerations
+
+Storage class selection is the most consequential infrastructure decision for Cassandra on Kubernetes.
+Wrong choices here cannot be corrected without data migration.
+
+=== Local SSDs (Recommended for Production)
+
+Local PersistentVolumes backed by node-local NVMe storage deliver performance equivalent to bare metal deployments.
+Use the `local-storage` storage class or a CSI driver that provisions local volumes (for example, `local-path-provisioner` on single-zone clusters, or cloud-provider local disk CSI drivers on multi-zone clusters).
+
+[WARNING]
+====
+Local PersistentVolumes are tied to a specific Kubernetes node.
+If that node is removed from the cluster — hardware failure, node pool rotation, or intentional decommission — the data on the local volume is lost.
+
+Design for this:
+
+* Set replication factor so that no single node failure causes data loss (typically RF=3 across three zones).
+* Validate that the K8ssandra operator (or your manual procedure) handles node replacement and streaming correctly before running local volumes in production.
+* Maintain a tested backup and restore procedure using Medusa or equivalent.
+====
+
+=== Network-Attached Volumes (CSI Storage Classes)
+
+Network-attached persistent volumes — AWS EBS (CSI), GCP Persistent Disk, Azure Managed Disk — survive node removal and can be reattached to a replacement pod on a different node.
+This simplifies node replacement but introduces storage latency characteristics equivalent to cloud IaaS network storage.
+
+[cols="1,2",options="header"]
+|===
+|Storage Class Type |Guidance
+
+|Local NVMe (local-storage, local-path)
+|Best performance. Preferred for production when nodes are stable and RF is configured to tolerate node loss.
+Data is lost if the underlying node is removed.
+
+|AWS EBS gp3 / io2 (aws-ebs CSI)
+|Durable across node replacement. Acceptable p99 latency for most workloads.
+Higher latency than local NVMe under compaction load.
+
+|GCP Persistent Disk (pd-csi)
+|Same trade-offs as EBS: durable but higher latency than local SSD.
+
+|Azure Managed Disk (disk CSI)
+|Same trade-offs as EBS and GCP PD.
+
+|NFS / CephFS / distributed network storage
+|Not recommended. High latency, complex failure modes, and difficult to reason about under Cassandra's write and compaction patterns.
+|===
+
+=== Commit Log Separation
+
+Separating the commit log onto a different volume from the data directory reduces write latency under compaction.
+In a Kubernetes StatefulSet, this requires two PVC templates: one for the data directory and one for the commit log.
+Configure `commitlog_directory` in `cassandra.yaml` to point to the separate mount path.
+
+== K8ssandra: Recommended Kubernetes Operator
+
+https://k8ssandra.io/[K8ssandra] is the community-supported Kubernetes operator for Apache Cassandra.
+It bundles Cassandra with:
+
+* **Stargate** — API gateway for CQL, REST, GraphQL, and document APIs
+* **Medusa** — backup and restore to cloud object storage (S3, GCS, Azure Blob)
+* **Reaper** — automated repair scheduling
+
+K8ssandra manages the Cassandra StatefulSet lifecycle through the `CassandraDatacenter` custom resource, handling rolling upgrades, rack placement, PDB enforcement, and seed node management.
+
+[IMPORTANT]
+====
+The Cassandra documentation describes Cassandra-level operational behavior that applies in any environment: configuration, compaction strategies, repair semantics, security, and data modeling.
+
+The K8ssandra project owns documentation for:
+
+* The `CassandraDatacenter` and `K8ssandraCluster` custom resource definitions
+* Helm chart installation and configuration
+* Kubernetes-specific upgrade and scaling procedures
+* Medusa backup and restore workflows on Kubernetes
+* Reaper integration and repair scheduling on Kubernetes
+* Stargate API gateway configuration
+
+Do not expect the Cassandra documentation to cover Kubernetes-specific deployment workflows.
+For those topics, use the https://docs.k8ssandra.io/[K8ssandra documentation].
+====
+
+== Documentation Boundary
+
+The following table defines what each project documents, to help you find the right source for a given topic.
+
+[cols="2,1,1",options="header"]
+|===
+|Topic |Cassandra Docs |K8ssandra Docs
+
+|`cassandra.yaml` configuration options
+|Yes
+|
+
+|Compaction strategies and tuning
+|Yes
+|
+
+|Repair semantics and scheduling theory
+|Yes
+|
+
+|Security: authentication, authorization, TLS
+|Yes
+|
+
+|Data modeling and CQL
+|Yes
+|
+
+|Token allocation and vnodes
+|Yes
+|
+
+|Snitch and rack configuration theory
+|Yes
+|
+
+|`CassandraDatacenter` custom resource reference
+|
+|Yes
+
+|Helm chart values and installation steps
+|
+|Yes
+
+|Rolling upgrade procedure on Kubernetes
+|
+|Yes
+
+|Medusa backup configuration and restore
+|
+|Yes
+
+|Reaper repair scheduling on Kubernetes
+|
+|Yes
+
+|Stargate API gateway
+|
+|Yes
+
+|Storage class configuration for K8ssandra
+|
+|Yes
+
+|Pod resource sizing recommendations for K8ssandra
+|
+|Yes
+|===
+
+== Related Pages
+
+* xref:deployment-guide.adoc[Choose Your Deployment Model] — comparison of Kubernetes, cloud IaaS, and bare metal trade-offs
+* xref:production.adoc[Production Recommendations] — token configuration, compaction, and OS-level tuning that apply in any environment
+* xref:configure.adoc[Configuration Overview] — `cassandra.yaml`, JVM options, and topology configuration
+* xref:operate/repair.adoc[Repair] — repair semantics; for Kubernetes repair scheduling see K8ssandra / Reaper documentation
+* xref:backup-recovery/backups.adoc[Backups and Snapshots] — Cassandra snapshot mechanics; for Kubernetes backup workflows see K8ssandra / Medusa documentation
+* xref:secure/security.adoc[Security Overview] — authentication, authorization, and TLS configuration applicable in all deployment models
+* https://docs.k8ssandra.io/[K8ssandra Documentation] — authoritative reference for deploying and operating Cassandra on Kubernetes

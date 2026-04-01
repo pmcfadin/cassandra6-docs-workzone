@@ -1,0 +1,398 @@
+= Node Replacement Runbook
+:description: Step-by-step procedures for replacing a Cassandra node using decommission+add or dead-node replacement, with TCM-aware guidance for Cassandra 6.
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+This runbook covers the two replacement paths available in Cassandra 6 and
+guides you through pre-replacement preparation, execution, and post-replacement
+validation.
+For TCM background, see xref:tcm-operations.adoc[TCM Day-2 Operations].
+For repair concepts, see xref:operate/repair.adoc[Repair].
+
+== When to Replace vs. Repair
+
+Not every troubled node requires replacement.
+Use this decision guide before starting any replacement procedure.
+
+[cols="1,1", options="header"]
+|===
+| Signal | Recommended action
+
+| Node is up but slow (GC pressure, high read latency)
+| Tune JVM heap, run `nodetool repair`, review compaction strategy
+
+| Node has fallen behind on hints or streaming
+| Allow hints to drain; run incremental repair; monitor for 24h
+
+| Node reports repeated commit-log failures
+| Replace disk, restart node, run full repair
+
+| Node has persistent hardware failure (failed disk, NIC, failed host)
+| Replace the node — use Option A or Option B below
+
+| Node is DOWN and has been unreachable > hint_window_persistent_window
+| Replace the node using Option B (dead-node replacement)
+
+| Node is DOWN and hints are still within the window
+| Attempt node restart first; escalate to replacement only if restart fails
+
+| Node is a CMS voter and is unresponsive
+| See xref:tcm-troubleshooting.adoc[TCM Troubleshooting] before replacing
+|===
+
+[NOTE]
+====
+In Cassandra 6, TCM tracks topology state in the distributed metadata log.
+A node that appears DOWN in `nodetool status` but has a pending TCM epoch
+may be mid-operation rather than truly failed.
+Check `nodetool cms describe` before concluding that a node needs replacement.
+====
+
+== Pre-Replacement Checklist
+
+Complete every item before starting either replacement path.
+
+. *Confirm cluster health.*
++
+[source,bash]
+----
+nodetool status
+----
++
+All nodes except the target must be UN (Up/Normal).
+Do not start a replacement if another node is already UL, DN, or DL.
+
+. *Check replication factor.*
++
+Every keyspace must have RF ≥ 2 so remaining nodes hold at least one copy of
+all data the replacement node will need to stream.
+Verify with:
++
+[source,bash]
+----
+nodetool describering <keyspace>
+----
+
+. *Capture the host ID of the node being replaced (Option B only).*
++
+[source,bash]
+----
+nodetool status | grep <node-ip>
+----
++
+Record the host ID shown in the first column.
+You will pass this to `cassandra.replace_address_first_boot`.
+
+. *Check pending TCM operations.*
++
+[source,bash]
+----
+nodetool cms describe
+----
++
+There must be no in-progress topology operations (bootstrap, decommission,
+move, or replace) from a prior attempt.
+If a stale operation is listed, see
+xref:tcm-troubleshooting.adoc[TCM Troubleshooting] to abort it before
+proceeding.
+
+. *Snapshot keyspaces on a healthy node (optional but recommended).*
++
+[source,bash]
+----
+nodetool snapshot -t pre-replace-$(date +%Y%m%d)
+----
+
+. *Verify available disk space on the replacement node.*
++
+The replacement node must have free space at least equal to the data
+directory size of the node being replaced.
+
+. *Review maintenance windows.*
++
+Replacement operations generate significant streaming traffic.
+Schedule during low-traffic periods and notify on-call stakeholders.
+
+== Option A: Decommission + Add (Graceful Replacement)
+
+Use this path when the node being replaced is *alive and healthy enough to
+stream its own data out*.
+It is the lower-risk path: the leaving node participates in data transfer and
+TCM can safely checkpoint each step.
+
+=== Step 1 — Decommission the existing node
+
+Run from the node being replaced:
+
+[source,bash]
+----
+nodetool decommission
+----
+
+Under TCM, this proceeds through three committed epochs:
+`START_LEAVE` → `MID_LEAVE` → `FINISH_LEAVE`.
+Monitor progress in the system log:
+
+[source,bash]
+----
+tail -f /var/log/cassandra/system.log | grep -i "leave\|decommission"
+----
+
+If decommission stalls, resume it:
+
+[source,bash]
+----
+nodetool decommission --force
+----
+
+Or abort and revert cleanly:
+
+[source,bash]
+----
+# Run on any healthy node
+nodetool abortdecommission <host-id-of-leaving-node>
+----
+
+=== Step 2 — Confirm the node has left
+
+[source,bash]
+----
+nodetool status
+----
+
+The decommissioned node must no longer appear in the ring before you add the
+replacement.
+
+=== Step 3 — Provision and start the replacement node
+
+Install Cassandra on the new host with the same version as the cluster.
+Start it normally — it will bootstrap as a new node:
+
+[source,bash]
+----
+# On the new node
+cassandra -f
+----
+
+TCM tracks the bootstrap through `START_JOIN` → `MID_JOIN` → `FINISH_JOIN`.
+If bootstrap is interrupted, resume it:
+
+[source,bash]
+----
+nodetool bootstrap resume
+----
+
+=== Step 4 — Validate
+
+Proceed to <<post-replacement-validation>>.
+
+== Option B: Replace a Dead Node
+
+Use this path when the node being replaced is *unreachable or dead* and cannot
+participate in streaming.
+The replacement node assumes the dead node's tokens and rebuilds data from
+remaining replicas.
+
+[WARNING]
+====
+Do not use this path while a rolling upgrade is in progress.
+Replace dead nodes before starting the upgrade, or after all three upgrade
+phases complete.
+See xref:tcm-upgrade-procedure.adoc[Upgrade Procedure].
+====
+
+=== Step 1 — Record the address and host ID of the dead node
+
+[source,bash]
+----
+nodetool status
+----
+
+Note the IP address and host ID of the DN (Down/Normal) node.
+These are required in the next step.
+
+=== Step 2 — Provision the replacement node
+
+Install Cassandra on the new host.
+Do *not* start it yet.
+
+=== Step 3 — Start the replacement node with the replace flag
+
+Edit `cassandra.yaml` on the replacement node or pass the JVM property at
+startup:
+
+[source,bash]
+----
+JVM_OPTS="$JVM_OPTS -Dcassandra.replace_address_first_boot=<dead-node-ip>" \
+  cassandra -f
+----
+
+On first boot only, the node registers itself as the replacement in TCM
+(`START_REPLACE`), streams data from remaining replicas (`MID_REPLACE`),
+and assumes the dead node's tokens (`FINISH_REPLACE`).
+The property is automatically ignored on subsequent restarts.
+
+[NOTE]
+====
+Under TCM, the `START_REPLACE` epoch sets the dead node's gossip state to
+"hibernating" so coordinators do not attempt to write to it during the
+replacement window.
+This prevents split-brain data loss that was possible under gossip-only
+coordination.
+====
+
+=== Step 4 — Monitor the replacement
+
+[source,bash]
+----
+tail -f /var/log/cassandra/system.log | grep -i "replace\|stream\|bootstrap"
+----
+
+If streaming is interrupted, the operation is resumable:
+
+[source,bash]
+----
+nodetool bootstrap resume
+----
+
+If the replacement cannot proceed (for example, RF = 1 and there are no other
+replicas for some ranges), streaming will fail with an explicit error.
+In that case you must restore from backup rather than replace.
+
+=== Step 5 — Validate
+
+Proceed to <<post-replacement-validation>>.
+
+== TCM-Aware Replacement: What Is Different in Cassandra 6
+
+[#tcm-aware]
+
+Cassandra 6 replaces gossip-based topology coordination with the Transactional
+Cluster Metadata (TCM) system.
+The differences that affect replacement procedures are:
+
+Epoch tracking::
+Every topology step produces a monotonically increasing epoch committed to
+the distributed metadata log.
+Each epoch must be acknowledged by a quorum in each datacenter before the
+next step proceeds.
+This eliminates the ring-settle delays that gossip required.
+
+Resumable operations::
+If a replacement is interrupted — host reboot, network partition, operator
+error — the TCM state machine records exactly where the operation stopped.
+`nodetool bootstrap resume` restarts from that checkpoint rather than from
+the beginning.
+
+Stale operation detection::
+A replacement that was aborted without a clean `FINISH_REPLACE` leaves an
+in-progress record in the metadata log.
+`nodetool cms describe` will show it.
+Attempting a second replacement without first clearing the stale record will
+fail with a conflict error.
+Use `nodetool cms abortOperation <sequence-id>` to clear it.
+
+Movement map precision::
+Under gossip, streaming sources were chosen from gossip state, which could be
+stale.
+Under TCM, the replacement node derives its `MovementMap` from the committed
+placement deltas.
+Streaming targets are authoritative and do not vary by observer.
+
+Operator visibility::
+Each committed epoch emits a structured log entry.
+You can correlate log timestamps with epoch numbers to reconstruct the exact
+sequence of events during and after a replacement.
+
+== Post-Replacement Validation
+
+[#post-replacement-validation]
+
+Complete all of the following steps after either Option A or Option B.
+
+=== Immediate checks (within 5 minutes)
+
+. Confirm the new node is UN:
++
+[source,bash]
+----
+nodetool status
+----
++
+The replacement must appear as UN.
+No other node should be in an abnormal state.
+
+. Confirm no pending TCM operations:
++
+[source,bash]
+----
+nodetool cms describe
+----
++
+There must be no in-progress sequences.
+
+. Verify ring coverage:
++
+[source,bash]
+----
+nodetool ring
+----
++
+All token ranges must be assigned to live nodes.
+
+=== Post-streaming repair (within 1 hour)
+
+Run a full repair on the replacement node to reconcile any data written during
+the streaming window:
+
+[source,bash]
+----
+nodetool repair --full
+----
+
+For large datasets, scope the repair to one keyspace at a time to reduce
+pressure:
+
+[source,bash]
+----
+nodetool repair --full <keyspace>
+----
+
+=== 24-hour monitoring checklist
+
+Monitor the replacement node and the cluster for at least 24 hours using these
+checks:
+
+[source,bash]
+----
+# Check for dropped messages (indicates coordinator overload)
+nodetool tpstats | grep -i drop
+
+# Check pending compactions
+nodetool compactionstats
+
+# Check hint delivery to the replacement node
+nodetool tpstats | grep -i hint
+
+# Check read/write latency
+nodetool proxyhistograms
+----
+
+Alert thresholds to watch:
+
+* Dropped messages on any node: investigate immediately
+* Pending compaction tasks growing unbounded: review compaction strategy
+* P99 read or write latency increase > 2x baseline: check repair completion and GC logs
+* Any node transitioning to DN: do not start another replacement until resolved
+
+== Related Pages
+
+* xref:tcm-operations.adoc[TCM Day-2 Operations and Performance] — bootstrap, decommission, replace, and move under TCM
+* xref:tcm-troubleshooting.adoc[TCM Troubleshooting] — how to diagnose and recover from stalled topology operations
+* xref:tcm-upgrade-procedure.adoc[Upgrade Procedure] — constraints on node replacement during rolling upgrades
+* xref:operate/repair.adoc[Repair] — full and incremental repair concepts
+* xref:operate/auto_repair.adoc[Automated Repair] — scheduling repair automatically
+* xref:production.adoc[Production Readiness] — hardware sizing and RF recommendations

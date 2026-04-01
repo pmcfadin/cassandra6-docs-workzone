@@ -1,0 +1,265 @@
+= Virtual Tables Diagnostic Cookbook
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+This cookbook provides ready-to-use CQL queries for diagnosing common operational issues using Cassandra virtual tables.
+All queries run against the `system_views` keyspace and execute locally on the node you are connected to.
+Because virtual tables are node-local, run each query on every node of interest or iterate with a scripted approach.
+
+See xref:observe/virtualtables.adoc[Virtual Tables] for a conceptual overview of how virtual tables work and what keyspaces are available.
+
+== Thread Pool Health
+
+Cassandra processes different categories of work through named thread pools.
+A growing backlog in any pool is often the first visible signal of resource pressure.
+
+[source,cql]
+----
+SELECT pool_name, active_tasks, pending_tasks, completed_tasks, blocked_tasks
+FROM system_views.thread_pools
+WHERE pending_tasks > 0
+ALLOW FILTERING;
+----
+
+If `pending_tasks > 0` is not selective enough (for example, during startup), broaden the query and sort manually:
+
+[source,cql]
+----
+SELECT pool_name, active_tasks, pending_tasks, completed_tasks, blocked_tasks
+FROM system_views.thread_pools;
+----
+
+*What to look for*
+
+* `pending_tasks` rising on `MutationStage` or `ReadStage` indicates the node cannot keep up with write or read traffic.
+* `blocked_tasks` greater than zero on any pool means tasks are being rejected — this is a serious escalation signal.
+* `CompactionExecutor` backlog is normal during bulk loads, but sustained growth means compaction is falling behind ingestion.
+* `MemtableFlushWriter` backlog suggests the flush queue is full; consider increasing `memtable_flush_writers` or reducing write throughput.
+
+== Compaction Progress
+
+Long-running compactions can be inspected without reading log files.
+
+[source,cql]
+----
+SELECT keyspace_name, table_name, task_type, progress, total, unit
+FROM system_views.sstable_tasks;
+----
+
+To filter to compaction tasks only:
+
+[source,cql]
+----
+SELECT keyspace_name, table_name, progress, total, unit
+FROM system_views.sstable_tasks
+WHERE task_type = 'compaction'
+ALLOW FILTERING;
+----
+
+*What to look for*
+
+* The `progress` and `total` columns share the same `unit` (usually `bytes`).
+  Divide `progress` by `total` to estimate percent complete.
+* A large number of concurrent rows here with `task_type = 'compaction'` and slow-moving `progress` values may indicate I/O saturation.
+* `task_type = 'validation'` rows appear during repair; their presence alongside compaction tasks increases I/O pressure.
+* After a bulk load, a burst of `task_type = 'compaction'` rows that quickly resolve is expected behavior.
+
+== Slow Queries
+
+The slow query log, historically accessible only through `system.log`, is exposed as a virtual table when the slow query log is enabled in `cassandra.yaml`.
+
+[source,cql]
+----
+SELECT username, keyspace_name, table_names, query, source_ip,
+       start_time, duration
+FROM system_views.slow_queries;
+----
+
+*What to look for*
+
+* `duration` is in microseconds. Queries appearing here have already exceeded your configured `slow_query_log_timeout_in_ms` threshold.
+* Repeated appearances of the same `keyspace_name` and `table_names` combination point to a hot table or a schema modeling problem.
+* `source_ip` identifies which client or application tier is generating the slow operations.
+* If you see many distinct queries with large `duration` values across different tables, the node itself is likely under resource pressure rather than any single query being the cause.
+
+NOTE: Slow query logging must be enabled in `cassandra.yaml` (`slow_query_log_timeout_in_ms`) for this table to populate.
+
+== Streaming Progress
+
+During repair, bootstrap, rebuild, or decommission, data streams between nodes.
+Use this view to monitor active stream sessions.
+
+[source,cql]
+----
+SELECT id, follower, total_files_to_receive, total_files_received,
+       total_size_to_receive, total_size_received,
+       total_files_to_send, total_files_sent,
+       total_size_to_send, total_size_sent,
+       current_receiving_files, current_sending_files
+FROM system_views.streaming;
+----
+
+*What to look for*
+
+* A session where `total_files_received` is not increasing over several polling intervals indicates a stalled stream.
+  Check connectivity and storage on both endpoints.
+* `current_receiving_files` and `current_sending_files` show active transfers at the moment of the query.
+* Compare `total_size_received` to `total_size_to_receive` to estimate overall completion percentage.
+* Multiple concurrent sessions with large `total_size_to_receive` values simultaneously can saturate network bandwidth and slow down read/write operations.
+
+== Client Connections
+
+Identify connected clients, their protocol versions, and request activity.
+
+[source,cql]
+----
+SELECT address, port, username, driver_name, driver_version,
+       protocol_version, ssl_enabled, request_count
+FROM system_views.clients;
+----
+
+To find clients with the highest request counts:
+
+[source,cql]
+----
+SELECT address, username, driver_name, request_count
+FROM system_views.clients;
+----
+
+Sort the result set client-side by `request_count` descending to find the busiest callers.
+
+*What to look for*
+
+* Unexpectedly high `request_count` from a single `address` may indicate a poorly tuned connection pool or a misbehaving application.
+* Clients showing an older `protocol_version` (for example, v3 when v5 is available) may be missing protocol-level improvements.
+* `ssl_enabled = false` for connections that should be encrypted is a security concern.
+* A sudden increase in the total row count indicates new connections are being opened without corresponding closures — watch for connection leaks.
+
+== Runtime Settings
+
+Inspect current in-memory configuration values without reading `cassandra.yaml` directly.
+
+[source,cql]
+----
+SELECT name, value
+FROM system_views.settings
+WHERE name IN (
+  'write_request_timeout_in_ms',
+  'read_request_timeout_in_ms',
+  'range_request_timeout_in_ms',
+  'cas_contention_timeout_in_ms',
+  'slow_query_log_timeout_in_ms',
+  'memtable_flush_writers',
+  'concurrent_reads',
+  'concurrent_writes'
+);
+----
+
+To search for all settings matching a prefix, use `LIKE` with `ALLOW FILTERING`:
+
+[source,cql]
+----
+SELECT name, value
+FROM system_views.settings
+WHERE name LIKE 'compaction%'
+ALLOW FILTERING;
+----
+
+*What to look for*
+
+* This table reflects the runtime values Cassandra is actually using, which may differ from `cassandra.yaml` if hot-reloading (`nodetool reloadlocalschema`, `nodetool setconcurrentreaders`, and similar commands) has changed them since startup.
+* Use this view to confirm that a configuration change took effect without requiring a node restart.
+* Comparing the output across nodes is useful when you suspect a node was not restarted after a configuration change was applied to the cluster.
+
+== Batch Metrics
+
+Batch operations that touch many partitions cause coordinator-side fan-out and can become a latency source.
+
+[source,cql]
+----
+SELECT * FROM system_views.batch_metrics;
+----
+
+*What to look for*
+
+* Rising `warnings` counts indicate batches are regularly exceeding the `batch_size_warn_threshold_in_kb` limit.
+  The application should decompose large batches into smaller ones.
+* Elevated `total_partitions_per_batch` values combined with latency increases on the write path are a strong signal of problematic batch usage.
+* If `warnings` is growing but `failures` is not, the situation is recoverable; if both are rising, batches may be causing timeouts.
+
+NOTE: The `batch_metrics` table structure may vary across Cassandra versions.
+Run `DESCRIBE TABLE system_views.batch_metrics;` on your cluster to confirm available columns.
+
+== Automating Monitoring Scripts
+
+Because virtual tables expose data through standard CQL, you can incorporate them into shell-based monitoring workflows.
+
+The following example uses `cqlsh` to poll thread pool health on a schedule:
+
+[source,bash]
+----
+#!/usr/bin/env bash
+# poll-thread-pools.sh
+# Usage: ./poll-thread-pools.sh <host> <interval_seconds>
+
+HOST="${1:-127.0.0.1}"
+INTERVAL="${2:-30}"
+
+while true; do
+  echo "=== $(date -u +%Y-%m-%dT%H:%M:%SZ) === ${HOST}"
+  cqlsh "${HOST}" --execute "
+    SELECT pool_name, active_tasks, pending_tasks, blocked_tasks
+    FROM system_views.thread_pools
+    WHERE pending_tasks > 0
+    ALLOW FILTERING;"
+  sleep "${INTERVAL}"
+done
+----
+
+For compaction progress polling:
+
+[source,bash]
+----
+#!/usr/bin/env bash
+# poll-compaction.sh
+HOST="${1:-127.0.0.1}"
+
+cqlsh "${HOST}" --execute "
+  SELECT keyspace_name, table_name, task_type,
+         progress, total, unit
+  FROM system_views.sstable_tasks;"
+----
+
+*Scaling across nodes*
+
+Virtual tables are node-local, so a single `cqlsh` session sees only the node it is connected to.
+To collect data from all nodes in a ring, iterate over the list of node IP addresses:
+
+[source,bash]
+----
+#!/usr/bin/env bash
+# cluster-thread-pools.sh
+NODES=("10.0.0.1" "10.0.0.2" "10.0.0.3")
+
+for NODE in "${NODES[@]}"; do
+  echo "--- ${NODE} ---"
+  cqlsh "${NODE}" --execute "
+    SELECT pool_name, pending_tasks, blocked_tasks
+    FROM system_views.thread_pools
+    WHERE pending_tasks > 0
+    ALLOW FILTERING;" 2>/dev/null || echo "  [unreachable]"
+done
+----
+
+For production environments, consider a metrics pipeline (Prometheus with the Cassandra exporter, Datadog agent, or similar) instead of ad-hoc polling scripts.
+Virtual table queries are low-cost but add up under frequent polling against many nodes.
+
+== Related Pages
+
+* xref:observe/virtualtables.adoc[Virtual Tables] — keyspace overview, constraints, and schema introspection
+* xref:observe/metrics.adoc[Metrics] — JMX and Prometheus metrics reference
+* xref:operate/repair.adoc[Repair] — understanding streaming sessions during repair
+* xref:operate/compaction-overview.adoc[Compaction] — compaction strategy reference and tuning

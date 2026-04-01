@@ -1,41 +1,137 @@
 = Operator Quickstart
 
-Get a Cassandra cluster running locally in minutes.
+Get Cassandra running.
+Choose your path based on your goal and environment.
 
-== Docker Quickstart
+== Choose Your Path
 
-The fastest way to start Cassandra for evaluation:
+Local Evaluation (Docker, ~5 min)::
+Run a single Cassandra node in Docker to explore CQL, test client code, or verify a configuration change.
+No installation required.
+Not suitable for production.
+
+Production Pilot (single node on a VM, ~30 min)::
+Install Cassandra on a dedicated server, configure network addresses, and verify the node joins successfully.
+Use this to validate your environment before scaling out.
+
+Production Cluster (multi-node, 1-2 hours)::
+Plan rack layout and replication factor, install on each node, configure seeds and a shared cluster name, then start nodes sequentially.
+Use this for your actual production deployment.
+
+== Local Evaluation with Docker
+
+Pull and start a Cassandra node with the CQL native transport port exposed:
 
 [source,bash]
 ----
 docker pull cassandra:latest
-docker run --name cassandra -d cassandra:latest
+docker run --name cassandra -d -p 9042:9042 cassandra:latest
 ----
 
-Wait about 30 seconds, then verify the node is running:
-
-[source,bash]
-----
-docker exec -it cassandra nodetool status
-----
-
-Connect with cqlsh:
+Wait approximately 30 seconds for the node to initialize, then connect with cqlsh:
 
 [source,bash]
 ----
 docker exec -it cassandra cqlsh
 ----
 
-For a step-by-step walkthrough including loading sample data, see the xref:Cassandra:cassandra:getting-started/cassandra-quickstart.adoc[Cassandra Quickstart].
+Verify the node is healthy:
+
+[source,bash]
+----
+docker exec -it cassandra nodetool status
+----
+
+You should see one node listed with status `UN` (Up/Normal).
+
+[NOTE]
+====
+Docker is for evaluation only.
+It does not persist data across container restarts and is not configured for production workloads.
+See xref:production.adoc[Production Recommendations] before deploying to real infrastructure.
+====
+
+== Production Pilot
+
+A production pilot installs Cassandra on a dedicated server and confirms the node starts cleanly before you build out a full cluster.
+
+. Follow the xref:install.adoc[Installation Guide] to install the Cassandra package on your server.
+
+. Open `cassandra.yaml` and set the network addresses for your host:
++
+[source,yaml]
+----
+listen_address: <node-ip>
+rpc_address: <node-ip>
+----
+
+. Start Cassandra:
++
+[source,bash]
+----
+sudo systemctl start cassandra
+----
+
+. Verify the node is up:
++
+[source,bash]
+----
+nodetool status
+----
++
+Expect one node at status `UN`.
+
+. Review xref:production.adoc[Production Recommendations] for disk layout, JVM heap sizing, and GC settings before proceeding.
+
+== Production Cluster
+
+A multi-node cluster requires upfront planning for rack topology, seed nodes, and replication factor.
+
+. Review xref:deployment-guide.adoc[Deployment Guide] for node sizing, rack and datacenter layout, and replication factor decisions.
+
+. Follow the xref:install.adoc[Installation Guide] to install Cassandra on each node.
+
+. On every node, open `cassandra.yaml` and configure:
++
+[source,yaml]
+----
+cluster_name: <your-cluster-name>
+listen_address: <this-node-ip>
+rpc_address: <this-node-ip>
+seed_provider:
+  - class_name: org.apache.cassandra.locator.SimpleSeedProvider
+    parameters:
+      - seeds: "<seed-node-1-ip>,<seed-node-2-ip>"
+----
+
+. Start nodes one at a time, waiting for each to reach `UN` status before starting the next:
++
+[source,bash]
+----
+sudo systemctl start cassandra
+nodetool status
+----
+
+. Once all nodes are up, verify the full ring:
++
+[source,bash]
+----
+nodetool status
+nodetool ring
+----
++
+Every node should show status `UN`.
+
+[TIP]
+====
+Use a consistent `cluster_name` across all nodes.
+A mismatch will prevent nodes from joining the ring.
+====
 
 == Next Steps
 
-After verifying Cassandra runs:
-
-. Review xref:production.adoc[Production Recommendations] before deploying to production
-. Follow the xref:install.adoc[Installation Guide] for bare-metal or package-based installation
-. Configure your cluster using the xref:configure.adoc[Configuration Guide]
-. Set up xref:secure/security.adoc[Security] (authentication, authorization, TLS)
-. Plan your xref:upgrade/onboarding-to-accord.adoc[Upgrade Path] if migrating from an earlier version
-
-TIP: For production deployments, never use the Docker quickstart configuration. See xref:production.adoc[Production Recommendations] for hardware sizing, disk layout, and JVM tuning guidance.
+* xref:deployment-guide.adoc[Deployment Guide] -- node sizing, rack layout, and replication factor planning
+* xref:install.adoc[Installation Guide] -- package installation on bare metal or VMs
+* xref:production.adoc[Production Recommendations] -- hardware sizing, disk layout, JVM tuning
+* xref:configure.adoc[Configuration Reference] -- cassandra.yaml, JVM options, and topology files
+* xref:developers::quickstart.adoc[Developer Quickstart] -- connect an application and run your first CQL queries

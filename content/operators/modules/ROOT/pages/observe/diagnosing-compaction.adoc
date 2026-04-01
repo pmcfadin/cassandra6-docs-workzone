@@ -1,0 +1,331 @@
+= Diagnosing Compaction Issues
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+This runbook walks through a systematic approach to diagnosing compaction problems in a Cassandra cluster.
+The primary symptom addressed here is a growing compaction backlog — the number of pending compaction tasks increases faster than the compactor can complete them.
+
+Left unaddressed, a compaction backlog causes read amplification (more SSTables per read), increased tombstone accumulation, and eventual disk exhaustion.
+
+== Symptom: Pending Compactions are Growing
+
+You may notice this problem through:
+
+* `nodetool compactionstats` showing a steadily increasing pending task count
+* Elevated read latency without a corresponding write spike
+* JMX or Prometheus alert on `org.apache.cassandra.metrics.Compaction.PendingTasks`
+* Disk utilization rising without obvious write growth
+
+Work through the steps below in order to narrow the cause before making changes.
+
+== Step 1: Assess the Backlog
+
+=== Using nodetool compactionstats
+
+Run on each affected node:
+
+[source,bash]
+----
+nodetool compactionstats
+----
+
+Example output:
+
+[source,plaintext]
+----
+pending tasks: 47
+          compaction type        keyspace            table   completed      total    unit  progress
+               Compaction      my_keyspace       events_by_day   41943040  209715200   bytes   20.00%
+Active compaction remaining time :   0h00m42s
+----
+
+Key fields:
+
+`pending tasks`::
+  Total compaction tasks queued but not yet started.
+  A value above a few hundred on a steady-state node warrants investigation.
+`progress`::
+  Percentage complete for the currently active task.
+  A task stalled at 0% for an extended period may indicate I/O saturation or a paused compaction.
+
+=== Using the system_views Virtual Table
+
+For a programmatic or real-time view from CQL:
+
+[source,sql]
+----
+SELECT keyspace_name, table_name, kind, progress, total, unit
+FROM system_views.sstable_tasks
+WHERE kind = 'compaction';
+----
+
+This query returns one row per active compaction task across all tables.
+To compute remaining bytes per task:
+
+[source,sql]
+----
+SELECT keyspace_name, table_name,
+       total - progress AS remaining_bytes
+FROM system_views.sstable_tasks
+WHERE kind = 'compaction';
+----
+
+[NOTE]
+====
+`system_views.sstable_tasks` shows only running tasks.
+Pending (queued but not started) tasks are not reflected here.
+Use `nodetool compactionstats` for the full pending count.
+====
+
+=== Checking Compaction History
+
+To review recently completed compactions and their durations:
+
+[source,bash]
+----
+nodetool compactionhistory
+----
+
+A pattern of very short-lived compactions completing rapidly alongside a high pending count may indicate write amplification: new SSTables are arriving faster than compaction can merge them.
+
+== Step 2: Check Compaction Throughput
+
+Cassandra throttles compaction I/O to avoid crowding out client reads and writes.
+If throughput is capped too low, the backlog will grow under heavy write load.
+
+=== View and Adjust the Throughput Limit
+
+Check the current cap:
+
+[source,bash]
+----
+nodetool getcompactionthroughput
+----
+
+The default is 64 MiB/s per node (as of Cassandra 6.0).
+To raise it temporarily:
+
+[source,bash]
+----
+nodetool setcompactionthroughput <mb_per_sec>
+----
+
+To remove the cap entirely (use with caution on production nodes with concurrent reads):
+
+[source,bash]
+----
+nodetool setcompactionthroughput 0
+----
+
+=== Cassandra.yaml Setting
+
+The equivalent persistent configuration is:
+
+[source,yaml]
+----
+compaction_throughput_mb_per_sec: 64
+----
+
+[WARNING]
+====
+Removing the throughput cap on a node under active read load can cause read latency spikes.
+Increase the limit gradually (for example, in 32 MiB/s increments) and watch read P99 latency before committing to a new value.
+====
+
+=== Check I/O Saturation
+
+If throughput is already uncapped and the backlog is still growing, the disk may be saturated.
+On Linux:
+
+[source,bash]
+----
+iostat -xz 5
+----
+
+Look for `%util` approaching 100% on the data volume.
+If I/O is the bottleneck, tuning throughput limits will not help — address the disk or write rate first.
+
+== Step 3: Check the Compaction Strategy
+
+The wrong compaction strategy for a workload is a common root cause of backlogs.
+
+=== Identify the Current Strategy
+
+[source,sql]
+----
+SELECT keyspace_name, table_name, compaction
+FROM system_schema.tables
+WHERE keyspace_name = '<your_keyspace>';
+----
+
+The `compaction` column returns a map that includes the strategy class name.
+
+=== Strategy Selection Guide
+
+[cols="1,2,2", options="header"]
+|===
+| Strategy | Best For | Trade-offs
+
+| Unified Compaction Strategy (UCS)
+| Most workloads. Recommended default for Cassandra 6.0 and later.
+Handles mixed read-write, write-heavy, and time-series workloads.
+| Requires tuning `scaling_parameters` for optimal behavior.
+Parallel sharding reduces I/O amplification but may consume more CPU.
+
+| Size Tiered Compaction Strategy (STCS)
+| Write-heavy workloads on spinning disks.
+Immutable data appended in bulk (e.g., analytics ingest).
+| Poor read performance as SSTable count grows.
+Space amplification: requires 2x disk space headroom during compaction.
+Not suitable for workloads with frequent deletes or updates.
+
+| Leveled Compaction Strategy (LCS)
+| Read-heavy workloads. Workloads with many updates and deletes.
+| High write amplification (I/O per byte written is much larger).
+Not suitable for high-throughput sequential writes or time-series data.
+Can saturate disk I/O on write-heavy workloads.
+
+| Time Window Compaction Strategy (TWCS)
+| TTL-based, mostly-immutable time-series data.
+Each time window compacts independently.
+| Data must arrive in near-chronological order.
+Out-of-order writes cause windows to remain open and accumulate SSTables.
+Mixing data with and without TTL degrades effectiveness.
+|===
+
+[NOTE]
+====
+In Cassandra 6.0, UCS is the recommended strategy for new workloads.
+UCS can be configured to emulate STCS, LCS, or TWCS behavior via `scaling_parameters`,
+so migrating to UCS does not require a full table rewrite in most cases.
+See xref:operate/ucs.adoc[Unified Compaction Strategy (UCS)] for migration examples.
+====
+
+=== Alter the Strategy
+
+To switch a table to UCS:
+
+[source,sql]
+----
+ALTER TABLE <keyspace>.<table>
+  WITH compaction = {
+    'class': 'UnifiedCompactionStrategy'
+  };
+----
+
+Strategy changes take effect on the next compaction cycle.
+No manual compaction trigger is required, though you can run one to force immediate recompaction:
+
+[source,bash]
+----
+nodetool compact <keyspace> <table>
+----
+
+== Step 4: Check Available Disk Space
+
+Compaction is a write-intensive operation that requires temporary disk space.
+During compaction, both the input SSTables and the output SSTable exist simultaneously until the merge is complete.
+
+=== Space Headroom Rules of Thumb
+
+* **STCS** can require up to 50% of the table's on-disk size as temporary headroom (worst case: all SSTables compact into one).
+* **LCS** has lower space amplification because it works in small, bounded levels, but each level still requires headroom proportional to the level size.
+* **TWCS** typically requires minimal extra space, one window at a time.
+* **UCS** uses sharding to bound the size of any single compaction, reducing peak disk pressure compared to STCS.
+
+=== Check Disk Usage
+
+[source,bash]
+----
+nodetool info
+----
+
+The `Load` line shows the total on-disk SSTable size for the node.
+
+For per-keyspace breakdown:
+
+[source,bash]
+----
+nodetool tablestats <keyspace>
+----
+
+Look at `Space used (live)` and `Space used (total)`.
+A large `Space used (total)` relative to `Space used (live)` indicates a backlog of obsolete SSTables waiting to be collected.
+
+[WARNING]
+====
+If a node has less than 20% free disk space, compaction may pause automatically or fail partway through.
+On affected nodes, either free disk space or reduce the compaction throughput limit to slow write amplification.
+Do not disable compaction to recover disk space — this makes the problem worse over time.
+====
+
+== Step 5: Check Anti-Compaction (Repair-Triggered)
+
+After incremental repair, Cassandra runs **anti-compaction** to split SSTables into repaired and unrepaired sets.
+This creates additional compaction workload and can contribute to a backlog if repair is running frequently or over large token ranges.
+
+=== Identify Anti-Compaction in the Backlog
+
+[source,bash]
+----
+nodetool compactionstats
+----
+
+Look for tasks with type `Anticompaction` in the output.
+A high count of anti-compaction tasks relative to regular compaction tasks suggests repair is the primary driver of the backlog.
+
+=== Check Repair Status
+
+[source,bash]
+----
+nodetool repair --pr -status
+----
+
+If a repair is actively running across the entire token range, consider:
+
+* Reducing the repair concurrency (`nodetool repair --job-threads`)
+* Using subrange repair to process smaller token ranges per run, which produces smaller anti-compaction tasks
+* Increasing `compaction_throughput_mb_per_sec` temporarily for the duration of the repair window
+
+[NOTE]
+====
+Cassandra maintains separate compaction strategy instances for repaired and unrepaired SSTables.
+If incremental repair is run once and never again, repaired SSTables may block tombstone collection in unrepaired SSTables.
+Run repair on a regular schedule to keep both sets current.
+====
+
+== Resolution Actions Summary
+
+[cols="2,3", options="header"]
+|===
+| Root Cause | Recommended Action
+
+| Throughput cap too low
+| Increase `compaction_throughput_mb_per_sec` via `nodetool setcompactionthroughput`
+
+| Disk I/O saturated
+| Add disk capacity, reduce write rate, or switch to UCS with sharding to reduce peak I/O
+
+| Wrong compaction strategy for workload
+| Alter the table to UCS (recommended) or the appropriate strategy for the access pattern
+
+| Insufficient disk headroom
+| Free disk space or migrate to a strategy with lower space amplification (LCS or UCS)
+
+| Anti-compaction from repair
+| Reduce repair scope per run, increase compaction throughput during repair window
+
+| Write rate exceeds compaction rate
+| Scale horizontally (add nodes), reduce write throughput, or investigate write amplification from client batching patterns
+|===
+
+== Related Pages
+
+* xref:operate/compaction-overview.adoc[Compaction Overview] — background on compaction types and common options
+* xref:operate/ucs.adoc[Unified Compaction Strategy (UCS)] — migration guide and tuning reference for UCS
+* xref:observe/virtualtables.adoc[Virtual Tables] — full reference for `system_views.sstable_tasks` and related tables
+* xref:troubleshoot/use_nodetool.adoc[Troubleshooting with Nodetool] — broader nodetool usage for cluster diagnostics
+// xref:observe/golden-signals.adoc[Golden Signals] — link pending page creation

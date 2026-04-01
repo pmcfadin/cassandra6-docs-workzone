@@ -1,0 +1,306 @@
+= Configuration as Code
+
+Treating Cassandra configuration as code means storing configuration files in version control, deploying changes through automated pipelines, and continuously verifying that cluster state matches the intended configuration.
+This approach reduces the risk of configuration drift, provides an audit trail for every change, and enables safe, repeatable rollouts across environments.
+
+This page covers:
+
+* Which configuration files belong in version control
+* Template strategies for managing per-node and per-environment variation
+* Detecting drift between running configuration and source truth
+* Safe rollout patterns for applying configuration changes
+* Tool integration with Ansible, Terraform, Puppet/Chef, and GitOps workflows
+
+== What to Put in Version Control
+
+The following files should be tracked in your version control system for every Cassandra deployment.
+
+`cassandra.yaml`::
+The primary configuration file. Controls listen addresses, storage ports, compaction behavior, memtable settings, guardrails, and hundreds of other parameters.
+Some `cassandra.yaml` changes require a node restart to take effect; others are dynamic and can be applied at runtime via `nodetool`.
+Track this file per environment (dev, staging, production) and per datacenter when datacenter-specific settings differ.
+
+JVM options files (`jvm-server.options`, `jvm17-server.options`, `jvm21-server.options`)::
+Control garbage collector selection, heap sizing, JPMS directives, and JVM tuning flags.
+Changes to these files always require a node restart.
+See xref:configure/cass_jvm_options_file.adoc[JVM Options] for Cassandra 6 specifics, including the Generational ZGC default on JDK 21.
+
+`cassandra-rackdc.properties`::
+Defines each node's datacenter and rack assignment.
+Misconfiguration here causes data placement errors that are difficult to recover from.
+See xref:configure/cass_rackdc_file.adoc[Rack and Datacenter Configuration].
+
+`logback.xml`::
+Controls log levels, appenders, and rolling policy.
+See xref:configure/cass_logback_xml_file.adoc[Logback Configuration].
+
+`cassandra-env.sh`::
+Used for dynamically calculated JVM settings that cannot be expressed as static values in the `jvm-*` files.
+See xref:configure/cass_env_sh_file.adoc[cassandra-env.sh].
+
+[NOTE]
+====
+Do not store credentials, TLS private keys, or other secrets directly in configuration files tracked by version control.
+Use a secrets manager (HashiCorp Vault, AWS Secrets Manager, or equivalent) and inject secrets at deploy time.
+====
+
+== Template Strategies
+
+Real clusters require per-node variation: listen addresses, rack assignments, and sometimes heap sizes differ from node to node.
+Templates allow a single source file to generate correct per-node configuration at deploy time.
+
+=== Common Templating Approaches
+
+[cols="1,2", options="header"]
+|===
+| Tool | Template Language
+
+| Ansible
+| Jinja2 (`.j2` files)
+
+| Chef
+| ERB (Embedded Ruby)
+
+| Terraform / cloud-init
+| Go templates or HCL `templatefile()`
+
+| Helm (Kubernetes)
+| Go templates
+|===
+
+=== Ansible Jinja2 Example
+
+The following example shows a minimal `cassandra.yaml` snippet managed as an Ansible template.
+The `inventory_hostname` variable resolves to the node's FQDN, and `dc` and `rack` come from Ansible host variables.
+
+[source,jinja2]
+----
+# cassandra.yaml.j2
+cluster_name: '{{ cassandra_cluster_name }}'
+listen_address: '{{ inventory_hostname }}'
+rpc_address: '{{ inventory_hostname }}'
+endpoint_snitch: GossipingPropertyFileSnitch
+
+seed_provider:
+  - class_name: org.apache.cassandra.locator.SimpleSeedProvider
+    parameters:
+      - seeds: "{{ cassandra_seeds | join(',') }}"
+----
+
+A corresponding `cassandra-rackdc.properties.j2` template:
+
+[source,jinja2]
+----
+# cassandra-rackdc.properties.j2
+dc={{ cassandra_dc }}
+rack={{ cassandra_rack }}
+----
+
+The Ansible task to deploy the template:
+
+[source,yaml]
+----
+- name: Deploy cassandra.yaml
+  ansible.builtin.template:
+    src: cassandra.yaml.j2
+    dest: /etc/cassandra/cassandra.yaml
+    owner: cassandra
+    group: cassandra
+    mode: '0640'
+  notify: Restart Cassandra
+----
+
+[IMPORTANT]
+====
+Some `cassandra.yaml` changes require restart, others are dynamic.
+Before triggering an automated restart, verify whether the changed parameters are live-reloadable via `nodetool reloadlocalschema` or `nodetool setcachecapacity` (for applicable settings), or check the parameter's `restart_required` annotation in the source.
+Avoid unnecessary restarts in production.
+====
+
+=== Separating Environment Profiles
+
+Structure your repository to make environment variation explicit rather than hidden in conditionals:
+
+----
+config/
+  templates/
+    cassandra.yaml.j2
+    cassandra-rackdc.properties.j2
+    jvm-server.options.j2
+  environments/
+    dev/
+      group_vars/all.yml
+    staging/
+      group_vars/all.yml
+    production/
+      dc-us-east/
+        group_vars/all.yml
+      dc-eu-west/
+        group_vars/all.yml
+----
+
+This layout makes it straightforward to audit what differs between environments and to apply changes to one datacenter before promoting to others.
+
+== Drift Detection
+
+Configuration drift occurs when the running configuration on a node diverges from what version control says it should be.
+Common causes include manual edits made during incident response, partial rollouts that did not complete, and operator changes applied directly to nodes without going through the pipeline.
+
+=== File-Level Drift
+
+The simplest drift check is a checksum comparison between the deployed file and the expected file generated from templates.
+Automation tools such as Ansible (`--check` mode), Chef, and Puppet perform this comparison natively during their convergence runs.
+
+Example Ansible check:
+
+[source,bash]
+----
+ansible-playbook site.yml --check --diff --limit cassandra_nodes
+----
+
+The `--diff` flag shows line-by-line differences between the expected rendered template and the file currently on disk.
+
+=== Runtime Settings Drift via Virtual Tables
+
+For `cassandra.yaml` parameters that are dynamic, Cassandra exposes their current live values through the `system_views.settings` virtual table.
+This allows you to compare what Cassandra is actually running with what version control says it should be.
+
+[source,sql]
+----
+SELECT name, value
+FROM system_views.settings
+WHERE name IN (
+  'read_request_timeout_in_ms',
+  'write_request_timeout_in_ms',
+  'concurrent_reads',
+  'concurrent_writes'
+);
+----
+
+[NOTE]
+====
+`system_views.settings` reflects the currently active value in the running JVM, which may differ from the value on disk if a live reload has occurred or if the file was changed without a restart.
+Use this table as a complement to file-level checks, not a replacement.
+====
+
+=== Automating Drift Alerts
+
+A drift detection job can query `system_views.settings` across all nodes and compare results against the expected values recorded in your configuration repository.
+Run this as a scheduled CI job or as a Prometheus-based alert using a custom exporter.
+
+== Safe Rollout Patterns
+
+Configuration changes carry risk. The following patterns reduce the blast radius of a misconfiguration.
+
+=== Rolling Rollout
+
+Apply the change to one node at a time, waiting for the node to stabilize before proceeding.
+This is the standard pattern for most `cassandra.yaml` changes that require a restart.
+
+Steps:
+
+. Apply the new configuration to node 1.
+. If a restart is required, restart the Cassandra process and wait for the node to rejoin the ring (confirmed by `nodetool status` showing `UN`).
+. Verify the change is active on node 1 via `system_views.settings` or log inspection.
+. Repeat for the remaining nodes.
+
+[WARNING]
+====
+Never restart more than one node at a time in a single datacenter unless you have confirmed that your replication factor and consistency level requirements can tolerate simultaneous node unavailability.
+====
+
+=== Canary Rollout
+
+Apply the change to a small subset of nodes first — typically one node per datacenter — and observe behavior before rolling out to the rest of the cluster.
+
+Canary rollout is especially useful when:
+
+* The change affects read or write latency (monitor via xref:observe/metrics.adoc[metrics])
+* The change has a complex interaction with compaction strategy or memtable behavior
+* The cluster is large enough that a full rolling rollout takes many hours
+
+=== Blue/Green for Configuration
+
+In environments where nodes are provisioned as ephemeral infrastructure (cloud or Kubernetes), a blue/green approach is feasible for configuration changes:
+
+. Provision a new set of nodes ("green") with the new configuration.
+. Bootstrap the green nodes into the cluster.
+. Gradually migrate traffic to the green nodes.
+. Decommission the old nodes ("blue") once the green nodes are stable.
+
+This approach eliminates in-place restarts but requires sufficient cluster capacity to run both sets of nodes simultaneously.
+
+=== Dynamic Parameter Updates (No Restart Required)
+
+Some parameters can be changed without restarting Cassandra. Where supported, prefer these over restart-requiring changes in production.
+Examples include adjusting cache sizes via `nodetool setcachecapacity` and modifying compaction throughput via `nodetool setcompactionthroughput`.
+
+[NOTE]
+====
+After applying a dynamic change to a running node, update the configuration files on disk and in version control so the change persists across future restarts and is reflected in drift detection.
+====
+
+== Tool Integration
+
+=== Ansible
+
+Ansible is a common choice for Cassandra configuration management.
+Key patterns:
+
+* Use Ansible templates (Jinja2) for all configuration files
+* Use `notify`/`handlers` to restart Cassandra only when configuration actually changes
+* Use `--check --diff` in CI pipelines for drift detection before applying changes
+* Use Ansible Vault for secrets that must appear in configuration files
+
+=== Terraform
+
+Terraform is typically used for infrastructure provisioning rather than in-node configuration management.
+For configuration-as-code purposes, Terraform's `templatefile()` function can render node-specific `cassandra.yaml` fragments delivered via cloud-init or user-data scripts during instance launch.
+
+Avoid using Terraform to manage files on running nodes after initial provisioning; use Ansible or a purpose-built configuration management tool for ongoing configuration.
+
+=== Puppet and Chef
+
+Both Puppet and Chef provide idempotent file resource management and can template all Cassandra configuration files.
+They also provide native drift detection through their catalog convergence model: any deviation from the declared state is reported and remediated on the next agent run.
+
+Chef example resource:
+
+[source,ruby]
+----
+template '/etc/cassandra/cassandra.yaml' do
+  source 'cassandra.yaml.erb'
+  owner  'cassandra'
+  group  'cassandra'
+  mode   '0640'
+  variables(
+    cluster_name:   node['cassandra']['cluster_name'],
+    listen_address: node['ipaddress'],
+    seeds:          node['cassandra']['seeds']
+  )
+  notifies :restart, 'service[cassandra]', :delayed
+end
+----
+
+=== GitOps
+
+In a GitOps workflow, the desired cluster state is declared in a Git repository and a controller (Argo CD, Flux, or a custom operator) reconciles the live state to match.
+
+For Cassandra on Kubernetes, this typically means:
+
+* Configuration files are stored as `ConfigMap` or `Secret` objects in Git
+* The Cassandra operator (K8ssandra or similar) watches for changes and applies rolling updates
+* Pull requests to the configuration repository trigger automated validation and diff checks in CI before merge
+
+For bare-metal or VM deployments without an operator, GitOps can be approximated by triggering Ansible playbooks from CI/CD pipelines on merge to the main branch.
+
+== Related Pages
+
+* xref:configure.adoc[Configuration Overview]
+* xref:configure/cass_jvm_options_file.adoc[JVM Options]
+* xref:configure/cass_rackdc_file.adoc[Rack and Datacenter Configuration]
+* xref:configure/cass_logback_xml_file.adoc[Logback Configuration]
+* xref:configure/cass_env_sh_file.adoc[cassandra-env.sh]
+* xref:observe/metrics.adoc[Metrics]
+* xref:observe/virtualtables.adoc[Virtual Tables]
+* xref:deployment-guide.adoc[Deployment Guide]

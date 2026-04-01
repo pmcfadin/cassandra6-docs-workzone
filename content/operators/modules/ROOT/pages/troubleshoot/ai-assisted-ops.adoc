@@ -1,0 +1,305 @@
+= AI-Assisted Operations
+:description: How to use AI tools effectively as an interpretation layer over Cassandra telemetry — including virtual table queries, nodetool output, and safe artifact preparation.
+
+AI language models can accelerate operational knowledge work: surfacing relevant documentation, explaining metric patterns, translating nodetool output into actionable hypotheses, and drafting runbooks.
+They are most useful when they receive structured, machine-readable telemetry rather than narrative summaries.
+
+[WARNING]
+====
+AI is an interpretation layer, not a replacement for telemetry.
+Never act on an AI-generated diagnosis without confirming it against current metric data, virtual table output, or log evidence from your cluster.
+====
+
+== Telemetry-First Principle
+
+Effective AI-assisted operations follow a fixed priority order:
+
+. **Dashboards first** — check Grafana (or equivalent) for the four golden signals before anything else.
+  See xref:observe/golden-signals.adoc[Golden Signals and Alerting] for the recommended metric surface.
+. **Structured access second** — query virtual tables for machine-readable state.
+  Raw numbers travel better into an AI context window than rendered dashboard screenshots.
+. **AI interpretation third** — paste structured output into your AI assistant with a focused question.
+  The more specific the question, the more reliable the answer.
+
+The failure mode to avoid is the reverse: asking an AI to guess what is wrong before you have checked the signals.
+AI models trained on general systems knowledge will fill gaps with plausible-sounding but incorrect Cassandra-specific reasoning when given insufficient context.
+
+== Virtual Table Queries for AI Context
+
+The `system_views` keyspace exposes node-local operational state as queryable CQL.
+The output of these queries copies cleanly into an AI context and is far more informative than a prose description of a symptom.
+
+Run these queries in `cqlsh` before starting an AI-assisted diagnostic session.
+
+=== Thread Pool Saturation
+
+Identifies stages with pending or blocked tasks, which indicate resource saturation.
+
+[source,sql]
+----
+SELECT pool_name, active_tasks, pending_tasks, blocked_tasks, completed_tasks
+FROM system_views.thread_pools
+ORDER BY pending_tasks DESC;
+----
+
+Paste the result when asking an AI about dropped messages, coordinator slowness, or write backpressure.
+
+=== SSTable Task Backlog
+
+Shows in-progress compaction and other SSTable maintenance tasks.
+
+[source,sql]
+----
+SELECT keyspace_name, table_name, task_type, progress, total
+FROM system_views.sstable_tasks;
+----
+
+The `progress` and `total` columns are in bytes.
+A high ratio of pending tasks to completed tasks relative to write throughput points to compaction falling behind.
+
+=== Recent Slow Queries
+
+Lists locally-observed queries that exceeded the slow query threshold.
+
+[source,sql]
+----
+SELECT date, keyspace_name, table_name, query_type, parameters, source_ip, duration
+FROM system_views.local_read_latency
+WHERE duration > 100000
+ALLOW FILTERING;
+----
+
+[NOTE]
+====
+The `local_read_latency` virtual table reflects cumulative statistics, not individual slow query events.
+For per-query slow query logging, enable Full Query Logging (FQL).
+See xref:observe/fqllogging.adoc[Full Query Logging].
+====
+
+=== Connected Clients
+
+Enumerates active native protocol connections with authentication details.
+
+[source,sql]
+----
+SELECT address, port, username, authentication_mode,
+       driver_name, driver_version, ssl_enabled, requests
+FROM system_views.clients
+ORDER BY requests DESC;
+----
+
+This is useful when an AI is helping diagnose connection pool exhaustion, unexpected client versions, or authentication migration status.
+The `authentication_mode` and `authentication_metadata` columns were added in Cassandra 6.0 (CASSANDRA-19366).
+
+=== Streaming Activity
+
+Shows in-progress streaming sessions, which occur during bootstrap, decommission, and repair.
+
+[source,sql]
+----
+SELECT peer_address, operation, stage, progress_percentage
+FROM system_views.streaming;
+----
+
+Streaming sessions that have stalled at a fixed percentage are a common cause of node join failures and elevated read latency during topology changes.
+
+=== Live Configuration Settings
+
+Queries the current runtime configuration of the node.
+
+[source,sql]
+----
+SELECT name, value
+FROM system_views.settings
+WHERE name IN (
+  'concurrent_reads',
+  'concurrent_writes',
+  'concurrent_compactors',
+  'compaction_throughput_mb_per_sec',
+  'memtable_heap_space_in_mb',
+  'read_request_timeout_in_ms',
+  'write_request_timeout_in_ms'
+);
+----
+
+Sharing these values with an AI assistant lets it reason about whether default settings are appropriate for your observed workload rather than guessing from cluster size alone.
+
+== Feeding Nodetool Output to AI
+
+`nodetool` produces human-readable text that transfers directly into an AI context window.
+The effectiveness of the response depends heavily on how you frame the question.
+
+=== More Effective
+
+Provide the raw output plus a specific, bounded question.
+
+----
+Here is the output of `nodetool tpstats` from a node that is experiencing
+elevated coordinator write latency (p99 ~18 ms, baseline ~2 ms):
+
+[paste tpstats output]
+
+Which thread pools, if any, suggest a local bottleneck?
+What would you check next?
+----
+
+This approach works because the AI has actual numbers to reason about, a specific symptom for context, and a scoped question with a clear next step.
+
+=== Less Effective
+
+----
+My Cassandra cluster is slow. What should I do?
+----
+
+Without telemetry, the AI will produce a generic checklist (check heap, check compaction, check network) that applies to every cluster.
+You will spend more time ruling out irrelevant suggestions than you would have spent reading the actual metrics.
+
+=== Recommended Nodetool Commands for AI Context
+
+Include output from one or more of these before asking a diagnostic question:
+
+* `nodetool tpstats` — thread pool and dropped message summary
+* `nodetool proxyhistograms` — coordinator latency distributions
+* `nodetool compactionstats` — compaction backlog
+* `nodetool tablehistograms <keyspace> <table>` — per-table local latency
+* `nodetool gcstats` — garbage collection pause history
+* `nodetool netstats` — streaming and messaging queue state
+
+See xref:troubleshoot/use_nodetool.adoc[Use Nodetool] for command reference and output interpretation.
+
+== AI-Safe Support Artifacts
+
+When sharing cluster artifacts with an AI assistant — or when preparing artifacts for a support ticket that may be reviewed by automated tooling — redact sensitive fields before sharing.
+
+=== Fields to Redact
+
+[cols="2,3",options="header"]
+|===
+|Field |Why It Requires Redaction
+
+|IP addresses and hostnames
+|Can expose network topology, cloud region, or internal naming conventions
+
+|Keyspace and table names
+|May reveal application domain, customer identifiers, or business logic
+
+|Usernames and role names
+|Authentication principal names are security-sensitive
+
+|Authentication metadata
+|The `authentication_metadata` column in `system_views.clients` may contain TLS certificate subjects
+
+|`cassandra.yaml` secrets
+|`native_transport_port`, `ssl_*` paths, and `authenticator` class names reveal attack surface
+
+|JVM startup flags
+|May include file paths, `java.security` overrides, or agent jar locations
+|===
+
+=== What Is Safe to Share As-Is
+
+* Thread pool counts (`tpstats` output with node addresses removed)
+* Latency percentile distributions from `proxyhistograms` or `tablehistograms`
+* Compaction progress percentages
+* `system_views.settings` values for non-secret tunables
+* Log lines with timestamps after stripping IP addresses
+
+[TIP]
+====
+Cassandra's built-in `nodetool drain` and diagnostic commands do not produce output that contains secrets by default.
+The main sources of sensitive data are `system_views.clients`, `cassandra.yaml`, JVM flags, and log lines that contain query text.
+====
+
+== What AI Gets Wrong About Cassandra Operations
+
+AI models trained on general systems knowledge make systematic errors when applied to Cassandra.
+Knowing these failure modes helps you evaluate AI responses critically.
+
+=== Relational Assumptions
+
+AI models have seen far more content about relational databases than about Cassandra.
+When context is thin, they revert to relational reasoning.
+
+Common errors:
+
+* Suggesting table scans (`SELECT *` without a partition key) as a diagnostic step — these cause full-cluster reads and are harmful at scale.
+* Recommending secondary indexes on high-cardinality columns without discussing the read amplification cost.
+* Describing Cassandra's consistency levels using ACID transaction terminology, conflating `QUORUM` with serializable isolation.
+
+When an AI recommendation sounds like standard RDBMS advice, verify it against Cassandra's data model before applying it.
+
+=== Version Confusion
+
+Cassandra's operational surface changes significantly across major versions.
+AI models frequently conflate behavior from Cassandra 3.x, 4.x, and 5.x.
+
+Common errors in a Cassandra 6 context:
+
+* Describing token management steps that predate Transactional Cluster Metadata (TCM), which replaces the gossip-based token ring in Cassandra 6.
+  See xref:../tcm-overview.adoc[TCM Overview].
+* Referring to `system.local` and `system.peers` as the authoritative topology source, when TCM introduces `system.cluster_metadata` as the primary source.
+* Suggesting `nodetool repair` parameters that do not reflect Cassandra 6's auto-repair scheduler.
+  See xref:../operate/auto_repair.adoc[Auto Repair].
+
+Always state the Cassandra version when asking an AI a version-sensitive question.
+
+=== Generic Linux Tuning
+
+AI models often suggest OS-level tuning that is correct for general-purpose Linux workloads but counterproductive for Cassandra.
+
+Common errors:
+
+* Recommending `vm.swappiness=0` — Cassandra docs recommend a low but non-zero value (typically 1) to allow the OS to move anonymous memory under extreme pressure without disabling swap entirely.
+* Suggesting `transparent_hugepages=always` without noting that Cassandra's heap allocation patterns make `madvise` or `never` preferable.
+* Recommending filesystem mount options that are appropriate for databases using `fsync` per write, but not for Cassandra's commitlog append pattern.
+
+Cross-reference any OS-level recommendation against xref:../production.adoc[Production Checklist] before applying it.
+
+== CLAUDE.md Example for Ops Projects
+
+If you maintain a project or runbook repository where team members use AI coding assistants, a `CLAUDE.md` file establishes shared context and guards against the failure modes above.
+The following is a minimal template for a Cassandra operations project.
+
+[source,markdown]
+----
+# CLAUDE.md — Cassandra Ops Context
+
+## Cluster
+
+- Cassandra version: 6.0
+- Topology: 3 datacenters, 6 nodes each
+- Replication: NetworkTopologyStrategy, RF=3 per DC
+
+## Authoritative Sources
+
+- Cluster state: virtual tables in system_views and system_metrics
+- Configuration: cassandra.yaml on each node (do not guess defaults)
+- Topology: TCM (not gossip ring — do not use pre-6.0 token management procedures)
+
+## AI Usage Rules
+
+- Do not suggest schema changes without reviewing current table stats
+- Do not recommend repair commands without checking auto_repair scheduler state
+- Do not apply OS tuning advice without cross-referencing the production checklist
+- All CQL examples must include a partition key predicate unless explicitly querying virtual tables
+
+## Key References
+
+- Thread pool state: SELECT * FROM system_views.thread_pools;
+- SSTable backlog: SELECT * FROM system_views.sstable_tasks;
+- Settings: SELECT name, value FROM system_views.settings;
+----
+
+The principle is the same as `telemetry-first`: give the AI model ground truth before asking it to interpret anything.
+The `CLAUDE.md` file ensures that ground truth is present at the start of every session, not just when the operator remembers to include it.
+
+== Related Pages
+
+* xref:observe/virtualtables.adoc[Virtual Tables] — full reference for `system_views` and `system_metrics` keyspaces
+* xref:observe/golden-signals.adoc[Golden Signals and Alerting] — which metrics to monitor and how to alert on them
+* xref:troubleshoot/use_nodetool.adoc[Use Nodetool] — nodetool command reference
+* xref:observe/diagnosing-latency.adoc[Diagnosing Latency] — systematic latency runbook
+* xref:observe/diagnosing-compaction.adoc[Diagnosing Compaction] — compaction diagnosis runbook
+* xref:../tcm-overview.adoc[TCM Overview] — Transactional Cluster Metadata in Cassandra 6
+* xref:../operate/auto_repair.adoc[Auto Repair] — Cassandra 6 repair scheduler
+* xref:../production.adoc[Production Checklist] — OS and JVM tuning recommendations

@@ -1,0 +1,350 @@
+= Collecting Incident Artifacts
+
+The quality of artifacts collected during or immediately after an incident determines how quickly root cause can be identified.
+A complete artifact set lets support engineers and team members diagnose problems without requiring access to the affected cluster.
+An incomplete set often means waiting for a recurrence to gather the missing data.
+
+This guide describes what to collect, how to collect it safely, how to redact sensitive values, and how to package the result for a JIRA or support ticket.
+
+[[artifact-categories]]
+== What to Collect
+
+Collect artifacts in this order of priority.
+Cluster state and logs are the minimum viable set.
+Everything else adds diagnostic depth.
+
+[[cluster-state]]
+=== Cluster State
+
+Run these commands on at least two nodes per datacenter — ideally one seed node and one non-seed — because each node has its own independent view of cluster membership.
+
+[source,bash]
+----
+nodetool status
+nodetool info
+nodetool describecluster
+nodetool ring
+nodetool gossipinfo
+----
+
+`nodetool status` shows up/down state and token ownership.
+`nodetool info` reports load, uptime, heap usage, and exception counts.
+`nodetool describecluster` shows cluster name, snitch, partitioner, and schema version.
+`nodetool gossipinfo` shows the gossip state each node holds for every peer; schema version disagreements are visible here.
+
+[[performance-metrics]]
+=== Performance Metrics
+
+[source,bash]
+----
+nodetool tpstats
+nodetool proxyhistograms
+nodetool compactionstats
+nodetool tablestats <keyspace>.<table>
+nodetool tablehistograms <keyspace> <table>
+----
+
+`nodetool tpstats` shows thread pool queue depths and dropped message counts.
+Pending queues in `ReadStage`, `MutationStage`, or `RequestResponseStage` indicate saturation.
+
+`nodetool proxyhistograms` shows coordinator latency distributions.
+Collect at the time of the incident and again after recovery for a before/after comparison.
+
+`nodetool compactionstats -H` shows running and pending compaction tasks.
+`nodetool tablestats` and `nodetool tablehistograms` provide per-table latency, SSTable counts, and partition size distributions.
+If the affected table is known, scope these to that table specifically.
+
+[[virtual-tables]]
+=== Virtual Tables
+
+Virtual tables provide node-local state accessible via CQL without requiring JMX.
+Run these queries from `cqlsh` on the affected node.
+
+[source,sql]
+----
+-- Thread pool state (equivalent to tpstats, richer via CQL)
+SELECT pool_name, active_tasks, pending_tasks, completed_tasks,
+       blocked_tasks, blocked_tasks_all_time
+FROM system_views.thread_pools;
+----
+
+[source,sql]
+----
+-- Active compaction and flush tasks with progress
+SELECT keyspace_name, table_name, operation_type,
+       progress, total, unit
+FROM system_views.sstable_tasks;
+----
+
+[source,sql]
+----
+-- Recent slow queries (requires slow query log to be enabled)
+SELECT date, source_ip, username, command, duration,
+       parameters, source_port
+FROM system_views.local_query_log
+ORDER BY duration DESC
+LIMIT 50;
+----
+
+[source,sql]
+----
+-- Connected clients and authentication mode
+SELECT address, port, username, driver_name, driver_version,
+       protocol_version, ssl_enabled,
+       authentication_mode, authentication_metadata
+FROM system_views.clients;
+----
+
+[source,sql]
+----
+-- Settings that differ from compiled-in defaults
+SELECT name, value, default_value
+FROM system_views.settings
+WHERE value != default_value ALLOW FILTERING;
+----
+
+See xref:observe/virtualtables.adoc[Virtual Tables] for a full reference of available tables.
+
+[[logs]]
+=== Logs
+
+Collect logs from the time window that brackets the incident: at minimum 15 minutes before the first symptom and until the cluster recovered.
+
+Default log locations:
+
+* `system.log` -- `/var/log/cassandra/system.log` or `$CASSANDRA_HOME/logs/system.log`
+* GC log -- path set in `jvm-server.options`, often `$CASSANDRA_HOME/logs/gc.log`
+* `debug.log` -- available when `DEBUG` logging is enabled
+
+Copy the files rather than tailing them; log rotation can discard relevant lines before you finish.
+GC logs are critical for distinguishing GC stalls from disk I/O stalls.
+
+[[configuration]]
+=== Configuration
+
+[source,bash]
+----
+# Collect cassandra.yaml (redact before attaching -- see Redaction section)
+cp /etc/cassandra/cassandra.yaml cassandra-node1.yaml
+
+# Collect JVM options
+cp /etc/cassandra/jvm-server.options jvm-server-node1.options
+cp /etc/cassandra/jvm11-server.options jvm11-server-node1.options  # if present
+cp /etc/cassandra/cassandra-env.sh cassandra-env-node1.sh
+----
+
+Collect from at least one node per datacenter; collect from all affected nodes if configurations differ.
+
+[[jvm-state]]
+=== JVM State
+
+Collect JVM state while the cluster is under stress, not after it has recovered.
+
+[source,bash]
+----
+# Identify the Cassandra PID
+CASS_PID=$(pgrep -f CassandraDaemon)
+
+# Thread dump (repeat 3 times, 10 seconds apart, for better signal)
+jcmd $CASS_PID Thread.print > thread-dump-1.txt
+sleep 10
+jcmd $CASS_PID Thread.print > thread-dump-2.txt
+sleep 10
+jcmd $CASS_PID Thread.print > thread-dump-3.txt
+
+# Heap summary (does not trigger a full GC)
+jcmd $CASS_PID GC.heap_info > heap-info.txt
+
+# JVM flags in effect
+jcmd $CASS_PID VM.flags > jvm-flags.txt
+
+# System properties
+jcmd $CASS_PID VM.system_properties > jvm-system-props.txt
+----
+
+Three dumps taken 10 seconds apart distinguish consistently-blocked threads from momentarily-slow ones.
+If the node is unresponsive, `jstack -F $CASS_PID` forces attachment but is more disruptive.
+
+[[collection-script]]
+== Collection Script
+
+Run as the `cassandra` OS user or root.
+The output directory defaults to `/tmp/cassandra-incident`; pass an alternative as the first argument.
+
+[source,bash]
+----
+#!/usr/bin/env bash
+# collect-incident-artifacts.sh
+# Usage: ./collect-incident-artifacts.sh [output_dir]
+set -euo pipefail
+
+OUT="${1:-/tmp/cassandra-incident}"
+NODE=$(hostname -s)
+TS=$(date +%Y%m%dT%H%M%S)
+DIR="${OUT}/${NODE}-${TS}"
+mkdir -p "$DIR"
+
+CASS_LOG_DIR="${CASSANDRA_LOG_DIR:-/var/log/cassandra}"
+CASS_CONF_DIR="${CASSANDRA_CONF:-/etc/cassandra}"
+
+echo "[collect] Writing to $DIR"
+
+# --- Cluster state ---
+echo "[collect] Cluster state"
+nodetool status        > "$DIR/nodetool-status.txt"       2>&1 || true
+nodetool info          > "$DIR/nodetool-info.txt"          2>&1 || true
+nodetool describecluster > "$DIR/nodetool-describecluster.txt" 2>&1 || true
+nodetool ring          > "$DIR/nodetool-ring.txt"          2>&1 || true
+nodetool gossipinfo    > "$DIR/nodetool-gossipinfo.txt"    2>&1 || true
+
+# --- Performance ---
+echo "[collect] Performance metrics"
+nodetool tpstats       > "$DIR/nodetool-tpstats.txt"       2>&1 || true
+nodetool proxyhistograms > "$DIR/nodetool-proxyhistograms.txt" 2>&1 || true
+nodetool compactionstats -H > "$DIR/nodetool-compactionstats.txt" 2>&1 || true
+
+# --- JVM state ---
+echo "[collect] JVM state"
+CASS_PID=$(pgrep -f CassandraDaemon 2>/dev/null || echo "")
+if [ -n "$CASS_PID" ]; then
+    jcmd "$CASS_PID" Thread.print      > "$DIR/thread-dump-1.txt" 2>&1 || true
+    sleep 10
+    jcmd "$CASS_PID" Thread.print      > "$DIR/thread-dump-2.txt" 2>&1 || true
+    sleep 10
+    jcmd "$CASS_PID" Thread.print      > "$DIR/thread-dump-3.txt" 2>&1 || true
+    jcmd "$CASS_PID" GC.heap_info      > "$DIR/heap-info.txt"     2>&1 || true
+    jcmd "$CASS_PID" VM.flags          > "$DIR/jvm-flags.txt"     2>&1 || true
+    jcmd "$CASS_PID" VM.system_properties > "$DIR/jvm-system-props.txt" 2>&1 || true
+else
+    echo "WARNING: CassandraDaemon process not found" > "$DIR/jvm-state-warning.txt"
+fi
+
+# --- Logs (last 24 hours) ---
+echo "[collect] Logs"
+LOG_CUTOFF=$(date -d '24 hours ago' '+%Y-%m-%d %H:%M:%S' 2>/dev/null \
+    || date -v-24H '+%Y-%m-%d %H:%M:%S')  # macOS fallback
+if [ -f "$CASS_LOG_DIR/system.log" ]; then
+    cp "$CASS_LOG_DIR/system.log" "$DIR/system.log"
+fi
+if ls "$CASS_LOG_DIR"/gc.log* 2>/dev/null | head -1 | grep -q .; then
+    cp "$CASS_LOG_DIR"/gc.log* "$DIR/"
+fi
+
+# --- Configuration (raw, redact before sharing) ---
+echo "[collect] Configuration (NOT YET REDACTED)"
+for f in cassandra.yaml jvm-server.options jvm11-server.options \
+          jvm8-server.options cassandra-env.sh logback.xml; do
+    [ -f "$CASS_CONF_DIR/$f" ] && cp "$CASS_CONF_DIR/$f" "$DIR/$f-RAW" || true
+done
+
+# --- OS context ---
+echo "[collect] OS context"
+uname -a               > "$DIR/os-uname.txt"    2>&1 || true
+free -h                > "$DIR/os-memory.txt"   2>&1 || true
+df -h                  > "$DIR/os-disk.txt"     2>&1 || true
+iostat -xz 1 5         > "$DIR/os-iostat.txt"   2>&1 || true
+top -bn1               > "$DIR/os-top.txt"      2>&1 || true
+
+echo "[collect] Done. Output: $DIR"
+echo "[collect] IMPORTANT: Redact $DIR/*.yaml-RAW and $DIR/*.options-RAW before sharing."
+----
+
+The script appends `-RAW` to configuration file names as a reminder that they have not been redacted.
+Do not share `-RAW` files externally.
+
+[[redaction]]
+== Redaction
+
+Remove or replace these values in `cassandra.yaml` before attaching it to a ticket:
+
+[cols="1,2", options="header"]
+|===
+| Field | Action
+
+| `native_transport_password` | Remove
+| `server_encryption_options.keystore_password` | Replace with `REDACTED`
+| `server_encryption_options.truststore_password` | Replace with `REDACTED`
+| `client_encryption_options.keystore_password` | Replace with `REDACTED`
+| `client_encryption_options.truststore_password` | Replace with `REDACTED`
+| `authenticator` class name and any auth plugin config | Review; remove credentials
+| IP addresses and hostnames in `seeds` | Replace with symbolic names (e.g. `seed1.internal`) if required by your security policy
+| `data_file_directories`, `commitlog_directory`, `hints_directory` | Safe to include; no action required
+|===
+
+Values that are safe to share without redaction:
+
+* All timeout values (`read_request_timeout`, `write_request_timeout`, etc.)
+* Memory settings (`memtable_allocation_type`, heap sizes)
+* Compaction and flush settings
+* Snitch class names
+* Replication strategy settings
+* Cassandra version and build hash
+
+Redact JVM options files in the same way: remove any `-D` system properties that contain passwords or API keys.
+
+After redacting, strip the `-RAW` suffix: `for f in *-RAW; do mv "$f" "${f%-RAW}"; done`
+
+[[packaging]]
+== Packaging for Support
+
+Bundle the collected and redacted artifacts into a single archive.
+Include a plain-text summary file.
+
+[source,bash]
+----
+DIR=/tmp/cassandra-incident/node1-20260331T143000
+
+# Write a summary
+cat > "$DIR/incident-summary.txt" <<'EOF'
+Cluster: production-us-east
+Nodes affected: node1, node2
+Incident window: 2026-03-31 14:00--14:45 UTC
+Symptom: p99 read latency > 30 s; ReadTimeout on keyspace orders
+Cassandra version: 6.0.0  JDK: OpenJDK 17.0.10
+EOF
+
+tar -czf cassandra-incident-node1-20260331T143000.tar.gz -C /tmp/cassandra-incident node1-20260331T143000/
+----
+
+When filing a JIRA or support ticket, attach the archive and include:
+
+. Cassandra version and JDK version in the ticket description
+. A one-paragraph incident summary: when it started, the symptom, what changed before the incident, and how it resolved
+. The first occurrence of any error message from `system.log`, not just the most recent
+
+[[least-privilege]]
+== Least-Privilege Collection
+
+Minimum permissions required for each collection method:
+
+[cols="1,2", options="header"]
+|===
+| Command | Required permission
+
+| `nodetool *` | JMX read access; the collecting user must be in the `cassandra` JMX role or have `cassandra.yaml` JMX credentials
+| `jcmd` | Must run as the same OS user as the Cassandra process, or as root
+| `cqlsh` virtual table queries | A Cassandra role with `SELECT` permission on `system_views.*` and `system_metrics.*`
+| Log file access | Read access to the Cassandra log directory
+| Config file access | Read access to the Cassandra config directory
+|===
+
+Minimal CQL role for virtual table access:
+
+[source,sql]
+----
+CREATE ROLE incident_collector WITH PASSWORD = 'change-me' AND LOGIN = true;
+GRANT SELECT ON ALL TABLES IN KEYSPACE system_views TO incident_collector;
+GRANT SELECT ON ALL TABLES IN KEYSPACE system_metrics TO incident_collector;
+----
+
+For JMX authentication used by nodetool, see xref:configure/cass_jvm_options_file.adoc[JVM Options].
+
+[[related-pages]]
+== Related Pages
+
+* xref:troubleshoot/use_nodetool.adoc[Troubleshooting with Nodetool] -- nodetool command reference for common diagnostic tasks
+* xref:observe/virtualtables.adoc[Virtual Tables] -- full reference for `system_views` and `system_metrics` tables
+* xref:observe/metrics.adoc[Metrics] -- JMX and Prometheus metric export
+* xref:observe/diagnosing-latency.adoc[Diagnosing Latency] -- step-by-step latency diagnosis runbook
+* xref:observe/diagnosing-compaction.adoc[Diagnosing Compaction] -- compaction backlog investigation runbook
+* xref:observe/golden-signals.adoc[Golden Signals] -- four key indicators for cluster health

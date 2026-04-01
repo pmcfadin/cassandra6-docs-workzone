@@ -1,0 +1,265 @@
+= Choose Your Deployment Model
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Apache Cassandra runs on bare metal, virtual machines, cloud IaaS, and Kubernetes.
+Each operating model makes different trade-offs around control, automation, performance, and operational complexity.
+This guide helps you choose the right model for your team and workload before you begin installation.
+
+== Deployment Model Comparison
+
+The table below summarizes the key trade-offs across the three primary operating environments.
+
+[cols="1,1,1,1",options="header"]
+|===
+|Factor |Bare Metal / VMs |Cloud IaaS |Kubernetes
+
+|Control
+|Full
+|High
+|Medium (operator-mediated)
+
+|Automation
+|Manual / Ansible / Terraform
+|Terraform / cloud-native
+|Declarative / GitOps
+
+|Storage
+|Local SSDs (best performance)
+|Local NVMe or EBS/PD
+|PVs (local or network-attached)
+
+|Failure Domain
+|Rack / datacenter
+|Availability zone / region
+|Node / zone (pod disruption)
+
+|Operational Complexity
+|Low (if experienced with Linux ops)
+|Medium
+|High (requires Kubernetes expertise)
+
+|Best For
+|Predictable workloads, maximum performance
+|Cloud-native teams, elastic capacity
+|Platform teams, declarative operations
+|===
+
+[NOTE]
+====
+No single model is universally correct.
+Many large deployments run Cassandra on cloud IaaS without Kubernetes, while some platform engineering teams manage Cassandra entirely through a Kubernetes operator.
+Evaluate based on your team's existing skills and infrastructure.
+====
+
+== Bare Metal and VMs
+
+Running Cassandra directly on bare metal servers or virtual machines gives you the most direct control over hardware resources and scheduler behavior.
+This is the traditional model used by many large-scale Cassandra deployments.
+
+=== When to Choose Bare Metal or VMs
+
+* You have existing on-premises infrastructure
+* Your workload is predictable and you need maximum, consistent I/O performance
+* You have a dedicated operations team experienced with Linux systems administration
+* You are running latency-sensitive workloads where scheduling jitter is unacceptable
+* You want to avoid the overhead of a container orchestration layer
+
+=== Hardware Recommendations
+
+Storage::
+NVMe SSDs are strongly preferred for both data and commit log directories.
+Use separate physical disks (or disk groups) for the commit log and the data directory.
+Mixing commit log and data on the same device increases write latency under compaction load.
+
+Memory::
+16 GB RAM minimum for development or lightly loaded nodes.
+32–64 GB is typical for production nodes.
+Cassandra is designed to use off-heap memory (Netty, memtable, and file system page cache), so provisioning headroom above the JVM heap is important.
+
+CPU::
+Modern multi-core processors with at least 8 cores.
+Cassandra's thread-per-core concurrency model benefits from higher core counts during compaction and repair.
+
+[TIP]
+====
+If you are deploying on cloud VMs, treat them as bare metal equivalents: choose instance types with locally-attached NVMe storage rather than network-attached block storage wherever latency is a priority.
+====
+
+=== Network Recommendations
+
+* Low-latency interconnect between nodes in the same datacenter (10 GbE or faster)
+* Configure rack awareness using `cassandra-rackdc.properties` so that replicas are distributed across physical racks
+* Separate client-facing and inter-node traffic on different network interfaces if possible
+
+=== Automation Tools
+
+Common automation approaches for bare metal and VM deployments include:
+
+* **Ansible** — idiomatic choice for configuration management, rolling restarts, and cluster-wide task execution
+* **Terraform** — provision cloud VMs and associated networking before Ansible applies Cassandra configuration
+* **systemd** — manage the Cassandra service, set resource limits, and configure journal logging
+
+See xref:install.adoc[Installing Cassandra] and xref:production.adoc[Production Recommendations] for node-level configuration detail.
+
+== Cloud IaaS (AWS, GCP, Azure)
+
+Running Cassandra on cloud IaaS gives you access to elastic capacity, managed networking, and cloud-native tooling while retaining full control over the Cassandra process.
+This model is popular for teams that want infrastructure-as-code without Kubernetes complexity.
+
+=== When to Choose Cloud IaaS
+
+* Your team is already operating in a cloud environment with Terraform or cloud-native tooling
+* You need to scale capacity up or down in response to workload changes
+* You want to run multi-region clusters across cloud availability zones
+* You prefer managed networking and storage primitives but want to own the Cassandra process
+
+=== Recommended Instance Types
+
+AWS::
+* `i3` and `i4i` families — locally-attached NVMe SSDs, best for write-heavy and latency-sensitive workloads
+* `r6g` family — Graviton2/3 instances with EBS-backed storage; suitable when storage flexibility outweighs raw I/O latency
+
+GCP::
+* `n2-highmem` instances with locally-attached SSDs — high memory-to-CPU ratio suitable for large datasets
+
+Azure::
+* `Lsv2` and `Lsv3` families — local NVMe storage with high I/O throughput
+
+=== Storage Considerations
+
+[cols="1,2",options="header"]
+|===
+|Storage Type |Guidance
+
+|Local NVMe
+|Preferred for latency-sensitive production workloads.
+Be aware that local NVMe is ephemeral: instance termination destroys data.
+Design for this with appropriate replication factor and backup procedures.
+
+|EBS gp3 / io2 (AWS)
+|Acceptable when storage flexibility, snapshotting, or persistence across instance replacement is required.
+Expect higher p99 latency compared to local NVMe.
+
+|GCP Persistent Disk / Azure Managed Disk
+|Same trade-offs as EBS: durable and flexible but higher latency than local storage.
+|===
+
+[IMPORTANT]
+====
+Ephemeral local storage on cloud instances is lost when an instance is stopped or terminated.
+Always configure snitch-aware replication so that no single instance failure results in data loss.
+Test your recovery procedure for instance replacement before relying on it in production.
+====
+
+=== Availability Zone to Rack Mapping
+
+Map each cloud availability zone to a Cassandra rack in `cassandra-rackdc.properties`.
+With a replication factor of 3 and three AZs, each AZ holds one replica.
+This ensures that a single AZ outage does not cause data unavailability.
+
+Example configuration for a three-AZ deployment:
+
+[source,properties]
+----
+# cassandra-rackdc.properties
+dc=us-east-1
+rack=us-east-1a   # set per node to match its AZ
+----
+
+For AWS, the `Ec2Snitch` or `Ec2MultiRegionSnitch` can discover AZ placement automatically from instance metadata.
+For GCP and Azure, use `GoogleCloudSnitch` and `CloudstackSnitch` respectively, or configure `PropertyFileSnitch` explicitly.
+
+=== Cloud-Specific Considerations
+
+* **Instance metadata** — cloud snitches read instance metadata at startup; ensure the metadata service is reachable from the instance
+* **Ephemeral storage risks** — design your replication factor and backup schedule to tolerate instance replacement without data loss
+* **Placement groups / proximity placement** — use same-AZ placement groups to reduce intra-rack latency where supported
+
+== Kubernetes
+
+Running Cassandra on Kubernetes uses a Kubernetes operator to manage the StatefulSet lifecycle, rolling upgrades, and cluster topology.
+This model integrates well with platform engineering teams that already invest in declarative infrastructure.
+
+=== When Kubernetes Is a Good Fit
+
+* Your organization already runs a Kubernetes platform and has operator expertise
+* You want declarative, GitOps-friendly cluster management
+* You have existing investment in Kubernetes tooling: Helm, Argo CD, Flux, or similar
+* You need to co-locate Cassandra with other workloads managed by the same platform team
+
+=== When Kubernetes Is NOT a Good Fit
+
+* Your team does not have existing Kubernetes expertise — the operational learning curve is steep and applies to Cassandra on top of K8s, not instead of it
+* Your workload requires the lowest possible scheduling jitter and cannot tolerate occasional CPU throttling or eviction
+* You are unfamiliar with StatefulSets and persistent volumes and cannot dedicate time to learning them before go-live
+* Your cluster is small (fewer than three nodes) and the overhead of a K8s control plane is not justified
+
+[IMPORTANT]
+====
+Cassandra documentation covers Cassandra-level operational invariants that apply in any environment.
+For Kubernetes-specific deployment workflows, Helm charts, and custom resources, see the https://k8ssandra.io/[K8ssandra documentation].
+====
+
+=== Key Kubernetes Concepts for Cassandra
+
+StatefulSets::
+Cassandra requires stable network identity (hostnames) and stable persistent storage across pod restarts.
+StatefulSets provide both through predictable pod naming and PersistentVolumeClaim templates.
+
+Persistent Volumes::
+Use local PersistentVolumes backed by node-local NVMe storage for production performance.
+Network-attached PVs (EBS CSI, GCE PD) are convenient but carry the same latency trade-offs as cloud IaaS network storage.
+
+Topology Spread Constraints::
+Configure `topologySpreadConstraints` to distribute Cassandra pods across availability zones.
+This is the Kubernetes equivalent of rack-aware placement.
+
+PodDisruptionBudgets::
+Define a PodDisruptionBudget that limits simultaneous voluntary disruptions to one pod at a time.
+This prevents cluster-wide unavailability during node drains, rolling upgrades, or cluster autoscaling events.
+
+=== K8ssandra: Recommended Kubernetes Operator
+
+https://k8ssandra.io/[K8ssandra] is the community-supported Kubernetes operator for Apache Cassandra.
+It packages Cassandra with Stargate, Medusa for backup, and Reaper for repair into a cohesive Helm-based deployment.
+
+[TIP]
+====
+If you are evaluating Kubernetes as your deployment model, start with K8ssandra rather than managing a Cassandra StatefulSet manually.
+The operator handles upgrade sequencing, rack placement, and PDB management in ways that are difficult to reproduce correctly by hand.
+====
+
+== Decision Checklist
+
+Use this checklist to guide your deployment model selection.
+
+* [ ] Do you have existing Kubernetes infrastructure and operator expertise?
+      → Consider K8ssandra on Kubernetes
+* [ ] Do you need maximum, consistent storage performance with the lowest possible scheduling jitter?
+      → Bare metal with local NVMe SSDs
+* [ ] Do you need elastic capacity and cloud-native automation without Kubernetes complexity?
+      → Cloud IaaS with Terraform
+* [ ] Do you want declarative, GitOps-friendly operations?
+      → Kubernetes with K8ssandra, or cloud IaaS with Terraform and Ansible
+* [ ] Is your team small with limited operations experience?
+      → Start with VMs using a well-tested Ansible playbook; consider a managed Cassandra service before running your own cluster on Kubernetes
+
+[NOTE]
+====
+These options are not mutually exclusive.
+Some organizations run bare metal clusters in their primary datacenter and cloud IaaS nodes in a secondary region for disaster recovery.
+Others graduate from VMs to Kubernetes as their platform team matures.
+====
+
+== Next Steps
+
+Once you have selected a deployment model, continue with the following:
+
+* xref:install.adoc[Installing Cassandra] — packages, binary tarball, and Docker installation methods
+* xref:production.adoc[Production Recommendations] — token counts, read-ahead, and OS-level tuning
+* xref:configure.adoc[Configuration Overview] — `cassandra.yaml`, JVM options, and cluster topology
+* xref:secure/security.adoc[Security Overview] — authentication, authorization, and TLS configuration

@@ -1,0 +1,325 @@
+= Disk Pressure Runbook
+:description: Step-by-step operator runbook for diagnosing and resolving disk pressure on Apache Cassandra 6 nodes.
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+This runbook guides operators through diagnosing, mitigating, and resolving disk pressure on Cassandra nodes.
+Follow the sections in order: confirm the symptom, apply immediate actions to stop growth, apply short-term mitigations to reclaim space, then address the root cause with long-term fixes.
+
+== Symptom: Node Disk Usage Above 70%
+
+A node is under disk pressure when data directory usage approaches or exceeds 70% of available capacity.
+At this level, compaction throughput degrades (compaction requires temporary working space), read amplification increases, and the Cassandra 6 guardrail warn threshold is typically reached.
+
+Confirm disk pressure before taking action.
+
+Check overall disk utilization on each node:
+
+[source,none]
+----
+df -h /var/lib/cassandra
+----
+
+Check Cassandra's own view of data directory sizes and SSTable counts per keyspace:
+
+[source,none]
+----
+nodetool tablestats
+----
+
+Check the node's current load and token ownership to understand whether the disk footprint is expected:
+
+[source,none]
+----
+nodetool status
+----
+
+If `df` shows data directory utilization at or above 70%, or if `nodetool tablestats` shows unexpectedly large table sizes, proceed to the next section.
+
+== Immediate Actions
+
+Take these steps first to understand what is consuming space and whether growth can be stopped quickly.
+
+=== Identify the Largest Tables
+
+Sort tables by total disk size to find the main contributors:
+
+[source,none]
+----
+nodetool tablestats | grep -E "(Keyspace|Table|Space used)"
+----
+
+For a more detailed view of SSTable file sizes on disk, inspect the data directory directly:
+
+[source,none]
+----
+du -sh /var/lib/cassandra/data/*/*/
+----
+
+Note any keyspaces or tables whose size is disproportionate to their expected data volume.
+
+=== Check for Accumulated Snapshots
+
+Snapshots are the most common source of unexpected disk growth.
+Each `nodetool snapshot` call retains hard-linked SSTable files that persist until explicitly cleared.
+
+List all existing snapshots:
+
+[source,none]
+----
+nodetool listsnapshots
+----
+
+If snapshots are no longer needed, clear them:
+
+[source,none]
+----
+# Clear all snapshots across all keyspaces
+nodetool clearsnapshot --all
+
+# Clear snapshots for a specific keyspace only
+nodetool clearsnapshot <keyspace_name>
+----
+
+[WARNING]
+====
+Do not delete snapshots that are part of an active backup or restore operation.
+Confirm with your backup runbook before clearing.
+See xref:backup-recovery/backups.adoc[Backups and Snapshots] for snapshot management guidance.
+====
+
+=== Check Compaction Backlog
+
+A compaction backlog means unmerged SSTables are accumulating on disk.
+A large backlog typically doubles or triples the effective disk footprint of a table.
+
+Check the current compaction queue depth and pending task count:
+
+[source,none]
+----
+nodetool compactionstats
+----
+
+Check compaction history for recently completed tasks:
+
+[source,none]
+----
+nodetool compactionhistory
+----
+
+If the pending task count is large (hundreds or more) and not decreasing, compaction throughput may be throttled too aggressively.
+Check the current compaction throughput limit:
+
+[source,none]
+----
+nodetool getcompactionthroughput
+----
+
+Temporarily raise the limit to allow compaction to catch up.
+The default is 64 MiB/s; a value of 0 removes the cap entirely (use with caution on production systems):
+
+[source,none]
+----
+# Example: raise to 128 MiB/s
+nodetool setcompactionthroughput 128
+----
+
+Restore the original limit once the backlog is cleared.
+
+== Short-Term Mitigations
+
+After confirming the source of disk pressure, apply these mitigations to reclaim space without requiring cluster changes.
+
+=== Run Targeted Compaction
+
+Force compaction on the tables contributing the most disk usage.
+Major compaction rewrites all SSTables into a single SSTable, removing tombstones and expired TTL data that would otherwise persist until a future minor compaction cycle.
+
+[source,none]
+----
+nodetool compact <keyspace_name> <table_name>
+----
+
+To compact all tables in a keyspace:
+
+[source,none]
+----
+nodetool compact <keyspace_name>
+----
+
+[NOTE]
+====
+Major compaction temporarily increases disk usage during the rewrite (up to 50% overhead) before reclaiming space.
+Do not run major compaction if remaining free space is below 50% of the table's current on-disk size.
+====
+
+For tables using `TimeWindowCompactionStrategy` (TWCS), force-compacting old time windows can remove a large volume of expired data.
+Identify the relevant time windows with `nodetool tablestats` before running compact.
+
+=== Review TTL and Tombstone Accumulation
+
+Tables with high tombstone ratios accumulate disk space that compaction cannot reclaim until `gc_grace_seconds` has elapsed.
+Check tombstone density per table:
+
+[source,none]
+----
+nodetool tablestats | grep -E "(Keyspace|Table|tombstone)"
+----
+
+If tombstone counts are high, verify that repair has been run recently on the affected tables.
+Tombstones are only safe to remove after `gc_grace_seconds` if all replicas have been repaired.
+See xref:operate/repair.adoc[Repair] for repair procedures.
+
+If TTL-based expiration is in use, confirm that `gc_grace_seconds` is set appropriately for each table.
+For insert-only or append-only workloads where zombies are not a concern, `gc_grace_seconds` can be reduced to accelerate tombstone removal:
+
+[source,cql]
+----
+ALTER TABLE <keyspace_name>.<table_name>
+  WITH gc_grace_seconds = 86400;
+----
+
+Reducing `gc_grace_seconds` is safe only after all replicas have been repaired.
+See xref:operate/tombstones.adoc[Tombstones] for a full explanation of gc_grace and deletion safety.
+
+=== Disable Incremental Backups Temporarily
+
+Incremental backups write a hard-linked copy of every flushed SSTable into `backups/` subdirectories.
+On a write-heavy node, incremental backups can accumulate significant disk space.
+
+Disable incremental backups until disk pressure is resolved:
+
+[source,none]
+----
+nodetool disablebackup
+----
+
+Verify the current state:
+
+[source,none]
+----
+nodetool statusbackup
+----
+
+Re-enable once space has been reclaimed and a recovery plan is in place:
+
+[source,none]
+----
+nodetool enablebackup
+----
+
+[WARNING]
+====
+Disabling incremental backups reduces your ability to perform point-in-time restores.
+Ensure a full snapshot backup exists before disabling, or have an alternate recovery path.
+====
+
+== Long-Term Fixes
+
+Short-term mitigations buy time.
+Address the root cause to prevent recurrence.
+
+=== Add Capacity
+
+If disk utilization consistently exceeds 60--70% after compaction has run, the node's data volume has outgrown its storage.
+Options include:
+
+* Expand the storage volume on the affected node (offline or online depending on your platform).
+* Add a new node to the cluster to redistribute token ranges and reduce per-node data footprint.
+  After bootstrapping the new node, run `nodetool cleanup` on neighboring nodes to remove token ranges they no longer own:
+
+[source,none]
+----
+nodetool cleanup
+----
+
+=== Implement a Data Lifecycle Policy
+
+Uncontrolled data growth is the most common root cause of sustained disk pressure.
+Review each table for an appropriate TTL strategy:
+
+* Set `default_time_to_live` on tables that hold time-bounded data (logs, events, metrics):
+
+[source,cql]
+----
+ALTER TABLE <keyspace_name>.<table_name>
+  WITH default_time_to_live = 2592000;  -- 30 days
+----
+
+* For tables using `TimeWindowCompactionStrategy`, align TTL with the compaction window to maximize tombstone-free compaction.
+  See xref:operate/compaction-overview.adoc[Compaction Overview] and the TWCS documentation for window sizing guidance.
+
+=== Review Compaction Strategy
+
+The wrong compaction strategy for a workload can prevent efficient space reclamation:
+
+* `SizeTieredCompactionStrategy` (STCS) is the default and works well for write-heavy workloads, but produces large compaction overhead and can hold more temporary space during merges.
+* `LeveledCompactionStrategy` (LCS) maintains tighter space amplification (~10%) and is preferable when disk space is constrained and read performance matters.
+* `TimeWindowCompactionStrategy` (TWCS) is optimal for time-series data with TTLs because it confines compaction to data within the same time window, maximizing expiration of expired data.
+
+See xref:operate/ucs.adoc[Unified Compaction Strategy] for the Cassandra 6 unified strategy, which can adapt compaction behavior dynamically.
+
+Avoid running major compaction (`nodetool compact` without a table target) as a routine operation.
+It produces a single large SSTable that must then be re-split by minor compaction, temporarily worsening disk usage.
+
+== Cassandra 6 Disk Usage Guardrails
+
+Cassandra 6 introduces configurable disk usage guardrails that automatically warn and reject writes before disk pressure causes a node to become unavailable.
+
+=== Threshold Settings
+
+Configure thresholds in `conf/cassandra.yaml`:
+
+[source,yaml]
+----
+# Warn threshold: writes targeting replicas on this node generate a client warning
+data_disk_usage_percentage_warn_threshold: 70
+
+# Fail threshold: writes targeting replicas on this node are rejected
+data_disk_usage_percentage_fail_threshold: 90
+
+# Optional: cap the disk size used for threshold calculations
+# If unset, the actual disk capacity is used
+# data_disk_usage_max_disk_size: 500 GiB
+----
+
+Both thresholds default to `-1` (disabled).
+Enabling them is strongly recommended for production clusters.
+
+=== Keyspace-Wide Write Rejection (New in Cassandra 6)
+
+Cassandra 6 adds a keyspace-wide protection mode that rejects writes to a keyspace if *any* node in any datacenter replicating that keyspace exceeds the fail threshold.
+This prevents cascading failures where writes redirected away from full nodes overload the remaining nodes.
+
+[source,yaml]
+----
+# Enable keyspace-wide write rejection when any replicating node is full
+data_disk_usage_keyspace_wide_protection_enabled: true
+----
+
+This setting defaults to `false`.
+It has no effect unless `data_disk_usage_percentage_fail_threshold` is also set to a positive value.
+
+When a write is rejected by this guardrail, the client receives:
+
+[source,none]
+----
+Write request failed because disk usage exceeds failure threshold in <keyspace> <datacenter>.
+----
+
+Operators can update guardrail thresholds at runtime without restart via JMX (`GuardrailsMBean`).
+
+See xref:guardrails-reference.adoc[Guardrails Reference] for full configuration details and all guardrail properties.
+
+== Related Pages
+
+* xref:operate/compaction-overview.adoc[Compaction Overview] -- how compaction works and when it reclaims space
+* xref:operate/ucs.adoc[Unified Compaction Strategy] -- Cassandra 6 adaptive compaction strategy
+* xref:operate/tombstones.adoc[Tombstones] -- gc_grace_seconds, deletion safety, and tombstone accumulation
+* xref:operate/repair.adoc[Repair] -- repair procedures required before reducing gc_grace_seconds
+* xref:backup-recovery/backups.adoc[Backups and Snapshots] -- snapshot management and incremental backup configuration
+* xref:guardrails-reference.adoc[Guardrails Reference] -- full reference for disk usage guardrail properties
+* xref:observe/metrics.adoc[Metrics] -- metrics to monitor disk utilization and compaction throughput

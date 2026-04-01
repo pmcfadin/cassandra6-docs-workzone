@@ -1,0 +1,310 @@
+= Cost and Right-Sizing
+
+Running Cassandra well is not only about achieving uptime and latency targets.
+Infrastructure spend compounds quietly: a cluster that is 40% overprovisioned costs
+40% more every month, year after year.
+This guide helps operators identify waste, choose the right node density, select
+cost-efficient storage classes, and apply asymmetric hardware strategies in
+multi-datacenter deployments.
+
+== Are You Overprovisioned?
+
+Before resizing, collect baseline utilization data over a representative window
+(at minimum, one week; ideally one month to cover weekly traffic cycles).
+
+The following thresholds are rough indicators of overprovision:
+
+[width="100%",cols="30%,25%,45%",options="header"]
+|===
+|Resource |Signal threshold |What to check
+
+|CPU (average utilization)
+|< 30%
+|Check `nodetool tpstats` for dropped messages and thread pool saturation.
+Low average CPU with high tail latency usually points to GC, not hardware.
+
+|Disk (data directory fill ratio)
+|< 40%
+|Factor in compaction headroom: Cassandra needs free space to run compaction.
+A node at 40% fill with STCS may need 80% headroom transiently.
+Do not count free space below the compaction safety margin as available.
+
+|JVM heap (average used/allocated)
+|< 50%
+|Heap above 16 GB yields diminishing returns with any GC algorithm.
+Off-heap usage (memtables, bloom filters) grows with data volume, not heap size.
+Monitor RSS, not just heap.
+
+|Network (peak throughput)
+|< 20% of NIC capacity
+|Replication traffic and streaming during repairs drive network peaks.
+Sustained low utilization here often correlates with low request rates overall.
+|===
+
+[NOTE]
+====
+A single resource being underutilized does not confirm overprovision.
+Cassandra is often CPU-light but I/O-heavy, or I/O-light but memory-constrained.
+Evaluate all resources together before reducing node count or instance size.
+====
+
+If three or four resources are simultaneously below threshold for the full
+observation window, you likely have room to either reduce node count or
+downgrade instance type.
+
+== Node Density Tradeoffs
+
+Operators face a recurring choice between running fewer large nodes versus
+more smaller nodes.
+Neither extreme is optimal.
+
+=== Fewer, Larger Nodes
+
+Benefits:
+
+* Lower infrastructure overhead (fewer JVM processes, fewer repair streams, less gossip chatter)
+* Better sequential I/O throughput per node when using large SSTables
+* Simpler capacity planning
+
+Risks:
+
+* A single node failure removes a larger percentage of cluster capacity
+* Recovery time after failure or decommission is longer (more data to stream)
+* Compaction I/O contention increases with data volume per node
+* Heap pressure grows; GC pauses become harder to control above 32 GB data per node in heap-resident structures
+
+=== More, Smaller Nodes
+
+Benefits:
+
+* Failures have smaller blast radius
+* Faster bootstrapping and streaming during topology changes
+* Better isolation of hot partitions across a wider keyspace
+
+Risks:
+
+* Higher fixed overhead per node (OS, JVM, gossip)
+* More nodes to monitor, patch, and restart
+* Replication fan-out during reads increases coordinator work at very high node counts
+
+=== Practical Sweet Spot
+
+The most operationally manageable deployments tend to use nodes in the
+following density range:
+
+[width="100%",cols="30%,70%",options="header"]
+|===
+|Data per node |Assessment
+
+|< 500 GB
+|Likely underutilizing the node; consolidation may reduce cost without risk.
+
+|500 GB -- 1 TB
+|Conservative. Appropriate for latency-sensitive workloads or
+when streaming speed matters during failures.
+
+|1 TB -- 4 TB
+|Sweet spot for most production workloads.
+Compaction headroom remains manageable and recovery times are acceptable.
+
+|4 TB -- 8 TB
+|Acceptable for bulk analytics or archival workloads with relaxed SLAs.
+Monitor compaction queue depth carefully.
+
+|> 8 TB
+|High risk. Streaming during node replace is slow.
+Full compaction cycles take many hours and can destabilize the node.
+Avoid unless data is cold and append-only.
+|===
+
+== Cloud Storage Performance Classes
+
+When deploying on public cloud, the storage type has a larger performance impact
+than instance CPU or RAM in most Cassandra workloads.
+Choose storage based on your read/write latency targets, not just cost.
+
+[width="100%",cols="20%,20%,20%,20%,20%",options="header"]
+|===
+|Storage class |Typical latency |IOPS ceiling |Cost relative to local NVMe |Best for
+
+|Local NVMe (instance store)
+|< 100 µs
+|Millions (raw)
+|Lowest (included in instance price)
+|Latency-critical workloads, OLTP, row caches. Data is lost on instance stop.
+
+|Provisioned IOPS SSD (e.g., AWS io2, GCP pd-extreme)
+|100--300 µs
+|64,000--256,000 per volume
+|2--5x networked SSD
+|High-throughput transactional workloads where instance store is not available or acceptable.
+
+|General-purpose SSD (e.g., AWS gp3, GCP pd-ssd)
+|300 µs -- 2 ms
+|16,000 per volume (gp3 baseline)
+|1x (baseline)
+|Most production workloads. Predictable cost, adequate latency for P99 < 10 ms targets.
+
+|Throughput-optimized HDD (e.g., AWS st1)
+|2--10 ms
+|500 MB/s throughput, low IOPS
+|0.2--0.4x
+|Cold or archival data, time-series with TWCS, bulk analytics. Not suitable for random reads.
+|===
+
+[IMPORTANT]
+====
+Local NVMe instance store on cloud VMs is ephemeral.
+Terminating or stopping the instance destroys the data.
+Use this class only if your replication factor and multi-AZ placement guarantee
+that data can be rebuilt from replicas before relying on any single node's data.
+====
+
+For commitlog placement, always prefer the lowest-latency storage available.
+Even a modest improvement in commitlog write latency directly reduces P99 write
+latency under high throughput.
+
+== Right-Sizing Memory, CPU, and Storage
+
+=== Memory
+
+Memory sizing follows two independent budgets: JVM heap and off-heap.
+
+[width="100%",cols="35%,65%",options="header"]
+|===
+|Component |Sizing guidance
+
+|JVM heap (`-Xms` / `-Xmx`)
+|8--16 GB for most workloads.
+Equal min and max to avoid resizing pauses.
+Do not exceed 31 GB; crossing 32 GB disables compressed object pointers and
+increases GC pressure.
+
+|Off-heap (memtables, bloom filters, compression metadata)
+|Reserve at least 2x the heap value for off-heap.
+A node with 16 GB heap should have at least 32 GB additional RAM for off-heap
+structures before the OS page cache.
+
+|OS page cache
+|Maximize remaining RAM for page cache.
+Cassandra benefits significantly from warm page cache on frequently read SSTables.
+Aim for at least 20--30% of total node RAM to remain available for the OS.
+|===
+
+=== CPU
+
+Cassandra is generally not CPU-bound under normal operations.
+The most CPU-intensive operations are compaction and repair.
+
+[width="100%",cols="35%,65%",options="header"]
+|===
+|Scenario |Recommendation
+
+|Transactional OLTP workloads
+|4--8 vCPUs per node is sufficient for most write-heavy workloads.
+16+ vCPUs rarely improves latency but reduces compaction impact on foreground threads.
+
+|Compaction-heavy workloads (many small SSTables)
+|8--16 vCPUs. Compaction is CPU-bound with LZ4 or Zstd.
+Insufficient CPU causes compaction to fall behind, increasing read amplification.
+
+|Repair-heavy environments (frequent full repairs)
+|Scale CPU with repair concurrency.
+Repair is CPU and I/O intensive; running repairs with `nodetool repair -j 4`
+requires 4 threads available without affecting foreground traffic.
+
+|Analytics or batch read workloads
+|Scale CPU with `concurrent_reads`. Each thread needs a core to stay non-blocking.
+|===
+
+=== Storage
+
+Plan storage capacity using this formula:
+
+----
+Required disk = (data size) * (replication factor) / (node count)
+              * (1 + compaction overhead factor) / (target fill ratio)
+----
+
+For a cluster with 1 TB raw data, RF=3, 6 nodes, STCS compaction overhead 1.5x,
+and a 60% target fill ratio:
+
+----
+Required disk per node = (1 TB * 3 / 6) * 1.5 / 0.60 = 1.25 TB per node
+----
+
+Use 1.5x as the compaction overhead factor for STCS and UCS in tiered mode.
+Use 1.1x for TWCS with predictable TTL expiry.
+Use 1.3x for LCS.
+
+== Cost Efficiency in Multi-Datacenter Deployments
+
+Multi-datacenter Cassandra deployments are commonly used for fault tolerance
+across regions (active-active) or for a dedicated DR/analytics datacenter.
+These use cases have different SLA requirements and allow different hardware tiers.
+
+=== Asymmetric Hardware by Datacenter Role
+
+[width="100%",cols="25%,25%,50%",options="header"]
+|===
+|Datacenter role |Hardware tier |Rationale
+
+|Primary (latency-serving)
+|High: local NVMe or provisioned IOPS SSD, 16+ GB heap, 8+ vCPU
+|Serves live application traffic. Latency SLAs apply.
+
+|Analytics / reporting
+|Medium: general-purpose SSD, same RAM, more CPU
+|Reads are sequential and bulk. Lower latency requirements allow cheaper storage.
+Extra CPU handles large aggregation queries.
+
+|DR / cold standby
+|Low: throughput HDD or lower-tier SSD, fewer vCPUs
+|Rarely or never serves live traffic. Optimizing for write durability and
+storage cost rather than read latency.
+|===
+
+=== Replication Factor Asymmetry
+
+When your DR datacenter does not serve live traffic, you can set a lower
+replication factor there:
+
+[source,cql]
+----
+ALTER KEYSPACE mykeyspace WITH replication = {
+    'class': 'NetworkTopologyStrategy',
+    'us-east': 3,
+    'us-west-dr': 2
+};
+----
+
+Reducing RF in the DR datacenter from 3 to 2 cuts storage cost in that
+datacenter by 33% while still providing redundancy within it.
+
+[WARNING]
+====
+Reducing the DR replication factor below 2 means a single node failure in that
+datacenter makes recovery impossible until the primary datacenter is reachable.
+Evaluate your RTO/RPO requirements before setting RF=1 in any datacenter.
+====
+
+=== Repair and Streaming Costs Across Datacenters
+
+Interregion data transfer costs can be significant on public cloud.
+Repair traffic between datacenters generates cross-region bytes.
+
+To reduce cross-region transfer:
+
+* Run `nodetool repair -dc <local_dc>` for routine repairs instead of
+  full-cluster repair.
+  Each datacenter can repair itself independently when using `NetworkTopologyStrategy`.
+* Schedule interregion sync windows during off-peak hours.
+* Use incremental repair to limit the volume of data compared per session.
+
+== Related Pages
+
+* xref:production.adoc[Production Recommendations] -- hardware sizing baseline and OS-level configuration
+* xref:tune/performance.adoc[Performance Tuning Guide] -- JVM, compaction, and read/write path tuning
+* xref:operate/compaction-overview.adoc[Compaction Overview] -- compaction strategies and their storage impact
+* xref:observe/metrics.adoc[Metrics] -- utilization metrics for CPU, disk, and network
+* xref:reference::configuration/cassandra_yaml_file.adoc[cassandra.yaml Reference] -- `concurrent_reads`, `concurrent_writes`, and memory configuration

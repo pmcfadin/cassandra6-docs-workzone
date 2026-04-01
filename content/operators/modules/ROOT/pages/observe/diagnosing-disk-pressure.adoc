@@ -1,0 +1,265 @@
+= Diagnosing Disk Pressure
+:description: Step-by-step runbook for diagnosing and resolving disk pressure on Apache Cassandra 6 nodes, covering space consumers, snapshots, tombstones, compaction, and guardrail configuration.
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+Use this runbook when a Cassandra node's data volume exceeds 70% capacity, when the xref:guardrails-reference.adoc#_disk_usage[disk usage guardrail] emits a warn-level alert, or when writes begin failing with a disk-full rejection.
+
+== Symptom
+
+One or more nodes report disk usage above 70%.
+Indicators include:
+
+* `nodetool status` shows node load higher than expected relative to peers.
+* Guardrail warn threshold fires: client warnings appear in application logs containing `disk usage exceeds`.
+* Write rejections with: `Write request failed because disk usage exceeds failure threshold in <keyspace> <datacenter>.`
+* OS-level monitoring (e.g., `df -h`) shows the data volume at 70%+.
+* Alerts from Prometheus, Grafana, or your metrics pipeline on `StorageMetrics.Load`.
+
+== Immediate Safety Check
+
+Before proceeding, determine whether this is a warn-level condition or an active failure:
+
+[source,bash]
+----
+# Check current disk usage on the affected node
+df -h /var/lib/cassandra
+
+# Confirm the node is still participating normally
+nodetool status
+----
+
+If the node is reporting `DN` (down) or writes are being rejected, escalate to xref:observe/metrics.adoc[Metrics] monitoring and consider temporarily redirecting traffic before continuing this runbook.
+
+== Step 1: Identify Space Consumers
+
+Use `nodetool tablestats` to find which keyspaces and tables are occupying the most disk space.
+
+[source,bash]
+----
+nodetool tablestats
+----
+
+The output lists each keyspace and table with `Space used (live)` and `Space used (total)`.
+`Space used (total)` includes data not yet reclaimed by compaction.
+Sort by `Space used (total)` descending to find the largest consumers.
+
+For a focused view of a single keyspace:
+
+[source,bash]
+----
+nodetool tablestats <keyspace>
+----
+
+NOTE: The difference between `Space used (total)` and `Space used (live)` indicates data pending compaction reclamation.
+A large gap suggests compaction has fallen behind.
+Proceed to xref:#step-4-check-compaction-backlog[Step 4] if this gap is significant.
+
+== Step 2: Check and Clear Snapshots
+
+Snapshots are the most common unexpected source of disk consumption.
+Each snapshot is a set of hard links to SSTable files; the referenced files are not freed until the snapshot is deleted.
+
+List all snapshots on the node:
+
+[source,bash]
+----
+nodetool listsnapshots
+----
+
+Sample output:
+
+[source,none]
+----
+Snapshot Details:
+Tag                       Keyspace    Table                   Created at                Size on disk Live size
+auto-1710000000000        mykeyspace  orders                  2024-03-09T12:00:00       14.23 GiB    14.23 GiB
+pre-upgrade               system      local                   2024-01-15T08:30:00        0.02 GiB     0.02 GiB
+----
+
+The `Size on disk` column reflects actual disk consumption.
+Large snapshots from automatic pre-compaction or pre-truncation snapshots (`auto_snapshot: true`, `snapshot_before_compaction: true` in `cassandra.yaml`) accumulate over time if not pruned.
+
+To clear a specific snapshot across all keyspaces:
+
+[source,bash]
+----
+nodetool clearsnapshot -t <snapshot-tag>
+----
+
+To clear all snapshots (use with caution -- confirm backups are current before running):
+
+[source,bash]
+----
+nodetool clearsnapshot
+----
+
+See xref:backup-recovery/backups.adoc[Backups and Snapshots] for snapshot retention policies and how to verify that a snapshot is no longer needed before deletion.
+
+== Step 3: Check TTL Expiry and Tombstone Accumulation
+
+Expired TTL data and tombstones occupy disk space until compaction runs a full merge that includes the rows in question.
+A table with heavy delete or TTL workloads may be holding significant dead data.
+
+Check tombstone and TTL statistics per table:
+
+[source,bash]
+----
+nodetool tablestats <keyspace>
+----
+
+Look for:
+
+* `SSTable count` -- a high count relative to data size suggests compaction is not keeping up.
+* `Estimated droppable tombstones` -- a large value indicates tombstone accumulation.
+
+To estimate expired data volume, inspect the SSTable statistics tool:
+
+[source,bash]
+----
+sstablemetadata <path-to-sstable> | grep -i "droppable\|ttl\|tombstone"
+----
+
+If a table has a very high tombstone density and compaction is not keeping up, consider:
+
+. Manually triggering compaction on the table:
++
+[source,bash]
+----
+nodetool compact <keyspace> <table>
+----
+
+. Reviewing whether `gc_grace_seconds` is set appropriately for the workload.
+  See xref:operate/tombstones.adoc[Tombstones] for details on the grace period and its interaction with repair.
+
+. Reviewing whether `only_purge_repaired_tombstones` is enabled, which can delay tombstone removal if repair is infrequent.
+
+WARNING: Do not reduce `gc_grace_seconds` below your longest node-down window.
+Premature tombstone removal risks data resurrection.
+See xref:operate/tombstones.adoc[Tombstones].
+
+== Step 4: Check Compaction Backlog
+
+A large compaction backlog means unreclaimable space is accumulating faster than it is being freed.
+
+Check the compaction queue depth:
+
+[source,bash]
+----
+nodetool compactionstats
+----
+
+Sample output:
+
+[source,none]
+----
+pending tasks: 47
+          compaction type  keyspace  table   completed  total    unit   progress
+               Compaction  mykeyspace orders  34534         200000000  bytes    0.02%
+----
+
+A large `pending tasks` count or a compaction that has been running for hours without progress indicates a problem.
+
+Also check compaction throughput limits, which may be artificially throttling reclamation:
+
+[source,bash]
+----
+nodetool getcompactionthroughput
+----
+
+If the limit is set below the write rate, compaction will fall behind.
+Temporarily raise the limit on the affected node:
+
+[source,bash]
+----
+nodetool setcompactionthroughput <mb-per-second>
+----
+
+Set to `0` to disable throttling entirely (not recommended in production without monitoring I/O impact).
+
+For workloads with high write amplification, review whether the compaction strategy is appropriate for the access pattern.
+See xref:operate/compaction-overview.adoc[Compaction Overview] and xref:operate/ucs.adoc[Unified Compaction Strategy].
+
+The `Space used (total)` versus `Space used (live)` gap from `nodetool tablestats` (Step 1) quantifies the space that should be reclaimed once compaction completes.
+If this gap is large relative to total disk usage, compaction backlog is the primary driver of disk pressure.
+
+== Step 5: Review Cassandra 6 Disk Usage Guardrails
+
+Cassandra 6 introduces configurable disk usage guardrails that warn or reject writes before disk pressure escalates to a cluster-destabilizing condition.
+Understanding the active thresholds tells you whether Cassandra itself is about to intervene or already has.
+
+Check the current guardrail settings in `cassandra.yaml`:
+
+[source,yaml]
+----
+# Warn threshold -- node enters "stuffed" state, writes generate client warnings
+data_disk_usage_percentage_warn_threshold: 70
+
+# Fail threshold -- node enters "full" state, writes to replicas on this node are rejected
+data_disk_usage_percentage_fail_threshold: 90
+
+# Optional: cap the disk size used for threshold calculations
+# data_disk_usage_max_disk_size: 2TiB
+
+# New in Cassandra 6: reject all writes to a keyspace if ANY replicating node is full
+data_disk_usage_keyspace_wide_protection_enabled: false
+----
+
+You can also read and update these settings at runtime without restart via JMX (`GuardrailsMBean`).
+
+Key operational notes:
+
+* If `data_disk_usage_percentage_warn_threshold` is `-1`, the warn guardrail is disabled.
+* If `data_disk_usage_percentage_fail_threshold` is `-1`, the fail guardrail is disabled and `data_disk_usage_keyspace_wide_protection_enabled: true` has no practical effect.
+* `data_disk_usage_keyspace_wide_protection_enabled: true` rejects writes to a keyspace when *any* node replicating that keyspace exceeds the fail threshold, not just the specific partition replicas.
+  This prevents redirected writes from overloading healthy nodes when peers are full.
+
+See xref:guardrails-reference.adoc#_disk_usage[Guardrails Reference: Disk Usage] for the full parameter reference and interaction table.
+
+== Immediate Actions (Resolve Within the Hour)
+
+* Clear obsolete snapshots with `nodetool clearsnapshot -t <tag>` after verifying they are no longer needed.
+* Identify and compact the highest-tombstone table with `nodetool compact <keyspace> <table>`.
+* If compaction is throttled, raise the compaction throughput limit temporarily.
+* If disk usage is above the fail threshold and writes are being rejected, add capacity (temporary volume expansion or node addition) before attempting in-place reclamation.
+
+== Short-Term Actions (Resolve Within 24-48 Hours)
+
+* Audit `snapshot_before_compaction` and `auto_snapshot` settings.
+  If pre-compaction snapshots are enabled, evaluate whether this is necessary for your backup strategy or if it is creating unbounded snapshot accumulation.
+  See xref:backup-recovery/backups.adoc[Backups and Snapshots].
+* Run a full repair on nodes recovering from a down period, to ensure tombstone propagation is complete before `gc_grace_seconds` elapses.
+  See xref:operate/repair.adoc[Repair].
+* Review `gc_grace_seconds` per table.
+  Tables with TTL-heavy workloads may benefit from a shorter grace period if the repair schedule supports it.
+  See xref:operate/tombstones.adoc[Tombstones].
+* Confirm that compaction is scheduled and progressing.
+  Review the compaction strategy for tables with high `SSTable count`.
+  See xref:operate/compaction-overview.adoc[Compaction Overview].
+
+== Long-Term Actions (Address in Planning Cycle)
+
+* Set `data_disk_usage_percentage_warn_threshold` and `data_disk_usage_percentage_fail_threshold` to values appropriate for your capacity planning targets (commonly 70% warn / 90% fail).
+  Enable monitoring alerts on the warn threshold to provide early warning before the fail threshold is reached.
+* Evaluate whether `data_disk_usage_keyspace_wide_protection_enabled: true` is appropriate for your cluster.
+  When enabled, it prevents cascading write failures when any replicating node approaches full, at the cost of rejecting writes to the keyspace proactively.
+  See xref:guardrails-reference.adoc#_disk_usage[Guardrails Reference: Disk Usage].
+* Integrate disk usage into your golden signals monitoring alongside latency, error rate, and saturation.
+  Disk is a saturation signal.
+  A node exceeding 70% sustained disk usage without a clear explanation (active snapshot, compaction backlog, data growth) should trigger a capacity review.
+  See xref:observe/metrics.adoc[Metrics] for the `StorageMetrics.Load` metric.
+* Review data retention strategy: TTL policies, tombstone accumulation patterns, and compaction strategy should be revisited together as data volume grows.
+  See xref:operate/tombstones.adoc[Tombstones] and xref:operate/compaction-overview.adoc[Compaction Overview].
+* For clusters approaching capacity on existing hardware, plan for adding nodes and using `nodetool decommission` or `nodetool removenode` to rebalance data.
+
+== Related Pages
+
+* xref:backup-recovery/backups.adoc[Backups and Snapshots]
+* xref:operate/compaction-overview.adoc[Compaction Overview]
+* xref:operate/tombstones.adoc[Tombstones]
+* xref:guardrails-reference.adoc[Guardrails Reference]
+* xref:observe/metrics.adoc[Metrics]
+* xref:troubleshoot/use_nodetool.adoc[Troubleshooting with Nodetool]

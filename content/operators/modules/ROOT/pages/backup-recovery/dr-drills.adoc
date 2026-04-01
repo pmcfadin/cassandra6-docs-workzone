@@ -1,0 +1,250 @@
+= Disaster Recovery Drills
+
+An untested backup is not a backup.
+A recovery procedure that has never been executed under realistic conditions will fail at the worst possible time.
+Disaster recovery (DR) drills turn written procedures into practiced muscle memory and reveal gaps before they become incidents.
+
+This page describes why to drill regularly, four scenario types to test, a reusable checklist template, a post-drill review template, and recommended frequency guidelines.
+
+== Why Drill Regularly
+
+Backups and replication give Cassandra clusters strong durability foundations, but durability guarantees mean nothing if the team cannot execute a recovery under pressure.
+Regular drills serve four purposes:
+
+* *Validate backup integrity* — A snapshot or incremental backup that cannot be restored is useless.
+  Restoring to a staging environment confirms the backup files are intact and the restore path works end-to-end.
+* *Measure recovery time* — The first time you learn how long a full DC restore takes should not be during an outage.
+  Drills produce actual time-to-recovery measurements that inform SLA commitments and staffing decisions.
+* *Identify procedure drift* — Cluster topology, tooling versions, and team composition change over time.
+  Drills surface stale assumptions in runbooks before a real failure does.
+* *Build team confidence* — Operators who have completed a restore under controlled conditions make better decisions during live incidents.
+
+=== What "Done" Looks Like
+
+A drill is complete when:
+
+. The cluster (or staging replica) is fully operational after the simulated failure.
+. All affected keyspaces return correct row counts and spot-check query results matching a pre-drill baseline.
+. Elapsed wall-clock time from failure simulation to verified recovery is recorded.
+. A post-drill review has been filed.
+
+== Drill Scenario Catalog
+
+=== Scenario 1: Single Node Loss
+
+*What it simulates*: A node fails unrecoverably — hardware failure, OS crash, or disk corruption on a single host.
+
+*Procedure*:
+
+. Record a pre-drill row-count baseline across all keyspaces using `nodetool cfstats` or CQL `COUNT(*)` on representative tables.
+. Stop the target node entirely: stop the `cassandra` process and prevent it from restarting.
+. Verify the cluster continues to serve reads and writes at the expected consistency level from the surviving nodes.
+. On a replacement host, install Cassandra, configure `cassandra.yaml` to match the cluster (seeds, datacenter, rack), and start the node.
+. Monitor `nodetool netstats` until streaming completes.
+. Run `nodetool repair` on the replacement node to close any consistency windows.
+. Re-verify row counts match the pre-drill baseline.
+
+*Success criteria*: No client-visible downtime at `LOCAL_QUORUM`, replacement node fully streams and repairs within the documented time target.
+
+=== Scenario 2: Rack Loss
+
+*What it simulates*: An entire rack, availability zone, or physical failure domain goes offline simultaneously.
+This exercises `NetworkTopologyStrategy` rack-awareness and ensures replication factor is sufficient.
+
+*Procedure*:
+
+. Confirm `NetworkTopologyStrategy` is in use with `RF >= 3` and at least three racks per datacenter.
+. Stop all nodes assigned to the target rack.
+. Verify the cluster serves reads and writes at `LOCAL_QUORUM` using the remaining racks.
+. Check `nodetool status` and confirm the cluster recognizes the downed nodes as `DN` without treating them as a split-brain situation.
+. Bring the rack back online one node at a time.
+. For each restored node, run `nodetool repair -pr` to synchronize any writes that occurred during the outage.
+. Verify row counts and spot-check query results match the pre-drill baseline.
+
+*Success criteria*: Cluster remains available throughout the rack outage; all nodes rejoin cleanly; no data loss after repair.
+
+=== Scenario 3: Data Corruption (Logical)
+
+*What it simulates*: A bug, operator error, or malicious action corrupts or deletes a subset of data — for example, a `TRUNCATE` or mass delete executed on the wrong keyspace.
+
+*Procedure*:
+
+. Take a timestamped snapshot across all nodes immediately before the drill:
++
+[source,bash]
+----
+nodetool snapshot -t pre-drill-$(date +%Y%m%d)
+----
+. Execute the corruption: truncate a test table or delete a defined set of rows in a non-production keyspace.
+. Confirm the corruption is visible via CQL queries.
+. Restore the affected table from the pre-drill snapshot using `sstableloader` or `nodetool refresh`.
+  For `nodetool refresh`, copy the snapshot SSTable files back to the table data directory and invoke:
++
+[source,bash]
+----
+nodetool refresh -- <keyspace> <table>
+----
+. Verify the restored rows match the pre-drill baseline.
+. Clear the drill snapshot from all nodes:
++
+[source,bash]
+----
+nodetool clearsnapshot -t pre-drill-$(date +%Y%m%d)
+----
+
+*Success criteria*: All corrupted rows recovered; restore completed within the documented time target; no residual data inconsistency.
+
+=== Scenario 4: Datacenter Loss
+
+*What it simulates*: An entire datacenter becomes unreachable — network partition, facility failure, or cloud region outage.
+This is the highest-severity scenario and validates multi-DC topology.
+
+*Procedure*:
+
+. Verify the surviving datacenter has `LOCAL_QUORUM` available independently.
+. Simulate DC loss by stopping all nodes in the target datacenter or partitioning it from the network.
+. Confirm the surviving DC serves traffic at `LOCAL_QUORUM`.
+. If clients use a DC-aware load balancing policy, verify that failover to the surviving DC occurs correctly.
+. Restore the lost DC: either bring nodes back online or provision replacement nodes.
+. Update `cassandra.yaml` and seed configuration as needed for replacement hosts.
+. Bootstrap or restart each node and monitor streaming via `nodetool netstats`.
+. Run `nodetool repair` across the restored DC after all nodes are up.
+. Confirm the restored DC is fully consistent with the surviving DC.
+
+*Success criteria*: Zero downtime in the surviving DC; restored DC reintegrates without data loss; repair completes cleanly.
+
+== Drill Checklist Template
+
+Copy and complete this checklist for each drill execution.
+
+[cols="1,3", options="header"]
+|===
+| Step | Status / Notes
+
+| Scenario
+| _(e.g., Single Node Loss — rack2, node 10.0.2.5)_
+
+| Date and time
+|
+
+| Lead operator
+|
+
+| Observers
+|
+
+| Pre-drill snapshot or baseline taken
+| Pass / Fail
+
+| Failure simulated successfully
+| Pass / Fail
+
+| Cluster health confirmed during failure (nodetool status)
+| Pass / Fail
+
+| Reads / writes verified during failure window
+| Pass / Fail
+
+| Recovery steps executed in documented order
+| Pass / Fail
+
+| Row counts post-recovery match baseline
+| Pass / Fail
+
+| Spot-check queries return expected results
+| Pass / Fail
+
+| Repair completed without errors
+| Pass / Fail
+
+| Time from failure simulation to verified recovery
+| _(minutes)_
+
+| Cleanup completed (snapshots, test data)
+| Pass / Fail
+|===
+
+== Post-Drill Review Template
+
+File one review per drill.
+Store reviews in your team's runbook or incident management system.
+
+[cols="1,3", options="header"]
+|===
+| Field | Content
+
+| Drill date
+|
+
+| Scenario drilled
+|
+
+| Participants
+|
+
+| Time to recovery (actual)
+|
+
+| Time to recovery (target / SLA)
+|
+
+| Did the cluster meet availability expectations?
+| Yes / No — describe any deviations
+
+| Were any runbook steps unclear, missing, or wrong?
+| List gaps found
+
+| Were any tools or commands not working as expected?
+| Describe issues and resolutions
+
+| What would have gone worse in a real incident?
+| Honest assessment of what pressure, fatigue, or missing access would change
+
+| Action items
+| Owner and due date for each
+
+| Next scheduled drill
+|
+|===
+
+== Frequency Recommendations
+
+The appropriate drill frequency depends on the scenario's blast radius and the cost of executing it.
+
+[cols="2,2,3", options="header"]
+|===
+| Scenario | Recommended Frequency | Rationale
+
+| Single node loss
+| Monthly
+| Low-disruption, high-value validation that streaming and repair work correctly.
+  Run on a different node each cycle to rotate coverage.
+
+| Rack loss
+| Quarterly
+| Tests replication topology and rack-awareness under a broader failure.
+  Coordinate with a maintenance window; impact is contained to the rack.
+
+| Data corruption (logical restore)
+| Quarterly
+| Confirms that snapshots are intact and restores are understood by the team.
+  Can be run against a staging cluster to reduce production risk.
+
+| Datacenter loss
+| Annually (minimum), quarterly (recommended)
+| The highest-risk drill — requires multi-team coordination and careful scheduling.
+  Run annually at a minimum; quarterly for clusters with strict RTO/RPO requirements.
+|===
+
+NOTE: These are starting-point recommendations.
+Adjust frequency upward after any significant topology change, Cassandra upgrade, staffing change, or near-miss incident.
+Any time a new operator joins the team, schedule a single-node drill within their first 30 days.
+
+== Related Pages
+
+* xref:backup-recovery/backups.adoc[Backups and Snapshots] — snapshot creation, incremental backups, `nodetool snapshot` reference
+* xref:operate/repair.adoc[Repair] — full and incremental repair procedures used in recovery
+* xref:operate/auto_repair.adoc[Automated Repair] — scheduled repair configuration to reduce consistency windows
+* xref:observe/metrics.adoc[Metrics] — cluster health signals to monitor during and after a drill
+* xref:troubleshoot/use_nodetool.adoc[Troubleshooting with Nodetool] — nodetool commands referenced throughout drill scenarios
+* xref:production.adoc[Production Recommendations] — topology and replication factor guidance that determines drill scope

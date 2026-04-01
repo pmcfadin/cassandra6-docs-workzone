@@ -1,0 +1,391 @@
+= Upgrade Runbook
+:description: Step-by-step runbook for rolling upgrades to Apache Cassandra 6.0, including pre-upgrade checklist, validation gates, rollback procedure, and post-upgrade verification.
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+This runbook covers the general rolling upgrade procedure for Apache Cassandra 6.0.
+Cassandra 6.0 introduces architectural changes — most notably Transactional Cluster Metadata (TCM) and a hard JDK 21 requirement — that make this upgrade materially different from prior minor-version upgrades.
+
+Read this runbook in full before you begin.
+Then follow each section in order without skipping steps.
+
+For the TCM-specific initialization sequence that follows a successful cluster upgrade,
+see the xref:../tcm-pre-upgrade.adoc[TCM Pre-Upgrade Prerequisites] and
+xref:../tcm-upgrade-procedure.adoc[TCM Upgrade Procedure] pages.
+The steps on those pages are *not* repeated here.
+
+== Pre-Upgrade Checklist
+
+Complete every item before upgrading any node.
+This checklist is a gate, not a suggestion.
+
+[%interactive]
+* [ ] *Supported upgrade path verified.* Confirm every node is running Cassandra 4.0, 4.1, or 5.0.
+  Direct upgrades from 3.x to 6.0 are not supported.
+  Upgrade to 4.0 first if any node is on 3.x.
+
+* [ ] *All nodes are up and in `UN` state.* Run `nodetool status` across all nodes.
+  Every non-decommissioned node must show `UN` (Up/Normal).
+  Do not proceed with any node in a non-`UN` state.
+
+* [ ] *No pending schema migrations.* Run `nodetool describecluster` and confirm
+  `Schema versions:` shows a single schema version hash across all nodes.
+  Mixed schema versions indicate an incomplete prior operation; resolve it before upgrading.
+
+* [ ] *Repairs are not in progress.* Confirm via `nodetool compactionstats` and
+  `nodetool tpstats` that no repair sessions are running.
+  Cancel any in-progress repairs and allow compactions to stabilize.
+
+* [ ] *JDK 21 is installed on every node.* Cassandra 6.0 requires JDK 21.
+  Earlier JDK versions will not start the node.
+  Verify with `java -version` on each host before upgrading any Cassandra binary.
+
+* [ ] *Heap and GC configuration is reviewed.* The move from G1GC to ZGC as the recommended
+  garbage collector requires updating JVM options.
+  Review `jvm-server.options` and `jvm11-server.options`; update to
+  `jvm21-server.options` settings provided in the 6.0 distribution.
+
+* [ ] *cassandra.yaml reviewed for removed or renamed options.* Several configuration keys
+  changed in 6.0.
+  Run a diff between your existing `cassandra.yaml` and the bundled template.
+  Pay particular attention to guardrails settings, which are now
+  first-class configuration rather than commented-out stubs.
+
+* [ ] *Backup taken and verified.* Take a snapshot of every keyspace with
+  `nodetool snapshot` on every node.
+  Confirm snapshots are present in the data directory or copied off-host.
+  Cassandra 6.0 uses SSTable format version `oa` by default, which is not
+  readable by prior versions.
+  A pre-upgrade snapshot is your only reliable rollback path.
+
+* [ ] *Rollback plan documented and tested.* Confirm the team has read the
+  <<rollback-procedure,Rollback Procedure>> section below and that the
+  snapshot location is known to everyone involved in the upgrade.
+
+== Rolling Upgrade Procedure
+
+Upgrade one node at a time, completing all steps for each node before moving to the next.
+Do not upgrade more than one node simultaneously.
+
+Repeat these eight steps for every node in the cluster.
+Start with a non-seed node in the first datacenter.
+
+=== Per-Node Steps
+
+. *Drain the node.*
++
+[source,bash]
+----
+nodetool drain
+----
++
+Drain flushes all memtables to disk and stops the node from accepting new writes.
+Wait for the command to return before proceeding.
+
+. *Stop the Cassandra service.*
++
+[source,bash]
+----
+sudo systemctl stop cassandra
+# or
+sudo service cassandra stop
+----
+
+. *Replace the Cassandra binaries.*
++
+Install the 6.0 package using your distribution method (tarball, deb, rpm).
+Do not overwrite `cassandra.yaml`, `jvm*.options`, or `logback.xml` automatically —
+merge them by hand or with a configuration management tool.
++
+If installing from a tarball, set `CASSANDRA_HOME` to the new directory and update
+any symlinks before proceeding.
+
+. *Update JVM options.*
++
+Replace or merge your existing JVM options files to use the 6.0 defaults.
+At minimum, ensure `jvm21-server.options` is present and active.
+Remove any explicit `-XX:+UseG1GC` flags; 6.0 defaults to ZGC.
+
+. *Verify `cassandra.yaml` compatibility.*
++
+Confirm no removed keys are present.
+Pay attention to:
++
+--
+* `commitlog_sync` and `commitlog_sync_period_in_ms` (renamed in 6.0)
+* `num_tokens` (must match existing ring state; do not change during upgrade)
+* `guardrails.*` keys (new namespace; review defaults against your cluster's workload profile)
+--
+
+. *Start the node.*
++
+[source,bash]
+----
+sudo systemctl start cassandra
+----
+
+. *Wait for the node to rejoin the ring.*
++
+Monitor `system.log` for `JOINING` → `NORMAL` state transition.
+The node is ready when `nodetool status` shows `UN` for it.
++
+[source,bash]
+----
+nodetool status
+----
+
+. *Run the validation gate before moving to the next node.*
++
+See <<validation-gates,Validation Gates>> below.
+Do not upgrade the next node until all gates pass.
+
+== Validation Gates
+
+Run these checks after each node upgrade and before touching the next node.
+A failed gate means you stop, diagnose, and resolve before continuing.
+
+=== Gate 1: Ring State
+
+[source,bash]
+----
+nodetool status
+----
+
+Expected: the newly upgraded node shows `UN`.
+All other nodes must also show `UN`.
+Any `DN` (Down/Normal) or `UL` (Up/Leaving) state is a blocker.
+
+=== Gate 2: Schema Agreement
+
+[source,bash]
+----
+nodetool describecluster
+----
+
+Expected: `Schema versions:` lists exactly one version hash.
+If two hashes appear, the upgraded node has diverged from the rest of the cluster.
+Do not proceed.
+
+=== Gate 3: Gossip Health
+
+[source,bash]
+----
+nodetool gossipinfo
+----
+
+Confirm the upgraded node appears in the gossip table with the correct datacenter,
+rack, and `STATUS:NORMAL`.
+Verify that the upgraded node can see all other nodes and vice versa.
+
+=== Gate 4: No Elevated Error Rate
+
+Check `system.log` on the upgraded node for `ERROR` or `WARN` lines that appeared
+after startup.
+One-time startup warnings about configuration keys are expected.
+Repeated errors about reads, writes, or schema are not.
+
+=== Gate 5: Client Connectivity
+
+Issue a lightweight read against a keyspace that the upgraded node is a replica for.
+Confirm round-trip latency is within normal bounds.
+Use `nodetool tpstats` to confirm no read or write tasks are dropped.
+
+[source,bash]
+----
+nodetool tpstats | grep -E "Dropped|ReadStage|MutationStage"
+----
+
+== Rollback Procedure
+
+[WARNING]
+====
+Cassandra 6.0 writes SSTables in format version `oa` by default.
+Once a node has written data in `oa` format, those files cannot be read by
+Cassandra 5.x or earlier.
+Rolling back a node that has already served writes in 6.0 requires restoring
+from pre-upgrade snapshots.
+*This is a destructive operation.* Writes that occurred after the snapshot was taken
+will be lost.
+====
+
+Use the rollback procedure only when a node cannot be stabilized on 6.0 and
+must be returned to its prior version.
+
+. *Stop the node.*
++
+[source,bash]
+----
+sudo systemctl stop cassandra
+----
+
+. *Remove or archive the 6.0 binaries.*
+
+. *Restore the prior Cassandra version binaries.*
++
+Reinstall the previous version package.
+Restore your backed-up `cassandra.yaml`, `jvm*.options`, and `logback.xml`.
+
+. *Restore data from pre-upgrade snapshot.*
++
+If the node wrote any data after being upgraded to 6.0, you must restore its
+data directory from the pre-upgrade snapshot taken in the checklist.
+Copy snapshot files back into each keyspace data directory and run
+`nodetool refresh` against each affected keyspace and table.
+
+. *Start the node on the prior version.*
++
+[source,bash]
+----
+sudo systemctl start cassandra
+----
+
+. *Verify the node rejoins the ring and passes all validation gates.*
+
+. *Assess the rollback scope.*
++
+If any nodes successfully upgraded to 6.0 wrote `oa`-format SSTables,
+those nodes must also be rolled back from snapshot.
+Coordinate the rollback across all affected nodes before resuming reads and writes.
+
+. *Raise a cluster-wide incident review.*
++
+Diagnose the root cause before re-attempting the upgrade.
+Do not re-attempt the upgrade while unresolved issues from the previous attempt
+remain open.
+
+== Post-Upgrade Verification
+
+After every node in the cluster is running 6.0 and all validation gates have passed,
+run the following verification steps before declaring the upgrade complete.
+
+=== Upgrade SSTables
+
+Cassandra 6.0 can read SSTables written by prior versions, but those files will not
+benefit from the new format improvements until they are rewritten.
+Schedule `upgradesstables` during a maintenance window after the full cluster is on 6.0.
+
+[source,bash]
+----
+nodetool upgradesstables
+----
+
+Run this on every node.
+Monitor compaction progress with `nodetool compactionstats`.
+
+=== Confirm Metrics Pipeline
+
+Verify that your existing metrics collection (JMX, Prometheus via `cassandra-exporter`,
+Datadog, or other) is receiving data from all upgraded nodes.
+Key metrics to verify:
+
+* `org.apache.cassandra.metrics.ClientRequest.Read.Latency`
+* `org.apache.cassandra.metrics.ClientRequest.Write.Latency`
+* `org.apache.cassandra.metrics.Storage.Load`
+* `org.apache.cassandra.metrics.ThreadPools.*.Dropped`
+
+Cassandra 6.0 introduces additional guardrails-related metrics under
+`org.apache.cassandra.metrics.Guardrails.*`.
+Confirm these are visible and that thresholds are appropriate for your workload.
+
+=== Run Full Repair
+
+Run a full repair after `upgradesstables` completes.
+This ensures all replicas are consistent on the new SSTable format.
+
+[source,bash]
+----
+nodetool repair -full
+----
+
+Run repair on each node sequentially to avoid saturating the cluster.
+Use `nodetool repairconfig` (6.0) to tune parallelism if needed.
+
+=== Confirm Seed Node Configuration
+
+Review `seeds` in `cassandra.yaml`.
+In 6.0 clusters with TCM initialized, gossip-based seeding is supplemented by
+CMS-based peer discovery.
+Ensure seed addresses remain valid and reachable.
+
+== Cassandra 6.0-Specific Considerations
+
+=== Transactional Cluster Metadata (TCM)
+
+TCM is the most significant operational change in 6.0.
+After a full cluster upgrade is complete, TCM must be explicitly initialized —
+it does not activate automatically.
+The upgrade runbook above gets you to a fully upgraded cluster.
+The TCM initialization sequence is a separate operation described in:
+
+* xref:../tcm-pre-upgrade.adoc[TCM Pre-Upgrade Prerequisites]
+* xref:../tcm-upgrade-procedure.adoc[TCM Upgrade Procedure]
+* xref:../tcm-operations.adoc[TCM Operations Reference]
+
+Do not initialize TCM until every node in every datacenter is running 6.0 and
+all post-upgrade verification steps above have completed.
+
+=== JDK 21 Requirement
+
+JDK 21 is mandatory.
+The `jvm21-server.options` file ships with the distribution.
+Review heap sizing carefully: ZGC performs best with larger heap allocations and
+is less sensitive to heap fragmentation than G1GC.
+A starting point for heap sizing under ZGC is the same maximum heap you used
+under G1GC; monitor GC pause times and adjust.
+
+Avoid setting `-Xmx` above 50% of available system RAM to preserve off-heap
+memory for OS page cache, which Cassandra relies on heavily for read performance.
+
+=== Guardrails
+
+Guardrails in 6.0 are enabled by default with conservative production-appropriate
+thresholds.
+Review `cassandra.yaml` section `guardrails:` and the
+xref:../guardrails-reference.adoc[Guardrails Reference] before going live.
+Guardrails can reject writes that exceed configured thresholds; confirm that
+your workload's partition sizes, column counts, and collection sizes fall within
+defaults or adjust thresholds deliberately.
+
+Key guardrails to review before production traffic:
+
+[cols="2,3"]
+|===
+| Guardrail | Default in 6.0
+
+| `partition_size_warn_threshold`
+| 100 MiB
+
+| `partition_size_fail_threshold`
+| 1 GiB
+
+| `columns_per_table_warn_threshold`
+| 50
+
+| `secondary_indexes_per_table_warn_threshold`
+| 3
+
+| `tables_warn_threshold`
+| 150
+|===
+
+=== Accord Consensus Protocol
+
+Cassandra 6.0 ships with Accord, a new transactional consensus protocol, available
+as an opt-in replacement for LWT (Lightweight Transactions).
+Accord is disabled by default.
+Do not enable it during the upgrade window.
+Evaluate Accord in a non-production environment before enabling on live workloads.
+See xref:upgrade/onboarding-to-accord.adoc[Onboarding to Accord] for the enablement guide.
+
+== Related Pages
+
+* xref:../tcm-pre-upgrade.adoc[TCM Pre-Upgrade Prerequisites]
+* xref:../tcm-upgrade-procedure.adoc[TCM Upgrade Procedure]
+* xref:../tcm-operations.adoc[TCM Operations Reference]
+* xref:../tcm-troubleshooting.adoc[TCM Troubleshooting]
+* xref:../guardrails-reference.adoc[Guardrails Reference]
+* xref:upgrade/onboarding-to-accord.adoc[Onboarding to Accord]
+* xref:../configure.adoc[Configuration Reference]

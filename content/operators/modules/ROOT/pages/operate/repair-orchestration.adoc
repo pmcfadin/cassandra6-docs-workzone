@@ -1,0 +1,399 @@
+= Repair Orchestration
+:description: How to orchestrate Cassandra repair at scale — choosing between Auto Repair, Reaper, and manual scheduling, with guidance on repair types, compaction interaction, and alerting.
+:keywords: repair, auto repair, Reaper, CEP-37, incremental repair, full repair, subrange repair, orchestration, compaction, anticompaction
+
+Repair is essential to Cassandra's eventual consistency guarantee: it reconciles diverged replicas, purges expired tombstones safely, and recovers data missed by hints.
+Running a single `nodetool repair` on one node is straightforward.
+Orchestrating repair continuously across dozens or hundreds of nodes — without disrupting production traffic — is a distinct operational discipline.
+
+This page covers how to think about repair orchestration, when Cassandra 6's built-in Auto Repair (CEP-37) is sufficient, when to reach for an external orchestrator like Reaper, and how repair interacts with compaction and anti-compaction at the system level.
+
+[NOTE]
+====
+Before reading this page, familiarise yourself with the foundational concepts in xref:operate/repair.adoc[Repair] and xref:operate/auto_repair.adoc[Auto Repair].
+====
+
+== Why Cron Is an Anti-Pattern
+
+A common starting point is a cron job that runs `nodetool repair -pr` on each node in sequence.
+This approach breaks down at scale for several reasons:
+
+* **No coordination**: Two cron jobs on replicas of the same range may start simultaneously, doubling streaming load and causing anti-compaction conflicts during incremental repair.
+* **No retries**: A failed session leaves a gap in coverage with no automatic remediation.
+* **No back-pressure**: Cron fires regardless of current cluster load — a repair session launched during a compaction storm compounds the problem.
+* **No visibility**: There is no centralised record of which token ranges were repaired when, making SLA reasoning impossible.
+* **gc_grace_seconds blind spot**: Cron schedules are typically monthly.
+  With the default `gc_grace_seconds` of 10 days, a node that misses one repair cycle can resurrect deleted data.
+
+The sections below describe approaches that address these failure modes.
+
+== What Orchestration Provides
+
+A repair orchestrator — whether Auto Repair or an external tool — provides the following capabilities that cron lacks:
+
+[cols="1,3",options="header"]
+|===
+| Capability | Why It Matters
+
+| Token range segmentation
+| Splits the full ring into bounded subrange sessions so that a single node failure does not invalidate hours of progress.
+
+| Replica coordination
+| Ensures that at most N replicas of the same range are repairing concurrently, preventing anti-compaction storms.
+
+| Retry logic
+| Re-queues failed sessions with configurable back-off rather than abandoning coverage silently.
+
+| Progress tracking
+| Records repair history per node and range so that the next session resumes from where the last one succeeded.
+
+| Rate limiting
+| Applies configurable parallelism and bytes-per-assignment caps to limit the blast radius on production traffic.
+
+| Alerting surface
+| Exposes metrics that allow operators to detect stalled repairs, desynchronised ranges, or SLA breaches before data loss occurs.
+|===
+
+== Cassandra 6 Auto Repair (CEP-37)
+
+Cassandra 6 ships Auto Repair as a first-class scheduler embedded in the daemon.
+It manages full, incremental, and preview repair types and stores history in `system_distributed.auto_repair_history`.
+
+=== Minimal Enabling Configuration
+
+Auto Repair is disabled by default.
+The minimal `cassandra.yaml` configuration to enable incremental repair with sensible defaults:
+
+[source,yaml]
+----
+auto_repair:
+  enabled: true
+  repair_type_overrides:
+    incremental:
+      enabled: true
+      min_repair_interval: 1h
+----
+
+For clusters that also require periodic full repairs and preview validation:
+
+[source,yaml]
+----
+auto_repair:
+  enabled: true
+  repair_type_overrides:
+    full:
+      enabled: true
+      min_repair_interval: 5d
+    incremental:
+      enabled: true
+      min_repair_interval: 1h
+      token_range_splitter:
+        parameters:
+          bytes_per_assignment: 50GiB
+          max_bytes_per_schedule: 100GiB
+    preview_repaired:
+      enabled: true
+      min_repair_interval: 1d
+  global_settings:
+    repair_by_keyspace: true
+    parallel_repair_count: 1
+----
+
+[IMPORTANT]
+====
+Set `min_repair_interval` to a value shorter than `gc_grace_seconds` for all keyspaces.
+The default `gc_grace_seconds` is 864000 seconds (10 days).
+An incremental `min_repair_interval` of `1h` is appropriate for active clusters; `24h` is the absolute maximum safe value given a 10-day grace period.
+====
+
+=== Key Configuration Parameters
+
+[cols="1,1,3",options="header"]
+|===
+| Parameter | Default | Guidance
+
+| `enabled`
+| `false`
+| Must be explicitly set to `true` to activate the scheduler.
+
+| `min_repair_interval`
+| `24h`
+| Minimum time between repairs of the same node.
+  Shorter values reduce divergence but increase steady-state load.
+
+| `parallel_repair_count`
+| `3`
+| Maximum nodes repairing simultaneously.
+  Start at `1` on clusters with heavy write workloads.
+
+| `allow_parallel_replica_repair`
+| `false`
+| Keep `false`.
+  Allowing concurrent replica repair multiplies anti-compaction work.
+
+| `bytes_per_assignment`
+| (splitter default)
+| Bounds the data touched per repair session.
+  Reduces the cost of a single node failure mid-repair.
+
+| `repair_session_timeout`
+| `3h`
+| Sessions that exceed this are retried up to `repair_max_retries` times.
+
+| `force_repair_new_node`
+| `false`
+| Set to `true` to trigger immediate repair when a replacement node joins.
+
+| `ignore_dcs`
+| `[]`
+| Exclude analytics or read-replica DCs that do not need the same SLA.
+|===
+
+=== When Auto Repair Is Sufficient
+
+Auto Repair covers the majority of production use cases when:
+
+* The cluster runs a single Cassandra version (mixed-version repair is disabled by default and untested).
+* The team does not require a repair UI or cross-cluster dashboard.
+* Repair scheduling decisions can be expressed in `cassandra.yaml` without per-keyspace or per-table overrides beyond the built-in `auto_repair` table property.
+* The team is comfortable monitoring repair progress via JMX metrics rather than a graphical interface.
+
+== External Orchestration: Reaper
+
+https://cassandra-reaper.io[Apache Cassandra Reaper] is an open-source repair scheduler with a REST API and web UI.
+It operates outside the Cassandra daemon and communicates with nodes through JMX.
+
+Reaper provides:
+
+* A graphical interface for scheduling, inspecting, and pausing repair runs across multiple clusters.
+* Per-cluster, per-keyspace, and per-table repair schedules configurable through the UI or API.
+* Segment-level progress tracking and automatic retry of failed segments.
+* Intensity controls that throttle the fraction of cluster resources consumed by repair at any point.
+* Cluster-aware scheduling that respects the replication topology when choosing which nodes to repair in parallel.
+* Support for multi-datacenter and multi-cluster deployments from a single control plane.
+
+Reaper does not modify Cassandra configuration files; it drives repair by invoking `nodetool repair` semantics via JMX on your behalf.
+
+== Decision Table: Auto Repair vs. Reaper vs. Manual
+
+[cols="1,1,1,1",options="header"]
+|===
+| Criterion | Auto Repair (CEP-37) | Reaper | Manual (nodetool / cron)
+
+| Requires external process
+| No
+| Yes (separate service)
+| No
+
+| Graphical UI
+| No (JMX / metrics only)
+| Yes
+| No
+
+| Per-keyspace schedule
+| Via table property + YAML
+| Yes, through UI or API
+| Full control but no automation
+
+| Multi-cluster management
+| No
+| Yes
+| No
+
+| Retry on failure
+| Yes (configurable)
+| Yes (segment-level)
+| No
+
+| Replica coordination
+| Yes
+| Yes
+| No (manual sequencing required)
+
+| Mixed Cassandra versions
+| Disabled by default
+| Supported
+| Manual responsibility
+
+| Operational overhead
+| Low (config in YAML)
+| Medium (deploy + configure Reaper)
+| High (scripting, monitoring, alerting)
+
+| Recommended for new clusters
+| Yes, as baseline
+| Yes, if UI or multi-cluster needed
+| No (use only for one-off repairs)
+|===
+
+== Repair Type Decision Guide
+
+Choosing the right repair type depends on cluster age, data volume, and consistency requirements.
+
+=== Full Repair
+
+Reconciles all data in the token range regardless of prior repair state.
+
+Use full repair when:
+
+* Bootstrapping repair on a cluster that has never been repaired before.
+* Recovering from suspected data corruption or operator error that may have affected already-repaired SSTables.
+* Validating consistency before enabling `only_purge_repaired_tombstones`.
+* Running the initial pre-flight cycle before enabling incremental repair on an established cluster (see xref:operate/auto_repair.adoc#enabling-ir[Enabling Incremental Repair on Existing Clusters]).
+
+Avoid scheduling full repairs more frequently than necessary — they generate significant streaming and compaction load proportional to total data volume.
+
+=== Incremental Repair
+
+Reconciles only data written since the previous incremental repair by tracking the repaired/unrepaired SSTable boundary.
+
+Use incremental repair as the steady-state default when:
+
+* The cluster was started with incremental repair enabled from the beginning, or a full repair pre-flight has been completed.
+* The workload has a high write rate and repairing the full dataset each cycle would be prohibitively expensive.
+* You want the smallest per-cycle repair window, enabling a short `min_repair_interval` (e.g., `1h`).
+
+[WARNING]
+====
+Do not interleave incremental and full repair on the same tables without understanding the SSTable state transitions.
+Mixing repair types without care can leave SSTables in an inconsistent repaired/unrepaired classification, causing anti-compaction to behave unexpectedly.
+====
+
+=== Subrange Repair
+
+Repairs a specific token range subset rather than all ranges owned by a node.
+
+Use subrange repair when:
+
+* Targeting a specific partition or hot range known to be inconsistent after an incident.
+* Validating consistency of a single keyspace or table without touching the full ring.
+* Recovering a node that missed a bounded set of writes.
+
+Subrange repair is invoked manually via `nodetool repair -st <start_token> -et <end_token>`.
+It is not managed by Auto Repair or Reaper's scheduled runs but can be triggered on demand through the Reaper UI or API.
+
+=== Preview Repair
+
+Runs the Merkle tree comparison phase but does not stream data.
+Reports desynchronised ranges without making any changes.
+
+Use preview repair to:
+
+* Audit consistency before enabling `only_purge_repaired_tombstones`.
+* Detect regressions in incremental repair coverage.
+* Estimate the data volume that a full repair would need to stream before committing to the operation.
+
+== Systems Thinking: Repair, Compaction, and Anti-Compaction
+
+Repair does not operate in isolation.
+Understanding its interaction with compaction is critical for avoiding unplanned I/O spikes.
+
+=== The Anti-Compaction Phase of Incremental Repair
+
+When an incremental repair session completes for a token range, Cassandra performs **anti-compaction**: it splits SSTables that span both repaired and unrepaired token ranges into separate repaired and unrepaired SSTables.
+This write amplification is proportional to the number of SSTables that straddle the repair boundary.
+
+[WARNING]
+====
+Enabling incremental repair for the first time on a large existing cluster can trigger a wave of anti-compaction across every SSTable on every node.
+This can temporarily double disk usage and saturate I/O on all nodes simultaneously.
+
+Mitigate this by:
+
+. Running a full repair first to stabilise the dataset.
+. Setting `bytes_per_assignment` to a conservative value (e.g., `10GiB`) for the initial incremental sweep, then increasing it once anti-compaction activity stabilises.
+. Monitoring `LiveDiskSpaceUsed` and compaction queue depth during the migration window.
+. Scheduling the initial incremental repair sweep during a low-traffic period.
+====
+
+=== Compaction Strategy Interactions
+
+The choice of compaction strategy affects the cost of incremental repair:
+
+[cols="1,3",options="header"]
+|===
+| Compaction Strategy | Repair Interaction
+
+| SizeTieredCompactionStrategy (STCS)
+| Creates large SSTables that are more likely to span repair boundaries, increasing anti-compaction cost.
+  Use small `bytes_per_assignment` to limit the number of SSTables included per session.
+
+| LeveledCompactionStrategy (LCS)
+| Non-overlapping SSTables within levels (except L0) reduce the probability that a single SSTable spans multiple repair sessions.
+  However, L0 accumulation between repairs increases cost; keep `min_repair_interval` short.
+
+| UnifiedCompactionStrategy (UCS)
+| Sharding configuration can align SSTable boundaries with repair token ranges, reducing anti-compaction cost.
+  See xref:operate/ucs.adoc#sharding[UCS sharding] for details.
+|===
+
+=== Compaction Queue Spike Pattern
+
+A characteristic failure mode during repair is the following sequence:
+
+. A repair session completes on a node.
+. Anti-compaction writes several new SSTable pairs.
+. The compaction scheduler picks up the new SSTables and enqueues compaction tasks.
+. If multiple nodes complete repair sessions simultaneously (due to high `parallel_repair_count`), the cluster-wide compaction queue spikes.
+. Read latency increases as compaction I/O competes with foreground reads.
+
+To avoid this pattern:
+
+* Keep `parallel_repair_count` at `1` or `2` on write-heavy clusters until you have measured the impact at higher values.
+* Set `allow_parallel_replica_repair` to `false` (the default) so that replicas of the same range do not anti-compact simultaneously.
+* Monitor compaction queue depth alongside repair throughput metrics.
+
+== Repair Metrics and Alerting
+
+Auto Repair exposes JMX metrics under the `org.apache.cassandra.metrics.AutoRepair` namespace.
+Key metrics to alert on:
+
+[cols="1,1,3",options="header"]
+|===
+| Metric | Type | Alert Condition
+
+| `RepairsStarted`
+| Counter
+| Rate drops to zero for longer than `2 × min_repair_interval` — scheduler may be stalled.
+
+| `RepairsFailed`
+| Counter
+| Non-zero rate sustained over a window — check node health and compaction queue.
+
+| `RepairTime`
+| Timer
+| 95th-percentile repair session duration exceeds `repair_session_timeout` — tuning needed.
+
+| `BytesPreviewedDesynchronized`
+| Gauge
+| Non-zero value after a preview repair — indicates inconsistency in the repaired data set.
+
+| `TokenRangesPreviewedDesynchronized`
+| Gauge
+| Non-zero value after preview repair — correlate with node or disk events.
+|===
+
+Refer to xref:observe/metrics.adoc#_automated_repair_metrics[Automated Repair Metrics] for the complete list of available metrics.
+
+=== Minimum Alert Set
+
+At minimum, configure alerts for:
+
+. **Repair SLA breach**: No successful repair completion for a node within `gc_grace_seconds`.
+  This is the condition that directly enables zombie data resurrection.
+. **Repair session failure rate**: `RepairsFailed` increasing faster than `RepairsStarted` — indicates systemic failures that retries alone cannot resolve.
+. **Compaction queue depth**: A sustained increase during active repair windows is a leading indicator of the anti-compaction spike pattern described above.
+
+=== Observability for Reaper
+
+When using Reaper, the scheduler exposes metrics through its own REST API and optionally ships to Prometheus via a JMX exporter.
+Reaper's UI provides a per-cluster repair intensity gauge and segment completion timeline that are useful for capacity planning.
+
+== Related Pages
+
+* xref:operate/repair.adoc[Repair] — foundational concepts, repair types, and nodetool commands
+* xref:operate/auto_repair.adoc[Auto Repair] — full Auto Repair configuration reference (CEP-37)
+* xref:operate/compaction-overview.adoc[Compaction Overview] — compaction strategies and anti-compaction
+* xref:operate/ucs.adoc[Unified Compaction Strategy] — UCS sharding and its effect on repair cost
+* xref:operate/tombstones.adoc[Tombstones] — `gc_grace_seconds` and `only_purge_repaired_tombstones`
+* xref:observe/metrics.adoc#_automated_repair_metrics[Automated Repair Metrics] — JMX metrics reference

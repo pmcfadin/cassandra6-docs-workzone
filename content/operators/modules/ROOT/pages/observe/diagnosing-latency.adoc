@@ -1,0 +1,276 @@
+= Diagnosing Latency
+
+This runbook guides operators through systematic diagnosis of elevated read or write latency in an Apache Cassandra cluster.
+Start from the symptom and follow each step in order; each step either confirms or rules out a root cause before moving to the next.
+
+== Symptom
+
+One or more of the following is observed:
+
+* Coordinator read or write p99 latency exceeds your SLA threshold
+* Client-side timeout errors (`ReadTimeoutException`, `WriteTimeoutException`) are increasing
+* `nodetool proxyhistograms` shows p99 values significantly higher than baseline
+
+Before digging into a single node, determine whether the elevation is cluster-wide or isolated.
+
+== Step 1: Identify Scope (Cluster-wide vs. Single-node)
+
+Run `nodetool proxyhistograms` on several nodes to compare coordinator latency distributions.
+A cluster-wide spike points to a shared resource constraint (network, compaction backlog, a hot partition).
+A single-node spike points to a local resource problem (GC, disk I/O, thread pool saturation).
+
+[source,bash]
+----
+nodetool proxyhistograms
+----
+
+Sample output:
+
+[source,text]
+----
+Percentile  Read Latency   Write Latency  Range Latency
+                (micros)       (micros)       (micros)
+50%               482.10         231.55           0.00
+75%               578.42         277.89           0.00
+95%               695.30         333.61           0.00
+99%              8412.00        4150.22           0.00
+Min                44.10         109.33           0.00
+Max             31080.00        48200.00           0.00
+----
+
+A p99 value that is an order of magnitude above p95 is a common indicator of a compaction stall, GC pause, or I/O queue delay.
+Compare across nodes to determine scope.
+
+You can also query coordinator latency per table from the virtual table:
+
+[source,sql]
+----
+SELECT keyspace_name, table_name, max, median, per_second
+FROM system_views.coordinator_read_latency
+ORDER BY max DESC
+LIMIT 20;
+----
+
+If a single table dominates, narrow all subsequent steps to that table's node assignment.
+
+== Step 2: Check Compaction Backlog
+
+Compaction pressure is the most frequent cause of read latency spikes in Cassandra.
+Accumulated SSTables increase read amplification and trigger bloom filter misses.
+
+Check the live compaction queue:
+
+[source,bash]
+----
+nodetool compactionstats
+----
+
+Sample output:
+
+[source,text]
+----
+pending tasks: 47
+                                     id  compaction type   keyspace          table   completed      total    unit  progress
+ 5b6baa70-f8e1-11ee-b7d5-a75adf6bf0ea  COMPACTION        mykeyspace        orders  1073741824  536870912    bytes   200%
+...
+----
+
+A pending task count above 30-50 for a busy table is a strong indicator of compaction lag.
+Confirm with the `system_views.sstable_tasks` virtual table, which provides richer progress detail:
+
+[source,sql]
+----
+SELECT keyspace_name, table_name, operation_type,
+       progress, total, unit
+FROM system_views.sstable_tasks;
+----
+
+*Interpretation*:
+
+* High `total` bytes in flight with low `progress` indicates compaction is falling behind write throughput.
+* Multiple concurrent compaction tasks on the same table can indicate compaction strategy misconfiguration.
+
+See xref:operate/compaction-overview.adoc[Compaction Overview] and xref:operate/ucs.adoc[Unified Compaction Strategy] for tuning guidance.
+
+== Step 3: Check GC Pressure
+
+Long GC pauses stall all request processing threads simultaneously, producing coordinated latency spikes that appear across all tables at the same time.
+
+Inspect GC statistics:
+
+[source,bash]
+----
+nodetool gcstats
+----
+
+Sample output:
+
+[source,text]
+----
+Interval (ms)  Max GC Elapsed (ms)  Total GC Elapsed (ms)  Stdev GC Elapsed (ms)  GC Reclaimed (MB)  Collections  Direct Memory Bytes
+      60126.0                426.0                 2346.0                  120.0           26438.4           42                   -1
+----
+
+*Interpretation*:
+
+* `Max GC Elapsed` above 200 ms is a warning sign; above 500 ms is a critical indicator.
+* High `Collections` count with moderate elapsed time suggests frequent minor GC, often due to heap pressure from large memtables or bloom filters.
+* Cross-reference the timing of GC pauses with latency spikes in your monitoring system.
+
+Cassandra 6 supports JDK 17 and JDK 21.
+JDK 21 with Generational ZGC is recommended for production workloads because it provides sub-millisecond GC pause behavior:
+
+[source,text]
+----
+-XX:+UseZGC -XX:+ZGenerational
+----
+
+JVM options are configured in `jvm-server.options`, `jvm17-server.options`, or `jvm21-server.options` in the Cassandra `conf/` directory.
+See xref:tune/performance.adoc[Performance Tuning Guide] for heap sizing recommendations.
+
+== Step 4: Check Disk I/O
+
+Storage I/O saturation produces latency that is similar in shape to compaction stalls but persists even when the compaction queue is clear.
+
+Use `iostat` to observe disk utilization and queue depth for the data and commitlog devices:
+
+[source,bash]
+----
+iostat -xz 2 10
+----
+
+Key columns to watch:
+
+[width="100%",cols="25%,75%",options="header"]
+|===
+| Column | Interpretation
+
+| `%util`
+| Percentage of time the device was busy.
+Values above 80% indicate saturation on spinning disks; SSDs can approach 100% while still responsive, but sustained 100% on SSDs under normal workload is a concern.
+
+| `await`
+| Average wait time per request in milliseconds.
+Above 10 ms on an SSD for random reads is abnormal.
+
+| `aqu-sz`
+| Average queue depth.
+A persistently growing queue indicates the device cannot keep up with the workload.
+|===
+
+Cassandra should use SSDs for data directories.
+If spinning disks are in use, reduced throughput is expected under compaction.
+Separate commitlog and data directories onto different physical devices to prevent write-amplification on reads.
+
+== Step 5: Check Thread Pool Saturation
+
+Cassandra processes requests through named thread pools.
+When a pool's pending queue grows, requests wait before being executed, directly adding to coordinator latency.
+
+Inspect all thread pool metrics:
+
+[source,bash]
+----
+nodetool tpstats
+----
+
+Sample output (abbreviated):
+
+[source,text]
+----
+Pool Name                    Active   Pending      Completed   Blocked  All time blocked
+ReadStage                         4        128         423891         0                 0
+MutationStage                     8          2        1823456         0                 0
+CompactionExecutor                2          0          93812         0                 0
+MemtableFlushWriter               1          0          12034         0                 0
+----
+
+*Interpretation*:
+
+* `Pending` above 15 on `ReadStage` or `MutationStage` indicates active request queuing.
+* Non-zero `Blocked` on any pool means the pool has reached its maximum size and requests are being rejected or delayed.
+* High pending on `MemtableFlushWriter` indicates write path pressure that can back-pressure into `MutationStage`.
+
+For deeper per-pool metrics, query the virtual table:
+
+[source,sql]
+----
+SELECT pool_name, active_tasks, pending_tasks,
+       completed_tasks, blocked_tasks, max_pool_size
+FROM system_views.thread_pools
+WHERE pending_tasks > 0 ALLOW FILTERING;
+----
+
+Persistently high pending counts on `ReadStage` while disk I/O and GC are healthy often points to query pattern problems (see Step 6).
+
+== Step 6: Check Query Patterns
+
+Inefficient queries -- full-partition scans, queries that fan out across many nodes, or queries returning large result sets -- can dominate thread pool capacity and inflate p99 latency even when hardware is healthy.
+
+Cassandra 6.0 adds the `system_views.slow_queries` virtual table
+(https://issues.apache.org/jira/browse/CASSANDRA-13001[CASSANDRA-13001]), which records the most recent slow operations in an in-memory ring buffer.
+
+[source,sql]
+----
+SELECT query, source_ip, duration_micros,
+       table_name, keyspace_name
+FROM system_views.slow_queries
+ORDER BY duration_micros DESC
+LIMIT 20;
+----
+
+*Interpretation*:
+
+* Queries with `duration_micros` in the hundreds of thousands warrant investigation.
+* The same query appearing repeatedly indicates a systematic access pattern problem, not a transient event.
+* Range queries (`SELECT *` without a partition key) and queries against large partitions are common culprits.
+
+For coordinator-level latency broken down by table, also review:
+
+[source,sql]
+----
+SELECT keyspace_name, table_name, max, median, per_second
+FROM system_views.coordinator_read_latency
+ORDER BY max DESC
+LIMIT 10;
+----
+
+Cross-reference the slow query table against your schema and access patterns.
+Where possible, add or refine secondary indexes, use server-side filtering with guardrails enabled, or restructure query access patterns to use partition key lookups.
+
+== Resolution Summary
+
+Use the following table to match a confirmed root cause to its resolution path.
+
+[width="100%",cols="25%,45%,30%",options="header"]
+|===
+| Root Cause | Resolution | Reference
+
+| Compaction backlog
+| Tune compaction strategy throughput (`compaction_throughput_mb_per_sec`), reduce concurrent compactors, or switch to xref:operate/ucs.adoc[Unified Compaction Strategy] to reduce SSTable accumulation.
+| xref:operate/compaction-overview.adoc[Compaction Overview]
+
+| GC pauses (CMS / G1GC)
+| Migrate to JDK 21 with Generational ZGC (`-XX:+UseZGC -XX:+ZGenerational`). Reduce heap size if above 16 GB; excess heap increases GC scan time. Tune `Xms` = `Xmx`.
+| xref:tune/performance.adoc[Performance Tuning Guide]
+
+| Disk I/O saturation
+| Replace spinning disks with SSDs. Separate commitlog and data directories onto distinct devices. Reduce compaction concurrency to ease I/O contention.
+| xref:production.adoc[Production Recommendations]
+
+| Thread pool saturation (`ReadStage`)
+| Reduce concurrent reads through client-side rate limiting. Investigate and optimize the query patterns identified in Step 6.
+| xref:troubleshoot/use_nodetool.adoc[Troubleshooting with Nodetool]
+
+| Thread pool saturation (`MemtableFlushWriter`)
+| Increase `memtable_flush_writers` in `cassandra.yaml`. Check commitlog disk throughput. Consider larger memtable allocation if heap headroom permits.
+| xref:tune/performance.adoc[Performance Tuning Guide]
+
+| Slow or inefficient queries
+| Rewrite range queries to use partition key lookups. Reduce result set size with `LIMIT`. Evaluate schema and access pattern alignment.
+| xref:observe/virtualtables.adoc[Virtual Tables]
+
+| Cluster-wide spike (no single node)
+| Investigate hot partitions by querying `system_views.coordinator_read_latency` across nodes. Review token distribution with `nodetool ring`. Check for a recent schema or load change.
+| xref:troubleshoot/use_nodetool.adoc[Troubleshooting with Nodetool]
+|===

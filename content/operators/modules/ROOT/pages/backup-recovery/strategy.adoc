@@ -1,0 +1,294 @@
+= Backup and Recovery Strategy
+
+A backup is only as good as the last successful restore.
+Snapshots and incremental backups protect your data on disk, but without a
+tested recovery procedure, you cannot know whether those files are usable when
+it matters most.
+This page helps you design a backup strategy that aligns with your operational
+requirements, covers the methods available in Apache Cassandra, and explains
+how to validate that recovery actually works.
+
+== RPO and RTO Framework
+
+Recovery Point Objective (RPO) is the maximum acceptable data loss measured
+in time.
+Recovery Time Objective (RTO) is the maximum acceptable downtime before the
+system is back in service.
+These two metrics drive every other decision in backup design.
+
+[cols="1,1,1,2", options="header"]
+|===
+|Use Case
+|Target RPO
+|Target RTO
+|Recommended approach
+
+|Critical financial or transactional data
+|Near zero (seconds to minutes)
+|< 1 hour
+|Incremental backups enabled, snapshots every 6 hours, off-site replication, tested restore runbook
+
+|General-purpose operational data
+|1 to 4 hours
+|2 to 8 hours
+|Daily snapshots, incremental backups enabled, remote storage, monthly restore test
+
+|Analytics or time-series (append-only)
+|4 to 24 hours
+|8 to 24 hours
+|Daily snapshots, local or NFS staging, quarterly restore test
+
+|Development or staging environment
+|Best effort
+|Best effort
+|Ad-hoc snapshots before schema changes, no off-site replication required
+|===
+
+[NOTE]
+====
+Cassandra's multi-datacenter replication is not a substitute for backups.
+Replication propagates writes, including accidental deletes and truncations,
+to all replicas in near real time.
+====
+
+== Backup Methods Comparison
+
+Apache Cassandra provides two built-in mechanisms: snapshots and incremental
+backups.
+Third-party tooling such as Apache Cassandra Medusa extends these with
+coordinated cluster-wide backup and object storage upload.
+
+[cols="1,1,1,1,1", options="header"]
+|===
+|Method
+|How it works
+|Storage overhead
+|Restore complexity
+|Best suited for
+
+|Snapshots
+|Hard-links to SSTable files at a point in time; taken with `nodetool snapshot`
+|Low at creation; grows if SSTables are not compacted away
+|Moderate -- copy files back, run `nodetool refresh` or `sstableloader`
+|Periodic full backups, pre-upgrade safety nets, schema-change guards
+
+|Incremental backups
+|Hard-link created for each SSTable flushed to disk; stored in `backups/` under the table data directory
+|Can grow quickly under heavy write workloads if not pruned
+|Higher -- requires pairing with a snapshot for the base, then applying incremental files
+|Reducing RPO between full snapshots when combined with a recent snapshot baseline
+
+|Medusa (third-party)
+|Coordinates snapshot across all nodes, uploads to object storage (S3, GCS, Azure Blob)
+|Depends on storage backend; deduplication available in some backends
+|Lower -- single command restores, handles topology changes
+|Production clusters where off-site storage and coordinated multi-node restore are required
+|===
+
+For the built-in snapshot and incremental backup mechanics, see
+xref:backup-recovery/backups.adoc[Backups and Snapshots].
+
+== Storage Targets
+
+Where you store backup files determines durability, cost, and restore speed.
+
+=== Local Disk
+
+Storing snapshot hard-links on the same volume as live data provides no
+protection against disk failure or node loss.
+Local storage is only acceptable as a transient staging area before
+transferring files to a remote target.
+
+*Pros*: Zero transfer latency, no network cost. +
+*Cons*: No protection against hardware failure; disk contention under restore.
+
+=== NFS or Shared Network Storage
+
+Mounting a network filesystem under the Cassandra data directory and copying
+snapshot directories to it is a common pattern for on-premises clusters.
+
+*Pros*: Simple to configure, familiar tooling, reasonable cost for moderate data volumes. +
+*Cons*: NFS becomes a single point of failure; throughput is limited by network
+bandwidth; large clusters may saturate the NFS server during concurrent backups.
+
+=== Object Storage (S3, GCS, Azure Blob)
+
+Cloud object storage is the recommended durable target for production clusters.
+Files are uploaded after a local snapshot is taken.
+Tools such as Medusa and `aws s3 sync` automate this transfer.
+
+*Pros*: High durability (typically 99.999999999%), cross-region replication
+available, cost scales with usage, no capacity planning required. +
+*Cons*: Egress costs on restore; upload speed depends on available network
+bandwidth; requires credentials management and IAM policy configuration.
+
+[TIP]
+====
+Bucket lifecycle policies can automate retention management.
+Set a lifecycle rule on your backup prefix to expire objects after the
+retention period rather than relying on manual cleanup.
+====
+
+== Retention Policy Design
+
+A retention policy answers two questions: how long to keep backups, and how
+many generations to keep at each granularity.
+
+A tiered approach works well for most clusters:
+
+[cols="1,1,2", options="header"]
+|===
+|Tier
+|Retention window
+|Notes
+
+|Daily snapshots
+|7 to 14 days
+|Sufficient for recovering from accidental data loss discovered within a week
+
+|Weekly snapshots
+|4 to 8 weeks
+|Covers discovery lag for issues that surface after several days in production
+
+|Monthly snapshots
+|3 to 12 months
+|Required by many compliance frameworks (GDPR, PCI-DSS, HIPAA)
+
+|Incremental backup files
+|Same window as the most recent daily snapshot baseline
+|Incremental files older than the oldest retained snapshot are not useful; prune them together
+|===
+
+When using Cassandra's built-in TTL snapshot feature, pass `--ttl` to
+`nodetool snapshot` to schedule automatic cleanup:
+
+[source,bash]
+----
+nodetool snapshot --ttl 7d -t daily-$(date +%Y%m%d) -- <keyspace>
+----
+
+For object storage backends, use bucket lifecycle rules rather than TTL
+snapshots, as TTL expiry requires the Cassandra node to be running.
+
+== Environment-Specific Recommendations
+
+=== Bare Metal
+
+On bare metal, Cassandra manages its own data directories entirely.
+Snapshot files live on the same physical disks as live data until you copy
+them off.
+
+* Schedule `nodetool snapshot` via cron or a cluster orchestration tool on
+  each node independently.
+* Transfer snapshot directories to NFS or object storage immediately after
+  creation using `rsync` or a cloud CLI tool.
+* Stagger snapshot schedules across nodes (for example, 15-minute offsets) to
+  avoid simultaneous disk and network I/O spikes.
+* Enable incremental backups in `cassandra.yaml` (`incremental_backups: true`)
+  only if your RPO requires sub-daily recovery points and you have a process
+  to prune the `backups/` directories regularly.
+
+=== Cloud Virtual Machines
+
+In addition to Cassandra-native snapshots, cloud environments offer
+VM disk or volume snapshots at the hypervisor layer (AWS EBS snapshots,
+GCP Persistent Disk snapshots, Azure Managed Disk snapshots).
+
+* Volume snapshots capture the full disk state including OS and Cassandra
+  binaries; they are coarser but simpler to restore for a full node failure.
+* Cassandra-native snapshots give you table-level granularity and are
+  independent of the OS state; prefer them for data-level recovery.
+* Combining both approaches is reasonable: volume snapshots for disaster
+  recovery of the node, Cassandra snapshots uploaded to object storage for
+  table-level point-in-time recovery.
+* For cloud deployments, Medusa with S3 or GCS provides the most
+  operationally mature solution.
+
+=== Kubernetes (PersistentVolume Snapshots)
+
+Cassandra on Kubernetes typically runs via an operator (k8ssandra-operator or
+cass-operator) with each pod backed by a `PersistentVolumeClaim`.
+
+* Kubernetes `VolumeSnapshot` resources (CSI snapshots) can capture a
+  `PersistentVolume` at a point in time, similar to EBS snapshots.
+  These are coordinated at the storage layer, not at the Cassandra layer.
+* CSI snapshots do not flush memtables before snapping the volume.
+  Issue `nodetool flush` on each pod before triggering a CSI snapshot to
+  ensure all in-memory data is persisted to SSTables.
+* For table-level restore granularity, use k8ssandra's Medusa integration,
+  which runs Medusa as a sidecar on each Cassandra pod and coordinates
+  backups across the cluster.
+* Backup scheduling in Kubernetes environments is typically handled by
+  `MedusaBackupSchedule` custom resources rather than cron jobs on nodes.
+
+== Backup Validation
+
+Running backups without testing restores is not a backup strategy -- it is a
+hope strategy.
+Schedule periodic restore tests to verify that backup files are complete,
+uncorrupted, and restorable within your RTO.
+
+=== What to Test
+
+* *File integrity*: Verify SSTable files using `sstablescrub` or check
+  that hard-link targets still exist before uploading.
+* *Schema restore*: Confirm that the `schema.cql` file stored in each
+  snapshot directory can recreate the table structure with `cqlsh -f`.
+* *Data restore*: Load snapshot files into a test cluster using
+  `sstableloader` or `nodetool refresh` and query a sample of rows to
+  confirm correctness.
+* *Timing*: Measure actual restore time against your RTO target.
+  Data volumes grow over time; a restore that met RTO six months ago may
+  not meet it today.
+
+=== Restore Test Schedule
+
+[cols="1,2", options="header"]
+|===
+|Frequency
+|Scope
+
+|Monthly
+|Restore a single table from the most recent daily snapshot into a dedicated test environment; verify row counts and a sample of data
+
+|Quarterly
+|Full keyspace restore from an off-site backup; measure end-to-end time from download to query-ready
+
+|After each major schema change
+|Verify that the backup taken before the schema change restores correctly to the pre-change schema
+|===
+
+[IMPORTANT]
+====
+Test restores must run against a separate cluster or a test namespace that
+is isolated from production.
+Never run `sstableloader` or `nodetool refresh` targeting production nodes
+as a validation step.
+====
+
+=== Monitoring Backup Success
+
+A backup job that silently fails is worse than no backup job at all.
+Instrument your backup pipeline to alert on:
+
+* Non-zero exit codes from `nodetool snapshot` or Medusa backup commands
+* Missing expected snapshot tags when querying `nodetool listsnapshots` or
+  the `system_views.snapshots` virtual table
+* Upload size significantly below the previous baseline (may indicate a
+  partial backup or a skipped keyspace)
+* Backup jobs that exceed the expected duration (may indicate node I/O
+  saturation or a stalled upload)
+
+== Related Pages
+
+* xref:backup-recovery/backups.adoc[Backups and Snapshots] -- step-by-step
+  instructions for `nodetool snapshot`, incremental backup configuration,
+  listing and clearing snapshots, and restoring from snapshots
+* xref:operate/repair.adoc[Repair] -- repair is complementary to backup;
+  run repair regularly to prevent data inconsistency that could propagate
+  into backups
+* xref:observe/metrics.adoc[Metrics] -- disk usage metrics help detect
+  snapshot accumulation before storage is exhausted
+* xref:configure.adoc[Configuration Overview] -- covers `cassandra.yaml`
+  settings including `auto_snapshot`, `snapshot_before_compaction`, and
+  `incremental_backups`

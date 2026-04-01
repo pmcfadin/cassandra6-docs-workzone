@@ -1,0 +1,560 @@
+= Golden Signals and Alerting
+:description: Identify the metrics that matter most, configure thresholds, and integrate Cassandra monitoring with Prometheus and Grafana.
+
+Effective Cassandra monitoring begins with a small set of high-signal metrics rather than attempting to watch everything.
+This guide applies the four golden signals framework — latency, throughput, errors, and saturation — to Apache Cassandra 6, then provides concrete alert thresholds, a symptom-to-cause decision map, and a Prometheus/Grafana integration walkthrough.
+
+== Which Metrics Matter First
+
+Cassandra exposes hundreds of metrics via JMX, xref:observe/virtualtables.adoc[virtual tables], and push reporters.
+The operational signal-to-noise ratio is low unless you start from a prioritized subset.
+
+The four golden signals give you the minimum viable alert surface:
+
+* **Latency** — are requests slow?
+* **Throughput** — is the cluster processing the expected volume?
+* **Errors** — are requests failing or being dropped?
+* **Saturation** — are internal queues or resources approaching capacity?
+
+Begin with cluster-level and coordinator-level metrics.
+Per-table metrics become important once a specific table is implicated.
+
+[NOTE]
+====
+All metric names follow the Dropwizard Metrics naming scheme: +
+`org.apache.cassandra.metrics.<Domain>.<MetricName>` +
+JMX MBeans use the form `org.apache.cassandra.metrics:type=<Type> name=<MetricName>`.
+See xref:observe/metrics.adoc[Monitoring] for the full catalog.
+====
+
+== The Four Golden Signals for Cassandra
+
+=== Latency
+
+Latency is the most user-visible signal.
+Track coordinator-level latencies because they reflect the full request path including replica coordination and retries.
+Node-local (table-level) latencies are useful for drilling down after a coordinator alert fires.
+
+**Key metrics**
+
+[cols="2,3,2",options="header"]
+|===
+|Metric |JMX / Dropwizard Name |Unit
+
+|Coordinator read p99
+|`org.apache.cassandra.metrics.ClientRequest.Read.Latency` (99thPercentile)
+|microseconds
+
+|Coordinator write p99
+|`org.apache.cassandra.metrics.ClientRequest.Write.Latency` (99thPercentile)
+|microseconds
+
+|Coordinator CAS read p99
+|`org.apache.cassandra.metrics.ClientRequest.CASRead.Latency` (99thPercentile)
+|microseconds
+
+|Coordinator CAS write p99
+|`org.apache.cassandra.metrics.ClientRequest.CASWrite.Latency` (99thPercentile)
+|microseconds
+
+|Table read local p99
+|`org.apache.cassandra.metrics.Table.ReadLatency.<KS>.<Table>` (99thPercentile)
+|microseconds
+
+|Table write local p99
+|`org.apache.cassandra.metrics.Table.WriteLatency.<KS>.<Table>` (99thPercentile)
+|microseconds
+|===
+
+Latency values are reported in microseconds.
+Divide by 1000 when comparing against millisecond-based SLOs.
+
+=== Throughput
+
+Throughput confirms the cluster is processing work at the expected rate.
+Sudden drops can indicate connection failures, client back-pressure, or node loss — not just overload.
+
+**Key metrics**
+
+[cols="2,3,2",options="header"]
+|===
+|Metric |JMX / Dropwizard Name |Unit
+
+|Read request rate
+|`org.apache.cassandra.metrics.ClientRequest.Read.Latency` (OneMinuteRate)
+|requests/sec
+
+|Write request rate
+|`org.apache.cassandra.metrics.ClientRequest.Write.Latency` (OneMinuteRate)
+|requests/sec
+
+|Range request rate
+|`org.apache.cassandra.metrics.ClientRequest.RangeSlice.Latency` (OneMinuteRate)
+|requests/sec
+|===
+
+=== Errors
+
+Error metrics capture requests that complete unsuccessfully or are discarded before completion.
+
+**Key metrics**
+
+[cols="2,3,2",options="header"]
+|===
+|Metric |JMX / Dropwizard Name |Unit
+
+|Dropped mutations
+|`org.apache.cassandra.metrics.DroppedMessage.MUTATION.Dropped` (Count)
+|count (delta)
+
+|Dropped reads
+|`org.apache.cassandra.metrics.DroppedMessage.READ.Dropped` (Count)
+|count (delta)
+
+|Dropped read repairs
+|`org.apache.cassandra.metrics.DroppedMessage.READ_REPAIR.Dropped` (Count)
+|count (delta)
+
+|Coordinator write timeouts
+|`org.apache.cassandra.metrics.ClientRequest.Write.Timeouts` (Count)
+|count (delta)
+
+|Coordinator read timeouts
+|`org.apache.cassandra.metrics.ClientRequest.Read.Timeouts` (Count)
+|count (delta)
+
+|Coordinator write unavailables
+|`org.apache.cassandra.metrics.ClientRequest.Write.Unavailables` (Count)
+|count (delta)
+
+|Coordinator read unavailables
+|`org.apache.cassandra.metrics.ClientRequest.Read.Unavailables` (Count)
+|count (delta)
+|===
+
+Any non-zero `Unavailables` count means Cassandra could not satisfy the required consistency level — at least one replica was unreachable.
+This is a critical signal regardless of rate.
+
+=== Saturation
+
+Saturation metrics reveal whether internal queues and bounded resources are near capacity.
+Saturation typically precedes latency and error degradation, making it a leading indicator.
+
+**Key metrics**
+
+[cols="2,3,2",options="header"]
+|===
+|Metric |JMX / Dropwizard Name |Unit
+
+|Pending compaction tasks
+|`org.apache.cassandra.metrics.Compaction.PendingTasks` (Value)
+|count
+
+|Read stage pending tasks
+|`org.apache.cassandra.metrics.ThreadPools.Native-Transport-Requests.PendingTasks` (Value)
+|count
+
+|Write stage pending tasks
+|`org.apache.cassandra.metrics.ThreadPools.MutationStage.PendingTasks` (Value)
+|count
+
+|Memtable flush pending
+|`org.apache.cassandra.metrics.ThreadPools.MemtableFlushWriter.PendingTasks` (Value)
+|count
+
+|Heap used fraction
+|`java.lang:type=Memory HeapMemoryUsage.used / max`
+|ratio (0–1)
+
+|Data disk used
+|OS-level: data directory partition percent used
+|percent
+
+|SSTable count per table
+|`org.apache.cassandra.metrics.Table.LiveSSTableCount.<KS>.<Table>` (Value)
+|count
+|===
+
+== Recommended Alert Thresholds
+
+The thresholds below are starting points for a general-purpose cluster.
+Adjust them based on your workload profile and SLO after establishing a baseline.
+
+[cols="1,2,2,2,2",options="header"]
+|===
+|Signal |Metric |Warning Threshold |Critical Threshold |Suggested Action
+
+|Read latency
+|Coordinator read p99 (µs)
+|> 10,000 µs (10 ms)
+|> 50,000 µs (50 ms)
+|Check GC pauses, compaction backlog, hot partitions
+
+|Write latency
+|Coordinator write p99 (µs)
+|> 5,000 µs (5 ms)
+|> 25,000 µs (25 ms)
+|Check memtable flush backlog, commit log segment count
+
+|Dropped mutations
+|DroppedMessage.MUTATION.Dropped (rate/min)
+|> 0 for 5 min
+|> 10 per minute
+|Check write thread pool saturation, disk I/O
+
+|Dropped reads
+|DroppedMessage.READ.Dropped (rate/min)
+|> 0 for 5 min
+|> 10 per minute
+|Check read thread pool saturation, slow replicas
+
+|Unavailables
+|ClientRequest.Write.Unavailables or Read.Unavailables
+|Any non-zero
+|Sustained > 0
+|Check node health, gossip state, network partitions
+
+|Write timeouts
+|ClientRequest.Write.Timeouts (rate/min)
+|> 1 per minute
+|> 10 per minute
+|Check replica latency, hinted handoff backlog
+
+|Read timeouts
+|ClientRequest.Read.Timeouts (rate/min)
+|> 1 per minute
+|> 10 per minute
+|Check replica latency, compaction pressure
+
+|Pending compactions
+|Compaction.PendingTasks
+|> 20
+|> 100
+|Check compaction throughput, disk I/O, compaction strategy tuning
+
+|Write thread pool pending
+|ThreadPools.MutationStage.PendingTasks
+|> 500
+|> 2000
+|Check GC, disk I/O, mutation payload size
+
+|Read thread pool pending
+|ThreadPools.Native-Transport-Requests.PendingTasks
+|> 500
+|> 2000
+|Check read amplification, slow replicas, GC
+
+|Heap used
+|JVM heap used / max
+|> 0.75
+|> 0.85
+|Tune heap, check for tombstone read amplification
+
+|Disk used
+|Data directory partition
+|> 60%
+|> 75%
+|Run cleanup, expand storage, rebalance with token adjustment
+|===
+
+[IMPORTANT]
+====
+The 75% disk warning threshold provides a safety margin before Cassandra automatically blocks writes
+when disk usage exceeds the `disk_failure_policy` limit.
+Cassandra will refuse writes before you run out of disk, but compaction and repair require headroom above current data size.
+====
+
+== Alert → Symptom → Cause → Action Map
+
+Use this decision tree when an alert fires to narrow the cause quickly.
+
+=== High Coordinator Read Latency (p99)
+
+[source,text]
+----
+High coordinator read latency
+├── Are pending compaction tasks > 50?
+│   └── YES → Compaction backlog: throttle background work, add I/O capacity
+│               See: operate/compaction-overview.adoc
+├── Is heap used > 80%?
+│   └── YES → GC pressure: tune -Xmx, audit tombstone reads, check row cache
+├── Are read timeouts increasing?
+│   ├── YES + unavailables > 0 → Node(s) unreachable: check nodetool status, gossip
+│   └── YES + unavailables = 0 → Slow replica: check per-node latency, hot partition
+├── Is read throughput flat or increasing?
+│   └── YES + latency rising → Working-set growth: partition size, secondary indexes
+└── Is read throughput dropping?
+    └── YES → Client back-off or connection issues: check driver metrics
+----
+
+=== Dropped Mutations
+
+[source,text]
+----
+Dropped mutations > 0
+├── Is MutationStage.PendingTasks > 1000?
+│   └── YES → Write thread pool saturated
+│       ├── Is disk I/O at capacity? → Reduce flush frequency or add IOPS
+│       └── Is GC pausing > 200ms? → Tune heap, switch to G1 or ZGC
+├── Is commit log segment count rising?
+│   └── YES → Commit log stalling: check commit log directory disk latency
+├── Are batch mutations in use?
+│   └── YES → Oversized batches: reduce batch size, enable batch_size_warn_threshold
+└── Is the node under heavy compaction?
+    └── YES → Compaction stealing I/O: adjust compaction throughput
+----
+
+=== Unavailables
+
+[source,text]
+----
+Unavailables > 0 (any count)
+├── Run: nodetool status
+│   ├── Any node DN (Down/Normal)? → Node failure: investigate system.log, restart if safe
+│   └── Any node DN (Down/Leaving)? → Decommission stalled: check decommission status
+├── Are multiple DCs in use?
+│   └── YES + LOCAL_QUORUM used → Check inter-DC reachability, network partition
+├── Is this a CAS (LWT) operation?
+│   └── YES → Paxos unavailables: check all replicas for the token range are UP
+└── Check gossip: nodetool gossipinfo | grep STATUS
+    └── Any BOOT or LEAVING? → Ring change in progress, wait or intervene
+----
+
+=== Saturation: Heap Near Limit
+
+[source,text]
+----
+Heap used > 80%
+├── Is row cache enabled?
+│   └── YES → Row cache over-consuming: reduce row_cache_size_in_mb
+├── Are tombstone warnings in system.log?
+│   └── YES → Tombstone reads materializing large result sets: fix data model or TTL
+├── Is off-heap overhead high?
+│   └── Check: bloom filters, compression metadata, key cache sizes
+└── Is GC pausing > 500ms repeatedly?
+    └── YES → Switch to G1GC or ZGC, increase -Xmx if heap budget allows
+----
+
+== Prometheus and Grafana Integration
+
+=== JMX Exporter Configuration
+
+The https://github.com/prometheus/jmx_exporter[Prometheus JMX Exporter] agent exposes Cassandra's JMX metrics
+as Prometheus-compatible text.
+Add the agent to the JVM startup in `cassandra-env.sh` or `jvm-server.options`.
+
+.jvm-server.options addition
+[source,text]
+----
+-javaagent:/opt/cassandra/agents/jmx_prometheus_javaagent.jar=7070:/etc/cassandra/jmx_exporter.yaml
+----
+
+A minimal exporter configuration that captures all four golden signal metric families:
+
+.jmx_exporter.yaml
+[source,yaml]
+----
+startDelaySeconds: 0
+ssl: false
+rules:
+  # Coordinator request latency and rates (latency + throughput)
+  - pattern: 'org.apache.cassandra.metrics<type=ClientRequest, scope=(\w+), name=(Latency|Timeouts|Unavailables)><>(Count|OneMinuteRate|99thPercentile)'
+    name: cassandra_client_request_$2_$3
+    labels:
+      request_type: "$1"
+    attrNameSnakeCase: true
+
+  # Dropped messages (errors)
+  - pattern: 'org.apache.cassandra.metrics<type=DroppedMessage, scope=(\w+), name=Dropped><>(Count|OneMinuteRate)'
+    name: cassandra_dropped_message_$2
+    labels:
+      message_type: "$1"
+
+  # Thread pool pending and blocked (saturation)
+  - pattern: 'org.apache.cassandra.metrics<type=ThreadPools, path=(\w+), scope=(\w+), name=(PendingTasks|BlockedTasks)><>Value'
+    name: cassandra_thread_pool_$3
+    labels:
+      pool_type: "$1"
+      pool_name: "$2"
+    attrNameSnakeCase: true
+
+  # Compaction pending (saturation)
+  - pattern: 'org.apache.cassandra.metrics<type=Compaction, name=PendingTasks><>Value'
+    name: cassandra_compaction_pending_tasks
+
+  # JVM heap (saturation)
+  - pattern: 'java.lang<type=Memory><HeapMemoryUsage>(\w+)'
+    name: jvm_memory_heap_$1
+----
+
+=== Prometheus Scrape Configuration
+
+.prometheus.yml (scrape_configs section)
+[source,yaml]
+----
+scrape_configs:
+  - job_name: cassandra
+    static_configs:
+      - targets:
+          - cassandra-node-1:7070
+          - cassandra-node-2:7070
+          - cassandra-node-3:7070
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: '([^:]+):\d+'
+        replacement: '$1'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+----
+
+For dynamic clusters, use the `file_sd_configs` or a service discovery provider instead of `static_configs`.
+
+=== PrometheusRule Alert Example
+
+The following `PrometheusRule` resource defines alerts that map to the thresholds in the table above.
+Apply it in a Kubernetes cluster that has the Prometheus Operator installed.
+
+.cassandra-alerts.yaml
+[source,yaml]
+----
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cassandra-golden-signals
+  namespace: monitoring
+  labels:
+    prometheus: kube-prometheus
+    role: alert-rules
+spec:
+  groups:
+    - name: cassandra.latency
+      interval: 30s
+      rules:
+        - alert: CassandraHighReadLatencyWarning
+          expr: |
+            cassandra_client_request_latency_99thpercentile{request_type="Read"} > 10000
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Cassandra coordinator read p99 latency above 10ms"
+            description: "Node {{ $labels.instance }} read p99 is {{ $value | humanizeDuration }} µs."
+
+        - alert: CassandraHighReadLatencyCritical
+          expr: |
+            cassandra_client_request_latency_99thpercentile{request_type="Read"} > 50000
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Cassandra coordinator read p99 latency above 50ms"
+            description: "Node {{ $labels.instance }} read p99 is {{ $value | humanizeDuration }} µs."
+
+        - alert: CassandraHighWriteLatencyCritical
+          expr: |
+            cassandra_client_request_latency_99thpercentile{request_type="Write"} > 25000
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Cassandra coordinator write p99 latency above 25ms"
+            description: "Node {{ $labels.instance }} write p99 is {{ $value | humanizeDuration }} µs."
+
+    - name: cassandra.errors
+      interval: 30s
+      rules:
+        - alert: CassandraDroppedMutations
+          expr: |
+            rate(cassandra_dropped_message_count{message_type="MUTATION"}[5m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Cassandra is dropping mutation messages"
+            description: "Node {{ $labels.instance }} dropped mutations at {{ $value | humanize }}/s."
+
+        - alert: CassandraUnavailableWrites
+          expr: |
+            increase(cassandra_client_request_unavailables_count{request_type="Write"}[5m]) > 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Cassandra write unavailables detected"
+            description: "Node {{ $labels.instance }} had {{ $value }} unavailable write exceptions."
+
+    - name: cassandra.saturation
+      interval: 30s
+      rules:
+        - alert: CassandraCompactionBacklogWarning
+          expr: |
+            cassandra_compaction_pending_tasks > 20
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Cassandra compaction backlog building"
+            description: "Node {{ $labels.instance }} has {{ $value }} pending compaction tasks."
+
+        - alert: CassandraCompactionBacklogCritical
+          expr: |
+            cassandra_compaction_pending_tasks > 100
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Cassandra compaction backlog critical"
+            description: "Node {{ $labels.instance }} has {{ $value }} pending compaction tasks."
+
+        - alert: CassandraHeapHighWarning
+          expr: |
+            jvm_memory_heap_used / jvm_memory_heap_max > 0.75
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Cassandra JVM heap usage above 75%"
+            description: "Node {{ $labels.instance }} heap is at {{ $value | humanizePercentage }}."
+----
+
+== Dashboard Layout Recommendations
+
+A practical Grafana dashboard for Cassandra golden signals uses a four-row layout, one row per signal.
+
+**Row 1 — Latency**
+
+* Panel: Read p99 latency (ms) — time series, all nodes overlaid
+* Panel: Write p99 latency (ms) — time series, all nodes overlaid
+* Panel: CAS read/write p99 — time series (useful if LWT is in use)
+
+**Row 2 — Throughput**
+
+* Panel: Read requests/sec — stacked time series by node
+* Panel: Write requests/sec — stacked time series by node
+* Panel: Total operations/sec — single stat with 1-hour trend sparkline
+
+**Row 3 — Errors**
+
+* Panel: Dropped mutations/min — time series, threshold lines at warning and critical
+* Panel: Write/read timeouts/min — time series
+* Panel: Unavailables/min — bar chart (any bar is a clear visual anomaly)
+
+**Row 4 — Saturation**
+
+* Panel: Pending compaction tasks — time series with threshold annotations at 20 and 100
+* Panel: MutationStage and NativeTransport pending tasks — time series
+* Panel: JVM heap used % — gauge with color zones (green < 75%, yellow 75–85%, red > 85%)
+* Panel: Disk used % per node — gauge or horizontal bar chart
+
+Add a cluster-level summary row at the top with single-stat panels for node count UP/DOWN and a current alert count stat linked to Alertmanager.
+
+Set all time series panels to a 1-hour default range with auto-refresh at 30 seconds during incident response.
+
+== Related Pages
+
+* xref:observe/metrics.adoc[Monitoring] — full Cassandra metrics catalog by domain
+* xref:observe/virtualtables.adoc[Virtual Tables] — query live metrics directly via CQL
+* xref:operate/compaction-overview.adoc[Compaction Overview] — compaction strategies and tuning
+* xref:troubleshoot/use_nodetool.adoc[Using Nodetool] — CLI commands for node health and diagnostics
+* xref:tune/performance.adoc[Performance Tuning] — JVM, I/O, and system-level tuning guidance

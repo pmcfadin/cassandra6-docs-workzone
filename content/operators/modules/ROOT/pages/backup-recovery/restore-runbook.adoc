@@ -1,0 +1,513 @@
+= Restore Validation Runbook
+:description: Step-by-step procedures for restoring Apache Cassandra data from snapshots or incremental backups, with pre-restore checklists, decision trees, and post-restore validation.
+
+[IMPORTANT]
+====
+*Preview | Unofficial | For review only*
+====
+
+This runbook covers all phases of a Cassandra restore operation: deciding which restore path to take, executing single-node and full-cluster procedures, and validating that data is correct and consistent after recovery.
+For backup creation, see xref:backup-recovery/backups.adoc[Backups].
+For compaction and repair concepts, see xref:operate/repair.adoc[Repair].
+
+== Pre-Restore Checklist
+
+Complete every item before touching data directories.
+A missed step is the most common cause of a failed or corrupted restore.
+
+=== Identify the Failure Scope
+
+* [ ] Determine whether the loss is a single node, a subset of nodes, or the entire cluster.
+* [ ] Determine whether the loss is data-only or includes schema.
+* [ ] Confirm which keyspaces and tables are affected.
+* [ ] Confirm the replication factor for each affected keyspace.
+      If RF >= 3 and only one node is lost, live replicas may make a restore unnecessary — run
+      `nodetool repair` first and verify row counts before proceeding.
+
+=== Identify the Backup Target
+
+* [ ] Locate the most recent clean snapshot (`nodetool listsnapshots` on a healthy node, or
+      scan backup storage for the target node).
+* [ ] If using incremental backups, confirm the incremental files cover the period between the
+      base snapshot and the failure timestamp.
+* [ ] Verify backup file checksums or sizes against the manifest recorded at backup time.
+* [ ] Confirm the schema CQL file (`schema.cql`) is present in the snapshot directory.
+
+=== Prepare the Environment
+
+* [ ] Stop the affected Cassandra node(s): `sudo systemctl stop cassandra`
+* [ ] Confirm the node is fully stopped: `nodetool status` from a peer should show the target
+      as `DN` (down/normal) or absent.
+* [ ] Back up the current (corrupt or incomplete) data directory before overwriting:
++
+[source,bash]
+----
+sudo mv /var/lib/cassandra/data /var/lib/cassandra/data.pre-restore-$(date +%Y%m%d%H%M)
+sudo mkdir /var/lib/cassandra/data
+----
++
+* [ ] Confirm disk space: the restore target must have at least 2x the snapshot size free
+      to allow for the restore copy plus compaction headroom.
+* [ ] Confirm Cassandra version matches the backup source version, or that a supported upgrade
+      path exists between them.
+
+== Restore Decision Tree
+
+Use this tree to select the correct procedure before executing any steps.
+
+----
+START
+  │
+  ├─ Is the cluster totally unavailable?
+  │     YES ──► Full Cluster Restore (Section 4)
+  │
+  ├─ Is only one node affected?
+  │     YES ──► Is RF >= 3?
+  │               YES ──► Run repair first; skip restore if data is intact
+  │               NO  ──► Single Node Restore (Section 3)
+  │
+  ├─ Are multiple nodes affected but cluster is partially up?
+  │     YES ──► Repeat Single Node Restore for each affected node, one at a time
+  │
+  └─ Do you need to recover data to a specific point in time?
+          YES ──► Use base snapshot + incremental backups up to that timestamp
+          NO  ──► Use most recent full snapshot
+----
+
+**When incremental backups are available** and the failure timestamp is known, restore from
+the most recent snapshot taken before the failure and then replay the incremental backup files
+created after that snapshot up to (but not past) the failure time.
+Do not apply incremental files that postdate the failure event.
+
+== Single Node Restore Procedure
+
+Use this procedure when one node has lost data while the rest of the cluster remains healthy.
+
+=== Step 1 — Recreate the Schema (if lost)
+
+If the schema is intact on other nodes, skip this step.
+If the target node's schema tables are corrupt or missing, restore schema from the backup:
+
+[source,bash]
+----
+# On the target node, after Cassandra is stopped
+cqlsh -f /path/to/snapshot/schema.cql
+----
+
+=== Step 2 — Copy Snapshot Files Into Place
+
+For each keyspace and table included in the restore:
+
+[source,bash]
+----
+# Variables — adjust to your environment
+SNAPSHOT_DIR=/path/to/snapshots/<snapshot_name>/<keyspace>/<table_directory>
+DATA_DIR=/var/lib/cassandra/data/<keyspace>/<table_directory>
+
+# Create the table data directory if it does not exist
+sudo mkdir -p "$DATA_DIR"
+
+# Copy SSTable files from the snapshot
+sudo cp "$SNAPSHOT_DIR"/*.db "$DATA_DIR"/
+sudo cp "$SNAPSHOT_DIR"/*.crc32 "$DATA_DIR"/ 2>/dev/null || true
+sudo cp "$SNAPSHOT_DIR"/*.txt "$DATA_DIR"/ 2>/dev/null || true
+
+# Fix ownership
+sudo chown -R cassandra:cassandra "$DATA_DIR"
+----
+
+[NOTE]
+====
+Do not copy the `schema.cql` or `manifest.json` files into the data directory.
+Only SSTable component files belong there.
+====
+
+=== Step 3 — Apply Incremental Backups (point-in-time only)
+
+If you need point-in-time recovery, copy incremental backup files created between the base
+snapshot and your target timestamp into the same table data directory:
+
+[source,bash]
+----
+BACKUPS_DIR=/var/lib/cassandra/data/<keyspace>/<table_directory>/backups
+
+# List incremental files by modification time to confirm the date range
+ls -lt "$BACKUPS_DIR"
+
+# Copy files up to the target timestamp (adjust the date accordingly)
+find "$BACKUPS_DIR" -newer /path/to/snapshot/manifest.json \
+  ! -newer /path/to/timestamp_marker \
+  -exec sudo cp {} "$DATA_DIR"/ \;
+
+sudo chown -R cassandra:cassandra "$DATA_DIR"
+----
+
+=== Step 4 — Start the Node and Force Compaction
+
+[source,bash]
+----
+sudo systemctl start cassandra
+
+# Wait for the node to reach UN status — check from a peer
+watch -n 5 nodetool status
+
+# Once UN, trigger compaction to merge the restored SSTables
+nodetool compact <keyspace> <table>
+----
+
+=== Step 5 — Run Repair
+
+After the node is fully up, run a full repair to synchronize any data written to live replicas
+during the outage period:
+
+[source,bash]
+----
+nodetool repair -full <keyspace>
+----
+
+Monitor repair progress:
+
+[source,bash]
+----
+nodetool compactionstats
+nodetool tpstats
+----
+
+Proceed to Section 5 (Post-Restore Validation) when repair completes without error.
+
+== Full Cluster Restore Procedure
+
+Use this procedure when the entire cluster must be rebuilt from backup.
+This is a destructive, time-intensive operation.
+Execute it only after confirming that no live data can be recovered.
+
+=== Step 1 — Prepare One Seed Node
+
+Choose the first seed node listed in `cassandra.yaml`.
+All other nodes remain stopped until this seed is validated.
+
+[source,bash]
+----
+# Stop Cassandra on ALL nodes before beginning
+sudo systemctl stop cassandra   # repeat on every node
+
+# On the seed node, clear and recreate the data directory
+sudo rm -rf /var/lib/cassandra/data/*
+sudo rm -rf /var/lib/cassandra/commitlog/*
+sudo rm -rf /var/lib/cassandra/hints/*
+----
+
+=== Step 2 — Restore Schema on the Seed Node
+
+[source,bash]
+----
+# Start Cassandra in standalone mode temporarily if needed
+# Otherwise, start normally and connect via cqlsh before other nodes join
+sudo systemctl start cassandra
+
+# Wait for the node to come up as a single-node cluster
+watch -n 5 nodetool status
+
+# Restore schema
+cqlsh -f /path/to/backup/schema.cql
+----
+
+=== Step 3 — Copy Snapshot Data to the Seed Node
+
+Repeat the single-node copy procedure (Section 3, Steps 2-3) for all keyspaces and tables on
+the seed node.
+
+=== Step 4 — Restart and Verify the Seed Node
+
+[source,bash]
+----
+nodetool compact
+nodetool status   # should show one UN node
+----
+
+Run a quick row count verification (see Section 5) before bringing up additional nodes.
+
+=== Step 5 — Restore Each Remaining Node
+
+Bring up one node at a time.
+For each node:
+
+1. Clear its data directory as done for the seed.
+2. Copy snapshot files into place.
+3. Start Cassandra: `sudo systemctl start cassandra`
+4. Wait for `UN` status on the rejoining node: `watch -n 5 nodetool status`
+5. Do not start the next node until this one reaches `UN`.
+
+[WARNING]
+====
+Starting multiple nodes simultaneously during a full-cluster restore can cause streaming
+collisions and inconsistent token ownership.
+Always wait for each node to reach `UN` status before proceeding.
+====
+
+=== Step 6 — Run Full Cluster Repair
+
+Once all nodes show `UN`:
+
+[source,bash]
+----
+# Run repair on each node sequentially — not in parallel
+nodetool repair -full
+----
+
+A full repair across a freshly restored cluster can take hours to days depending on dataset size.
+See Section 6 for time estimates.
+
+== Post-Restore Validation
+
+Do not return the cluster to production traffic until all checks in this section pass.
+
+=== Data Integrity — Row Count Verification
+
+Compare row counts against a known-good reference (pre-failure stats, monitoring history,
+or a healthy replica):
+
+[source,sql]
+----
+-- Run on the restored node via cqlsh
+-- Replace keyspace_name and table_name with your values
+SELECT COUNT(*) FROM keyspace_name.table_name;
+----
+
+[NOTE]
+====
+`COUNT(*)` performs a full table scan and is expensive on large tables.
+For large datasets, sample a partition range or use the `nodetool tablehistograms` output
+to compare SSTable counts rather than row counts.
+====
+
+[source,bash]
+----
+# Compare SSTable counts before and after
+nodetool tablehistograms <keyspace> <table>
+nodetool cfstats <keyspace>.<table>
+----
+
+=== Consistency — Repair Completion Check
+
+Confirm repair completed without failures:
+
+[source,bash]
+----
+# Check system logs for repair errors
+grep -i "repair" /var/log/cassandra/system.log | grep -i "error\|fail\|exception"
+
+# Confirm no pending repairs
+nodetool compactionstats
+----
+
+No output from the error grep is the passing condition.
+
+=== Schema Check
+
+Verify that schema is consistent across all nodes:
+
+[source,bash]
+----
+nodetool describecluster
+----
+
+All nodes must report the same schema version.
+A mismatch means schema gossip has not converged — wait 30 seconds and repeat.
+If mismatches persist after two minutes:
+
+[source,bash]
+----
+# Force schema refresh on the lagging node
+nodetool reloadlocalschema
+----
+
+=== Node Status Check
+
+[source,bash]
+----
+nodetool status
+----
+
+Expected output: every node shows `UN` (Up/Normal).
+No node should show `DN`, `UJ` (joining), or `UL` (leaving) after a completed restore.
+
+=== Application Connectivity Check
+
+1. Confirm the application's CQL driver can connect and authenticate.
+2. Execute a representative read query against the restored keyspace and verify the result
+   matches expected values.
+3. Execute a representative write query and confirm the write propagates to all replicas
+   (`nodetool repair` is not required for this — a write at `QUORUM` consistency confirms
+   replication is functioning).
+4. Check driver-side metrics for connection errors or timeout spikes in the minute after
+   reconnection.
+
+== Time Estimation
+
+Use this table as a planning guide.
+Actual times depend on hardware, network throughput, dataset size, and replication factor.
+
+[cols="1,2,2", options="header"]
+|===
+|Phase
+|Typical Duration
+|Notes
+
+|Pre-restore checklist
+|15 – 30 min
+|Longer if backup storage is remote
+
+|Single node: copy snapshot files
+|10 min – 4 hours
+|Scales with dataset size; local NVMe is much faster than network storage
+
+|Single node: compaction after restore
+|5 min – 2 hours
+|Depends on number and size of SSTables restored
+
+|Single node: repair
+|30 min – 8 hours
+|Scales with dataset size and number of live replicas to sync against
+
+|Full cluster: restore all nodes
+|2 – 24 hours
+|Sequential node-by-node; parallelism not recommended
+
+|Full cluster: full repair pass
+|Hours to days
+|Typically 1-3 days for multi-TB clusters
+
+|Post-restore validation
+|30 – 60 min
+|Include application smoke test
+|===
+
+== Common Restore Failures and Handling
+
+=== SSTable Version Mismatch
+
+**Symptom:** Cassandra fails to start or logs `Incompatible SSTable version` errors after
+copying snapshot files.
+
+**Cause:** The backup was taken on a different Cassandra version and the SSTable format changed.
+
+**Resolution:**
+
+1. Confirm the Cassandra version used to create the backup.
+2. If upgrading across major versions, use the `sstableupgrade` tool before starting the node:
++
+[source,bash]
+----
+sstableupgrade <keyspace> <table>
+----
++
+3. Restart Cassandra after the upgrade completes.
+
+=== File Permission Errors on Startup
+
+**Symptom:** Cassandra starts but immediately writes `Permission denied` errors in `system.log`.
+
+**Cause:** Snapshot files were copied as root or another user; the cassandra OS user cannot read them.
+
+**Resolution:**
+
+[source,bash]
+----
+sudo chown -R cassandra:cassandra /var/lib/cassandra/data
+sudo chmod -R 750 /var/lib/cassandra/data
+----
+
+=== Node Stuck in UJ (Joining) State After Restore
+
+**Symptom:** `nodetool status` shows the restored node as `UJ` for more than 10 minutes.
+
+**Cause:** The node is attempting to stream data from peers because it believes it has no local
+data for its token ranges, or a previous bootstrap sequence was interrupted.
+
+**Resolution:**
+
+[source,bash]
+----
+# Check if a bootstrap is in progress
+nodetool bootstrap resume
+
+# If the node is stuck and needs to be reset
+sudo systemctl stop cassandra
+# Verify snapshot files are in place, then restart
+sudo systemctl start cassandra
+----
+
+If the node continues to hang in `UJ`, check `system.log` for streaming errors and consult
+xref:troubleshoot/use_nodetool.adoc[Troubleshooting with nodetool].
+
+=== Repair Fails With StreamException
+
+**Symptom:** `nodetool repair` exits with `StreamException` or `Repair session failed` messages.
+
+**Cause:** Network interruption, a peer node going down mid-repair, or a timeout on large
+partition ranges.
+
+**Resolution:**
+
+1. Confirm all nodes are `UN` before restarting repair.
+2. Retry repair with a smaller scope — one table at a time:
++
+[source,bash]
+----
+nodetool repair -full <keyspace> <table>
+----
++
+3. For very large tables, use incremental repair (`-inc`) to limit the repair scope to
+   unrepaired SSTables:
++
+[source,bash]
+----
+nodetool repair -inc <keyspace> <table>
+----
+
+=== Schema Version Mismatch Persists After Reload
+
+**Symptom:** `nodetool describecluster` shows two or more schema versions after running
+`reloadlocalschema`.
+
+**Cause:** A node rejoined the cluster without the correct schema being propagated, or schema
+changes were applied during the restore window and have not replicated.
+
+**Resolution:**
+
+[source,bash]
+----
+# On the node with the stale schema version
+nodetool reloadlocalschema
+
+# If the mismatch persists, trigger a schema sync from a node with the correct version
+nodetool disablebinary   # disconnect clients temporarily
+nodetool enablebinary
+nodetool describecluster  # re-check
+----
+
+If the mismatch does not resolve within five minutes, examine `system.log` for `MigrationManager`
+errors.
+
+=== Row Count Lower Than Expected After Repair
+
+**Symptom:** `COUNT(*)` after repair returns fewer rows than the pre-failure baseline.
+
+**Cause:** Data written between the backup snapshot and the failure event was not captured
+in the backup and is genuinely lost, or incremental backups were not applied.
+
+**Resolution:**
+
+1. Confirm whether incremental backups were enabled and cover the missing time window.
+2. If incremental backups exist, repeat the restore with those files applied (Section 3, Step 3).
+3. If no incremental backups exist, the data loss is real.
+   Document the data loss window and notify application owners.
+
+== Related Pages
+
+* xref:backup-recovery/backups.adoc[Backups] — snapshot creation, incremental backups, JMX snapshot management
+* xref:operate/repair.adoc[Repair] — full, incremental, and preview repair modes
+* xref:troubleshoot/use_nodetool.adoc[Troubleshooting with nodetool] — diagnosing node and cluster state
+* xref:tcm-operations.adoc[TCM Day-2 Operations] — how topology operations interact with TCM
+* xref:operate/compaction-overview.adoc[Compaction Overview] — compaction strategies and their effect on restore performance
