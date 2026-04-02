@@ -294,14 +294,19 @@ Optional parameters can be specified in the form of:
   Please increase system_auth keyspace replication factor if you use this authenticator.
   If using PasswordAuthenticator, CassandraRoleManager must also be used (see below)
 
-== `authorizer`
+_Default Value (complex option)_:
 
-MutualTlsAuthenticator can be configured using the following configuration. One can add their own validator
-which implements MutualTlsCertificateValidator class and provide logic for extracting identity out of certificates
-and validating certificates.
- class_name: org.apache.cassandra.auth.MutualTlsAuthenticator
- parameters:
-   validator_class_name: org.apache.cassandra.auth.SpiffeCertificateValidator
+....
+      class_name: AllowAllAuthenticator
+    # MutualTlsAuthenticator can be configured using the following configuration. One can add their own validator
+    # which implements MutualTlsCertificateValidator class and provide logic for extracting identity out of certificates
+    # and validating certificates.
+    #  class_name: org.apache.cassandra.auth.MutualTlsAuthenticator
+    #  parameters:
+    #    validator_class_name: org.apache.cassandra.auth.SpiffeCertificateValidator
+....
+
+== `authorizer`
 
 Authorization backend, implementing IAuthorizer; used to limit access/provide permissions
 Out of the box, Cassandra provides org.apache.cassandra.auth.{AllowAllAuthorizer,
@@ -315,8 +320,13 @@ Optional parameters can be specified in the form of:
 - CassandraAuthorizer stores permissions in system_auth.role_permissions table. Please
   increase system_auth keyspace replication factor if you use this authorizer.
 
-== `role_manager`
+_Default Value (complex option)_:
 
+....
+      class_name: AllowAllAuthorizer
+....
+
+== `role_manager`
 
 Part of the Authentication & Authorization backend, implementing IRoleManager; used
 to maintain grants and memberships between roles.
@@ -332,8 +342,20 @@ Optional parameters can be specified in the form of:
 - CassandraRoleManager stores role data in the system_auth keyspace. Please
   increase system_auth keyspace replication factor if you use this role manager.
 
-== `network_authorizer`
+_Default Value (complex option)_:
 
+....
+      class_name: CassandraRoleManager
+      parameters:
+        # Controls how often invalid roles are disconnected, such as when a role is altered with LOGIN=false
+        # Task is scheduled with period + random(0, max_jitter) delay between executions
+        # It's recommended to set these longer than the roles cache refresh period, since the invalidation check depends on
+        # cache contents. Disable by setting period=0h.
+        # invalid_role_disconnect_task_period: 4h
+        # invalid_role_disconnect_task_max_jitter: 1h
+....
+
+== `network_authorizer`
 
 Network authorization backend, implementing INetworkAuthorizer; used to restrict user
 access to certain DCs
@@ -348,8 +370,13 @@ Optional parameters can be specified in the form of:
 - CassandraNetworkAuthorizer stores permissions in system_auth.network_permissions table. Please
   increase system_auth keyspace replication factor if you use this authorizer.
 
-== `cidr_authorizer`
+_Default Value (complex option)_:
 
+....
+      class_name: AllowAllNetworkAuthorizer
+....
+
+== `cidr_authorizer`
 
 CIDR authorization backend, implementing ICIDRAuthorizer; used to restrict user
 access from certain CIDRs
@@ -365,10 +392,21 @@ Optional parameters can be specified in the form of:
   increase system_auth keyspace replication factor if you use this authorizer, otherwise any changes to
   system_auth tables being used by this feature may be lost when a host goes down.
 
+_Default Value (complex option)_:
+
+....
+      class_name: AllowAllCIDRAuthorizer
+      # Below parameters are used only when CIDR authorizer is enabled
+      # parameters:
+        # CIDR authorizer when enabled, i.e, CassandraCIDRAuthorizer, is applicable for non-superusers only by default.
+        # Set this setting to true, to enable CIDR authorization for superusers as well.
+        # Note: CIDR checks cannot be performed for JMX calls
+        # cidr_checks_for_superusers: true
+....
+
 == `traverse_auth_from_root`
 
 *This option is commented out by default.*
-
 
 
 
@@ -970,18 +1008,15 @@ none : Flush without compressing blocks but while still doing checksums.
 fast : Flush with a fast compressor. If the table is already using a
        fast compressor that compressor is used.
 
-_Default Value:_ Always flush with the same compressor that the table uses. This
+_Default Value (complex option)_:
 
-== `flush_compression`
-
-*This option is commented out by default.*
-       was the pre 4.0 behavior.
-
-
-_Default Value:_ fast
+....
+    #        was the pre 4.0 behavior.
+    #
+    # flush_compression: fast
+....
 
 == `seed_provider`
-
 
 any class that implements the SeedProvider interface and has a
 constructor that takes a Map<String, String> of parameters will do.
@@ -1119,10 +1154,21 @@ If the memtable property is not set, the "default" configuration will be used.
 See src/java/org/apache/cassandra/db/memtable/Memtable_API.md for further
 information.
 
+_Default Value (complex option)_:
+
+....
+      configurations:
+        skiplist:
+          class_name: SkipListMemtable
+        trie:
+          class_name: TrieMemtable
+        default:
+          inherits: skiplist
+....
+
 == `memtable_heap_space`
 
 *This option is commented out by default.*
-
 Total permitted memory to use for memtables. Cassandra will stop
 accepting writes when the limit is exceeded until a flush completes,
 and will trigger a flush based on memtable_cleanup_threshold
@@ -1222,19 +1268,23 @@ _Default Value:_ 0
 *This option is commented out by default.*
 
 
+_Default Value (complex option)_:
+
+....
+    #   # Configure the retries for each of the repair messages that support it.  As of this moment retries use an exponential algorithm where each attempt sleeps longer based off the base_sleep_time and attempt.
+    #   retries:
+    #     max_attempts: 10
+    #     base_sleep_time: 200ms
+    #     max_sleep_time: 1s
+    #     # Increase the timeout of validation responses due to them containing the merkle tree
+    #     merkle_tree_response:
+    #       base_sleep_time: 30s
+    #       max_sleep_time: 1m
+....
+
 == `commitlog_total_space`
 
 *This option is commented out by default.*
-  # Configure the retries for each of the repair messages that support it.  As of this moment retries use an exponential algorithm where each attempt sleeps longer based off the base_sleep_time and attempt.
-  retries:
-    max_attempts: 10
-    base_sleep_time: 200ms
-    max_sleep_time: 1s
-    # Increase the timeout of validation responses due to them containing the merkle tree
-    merkle_tree_response:
-      base_sleep_time: 30s
-      max_sleep_time: 1m
-
 Total space to use for commit logs on disk.
 
 If space gets above this value, Cassandra will flush every dirty CF
@@ -1435,61 +1485,42 @@ _Default Value:_ false
 Internode authentication backend, implementing IInternodeAuthenticator;
 used to allow/disallow connections from peer nodes.
 
-== `start_native_transport`
+_Default Value (complex option)_:
 
- class_name: org.apache.cassandra.auth.AllowAllInternodeAuthenticator
- parameters:
-MutualTlsInternodeAuthenticator can be configured using the following configuration.One can add their own validator
-which implements MutualTlsCertificateValidator class and provide logic for extracting identity out of certificates
-and validating certificates.
- class_name: org.apache.cassandra.auth.MutualTlsInternodeAuthenticator
- parameters:
-   validator_class_name: org.apache.cassandra.auth.SpiffeCertificateValidator
-   trusted_peer_identities: "spiffe1,spiffe2"
-   node_identity: "spiffe1"
-Whether to start the native transport server.
-The address on which the native transport is bound is defined by rpc_address.
-
-_Default Value:_ true
-
-== `native_transport_port`
-
-port for the CQL native transport to listen for clients on
-For security reasons, you should not expose this port to the internet.  Firewall it if needed.
-
-_Default Value:_ 9042
-
-== `native_transport_max_threads`
-
-*This option is commented out by default.*
-The maximum threads for handling requests (note that idle threads are stopped
-after 30 seconds so there is not corresponding minimum setting).
-
-_Default Value:_ 128
-
-== `native_transport_max_auth_threads`
-
-*This option is commented out by default.*
-The maximum threads for handling auth requests in a separate executor from main request executor.
-When set to 0, main executor for requests is used.
-
-_Default Value:_ 4
-
-== `native_transport_max_frame_size`
-
-*This option is commented out by default.*
-
-The maximum size of allowed frame. Frame (requests) larger than this will
-be rejected as invalid. The default is 16MiB. If you're changing this parameter,
-you may want to adjust max_value_size accordingly. This should be positive and less than 2048.
-Min unit: MiB
-
-_Default Value:_ 16MiB
+....
+    #  class_name: org.apache.cassandra.auth.AllowAllInternodeAuthenticator
+    #  parameters:
+    # MutualTlsInternodeAuthenticator can be configured using the following configuration.One can add their own validator
+    # which implements MutualTlsCertificateValidator class and provide logic for extracting identity out of certificates
+    # and validating certificates.
+    #  class_name: org.apache.cassandra.auth.MutualTlsInternodeAuthenticator
+    #  parameters:
+    #    validator_class_name: org.apache.cassandra.auth.SpiffeCertificateValidator
+    #    trusted_peer_identities: "spiffe1,spiffe2"
+    #    node_identity: "spiffe1"
+    # Whether to start the native transport server.
+    # The address on which the native transport is bound is defined by rpc_address.
+    start_native_transport: true
+    # port for the CQL native transport to listen for clients on
+    # For security reasons, you should not expose this port to the internet.  Firewall it if needed.
+    native_transport_port: 9042
+    # The maximum threads for handling requests (note that idle threads are stopped
+    # after 30 seconds so there is not corresponding minimum setting).
+    # native_transport_max_threads: 128
+    # The maximum threads for handling auth requests in a separate executor from main request executor.
+    # When set to 0, main executor for requests is used.
+    # native_transport_max_auth_threads: 4
+    #
+    # The maximum size of allowed frame. Frame (requests) larger than this will
+    # be rejected as invalid. The default is 16MiB. If you're changing this parameter,
+    # you may want to adjust max_value_size accordingly. This should be positive and less than 2048.
+    # Min unit: MiB
+    # native_transport_max_frame_size: 16MiB
+....
 
 == `native_transport_max_concurrent_connections`
 
 *This option is commented out by default.*
-
 The maximum number of concurrent client connections.
 The default is -1, which means unlimited.
 
@@ -1695,11 +1726,15 @@ The default format is "big", the legacy SSTable format in use since Cassandra 3.
 Cassandra versions 5.0 and later also support the trie-indexed "bti" format,
 which offers better performance.
 
+_Default Value (complex option)_:
+
+....
+    #  selected_format: big
+....
+
 == `column_index_size`
 
 *This option is commented out by default.*
- selected_format: big
-
 Granularity of the collation index of rows within a partition.
 Applies to both BIG and BTI SSTable formats. In both formats,
 a smaller granularity results in faster lookup of rows within
@@ -1745,14 +1780,18 @@ If no value is specified, the default is to use SizeTieredCompactionStrategy,
 with its default compaction parameters.
 
 
+_Default Value (complex option)_:
+
+....
+    #   class_name: SizeTieredCompactionStrategy
+    #   parameters:
+    #     min_threshold: 4
+    #     max_threshold: 32
+....
+
 == `concurrent_compactors`
 
 *This option is commented out by default.*
-  class_name: SizeTieredCompactionStrategy
-  parameters:
-    min_threshold: 4
-    max_threshold: 32
-
 
 Number of simultaneous compactions to allow, NOT including
 validation "compactions" for anti-entropy repair.  Simultaneous
@@ -2465,8 +2504,15 @@ To force failure when the provider was not installed properly, set the property 
 To bypass the installation of a crypto provider use class 'org.apache.cassandra.security.JREProvider'
 
 
-== `server_encryption_options`
+_Default Value (complex option)_:
 
+....
+      - class_name: org.apache.cassandra.security.DefaultCryptoProvider
+        parameters:
+          - fail_on_missing_provider: "false"
+....
+
+== `server_encryption_options`
 
 Configure server-to-server internode encryption
 
@@ -2807,8 +2853,21 @@ _Default Value (complex option)_:
 *This option is commented out by default.*
 Storage Attached Indexing options.
 
-== `sstables_per_read_log_threshold`
+_Default Value (complex option)_:
 
+....
+      ## Total permitted memory allowed for writing SAI index segments. This memory
+      ## is split between all SAI indexes being built so more indexes will mean smaller
+      ## segment sizes.
+      # segment_write_buffer_size: 1024MiB
+      #
+      ## When more than one index exists on a single column, this flag determines whether or not SAI
+      ## should take precedence over legacy table-backed indexes during reads. By default, legacy
+      ## indexes take precedence to maintain continuity during migration. 
+      # prioritize_over_legacy_index: false
+....
+
+== `sstables_per_read_log_threshold`
 
 ####################
 SAFETY THRESHOLDS #
@@ -2867,8 +2926,25 @@ not violate consistency. (See CASSANDRA-8272 and CASSANDRA-15907 for more detail
 mechanism materializes replica results by partition on-heap at the coordinator. The more possibly
 stale results returned by the replicas, the more rows materialized during the query.
 
-== `batch_size_warn_threshold`
+_Default Value (complex option)_:
 
+....
+        # These thresholds exist to limit the damage severely out-of-date replicas can cause during these
+        # queries. They limit the number of rows from all replicas individual index and filtering queries
+        # can materialize on-heap to return correct results at the desired read consistency level.
+        #
+        # "cached_replica_rows_warn_threshold" is the per-query threshold at which a warning will be logged.
+        # "cached_replica_rows_fail_threshold" is the per-query threshold at which the query will fail.
+        #
+        # These thresholds may also be adjusted at runtime using the StorageService mbean.
+        #
+        # If the failure threshold is breached, it is likely that either the current page/fetch size
+        # is too large or one or more replicas is severely out-of-sync and in need of repair.
+        cached_rows_warn_threshold: 2000
+        cached_rows_fail_threshold: 32000
+....
+
+== `batch_size_warn_threshold`
 
 Log WARN on any multiple-partition batch size exceeding this value. 5KiB per batch by default.
 Caution should be taken on increasing the size of this threshold as it can lead to node instability.
@@ -3003,17 +3079,58 @@ For BinAuditLogger and FileAuditLogger, the following optional parameters can be
 - key_value_separator: Specifies the key-value separator to use for the log message. (Defaults to ":")
 - field_separator: Specifies the separator between fields in the log message. (Defaults to "|")
 
+_Default Value (complex option)_:
+
+....
+      enabled: false
+      logger:
+        - class_name: BinAuditLogger
+      #   parameters:
+      #     - key_value_separator: ":"
+      #       field_separator: "|"
+      # audit_logs_dir:
+      # included_keyspaces:
+      # excluded_keyspaces: system, system_schema, system_virtual_schema
+      # included_categories:
+      # excluded_categories:
+      # included_users:
+      # excluded_users:
+      # roll_cycle: FAST_HOURLY
+      # block: true
+      # max_queue_weight: 268435456 # 256 MiB
+      # max_log_size: 17179869184 # 16 GiB
+      #
+      ## If archive_command is empty or unset, Cassandra uses a built-in DeletingArchiver that deletes the oldest files if ``max_log_size`` is reached.
+      ## If archive_command is set, Cassandra does not use DeletingArchiver, so it is the responsibility of the script to make any required cleanup.
+      ## Example: "/path/to/script.sh %path" where %path is replaced with the file being rolled.
+      # archive_command:
+      # max_archive_retries: 10
+....
+
 == `full_query_logging_options`
 
 *This option is commented out by default.*
-
 default options for full query logging - these can be overridden from command line when executing
 nodetool enablefullquerylog
+
+_Default Value (complex option)_:
+
+....
+      # log_dir:
+      # roll_cycle: FAST_HOURLY
+      # block: true
+      # max_queue_weight: 268435456 # 256 MiB
+      # max_log_size: 17179869184 # 16 GiB
+      ## archive command is "/path/to/script.sh %path" where %path is replaced with the file being rolled:
+      # archive_command:
+      ## note that enabling this allows anyone with JMX/nodetool access to run local shell commands as the user running cassandra
+      # allow_nodetool_archive_command: false
+      # max_archive_retries: 10
+....
 
 == `corrupted_tombstone_strategy`
 
 *This option is commented out by default.*
-
 validate tombstones on reads and compaction
 can be either "disabled", "warn" or "exception"
 
@@ -3166,13 +3283,17 @@ When the client triggers a protocol exception or unknown issue (Cassandra bug) w
 a client metric showing this; this logic will exclude specific subnets from updating these
 metrics
 
+_Default Value (complex option)_:
+
+....
+    #  subnets:
+    #    - 127.0.0.1
+    #    - 127.0.0.0/31
+....
+
 == `read_thresholds_enabled`
 
 *This option is commented out by default.*
- subnets:
-   - 127.0.0.1
-   - 127.0.0.0/31
-
 Enables read thresholds (warn/fail) across all replicas for reporting back to the client.
 See: CASSANDRA-16850
 
@@ -4135,27 +4256,31 @@ _Default Value:_ NONE
 *This option is commented out by default.*
 
 
+_Default Value (complex option)_:
+
+....
+    #  # Enables the execution of Accord (multi-key) transactions on this node.
+    #  enabled: false
+    #
+    #  # Journal directory for Accord
+    #  journal_directory:
+    #
+    #  # The number of Accord shards on this node; -1 means use the number of cores
+    #  queue_shard_count: -1
+    #
+    #  # The number of Accord shards on this node; -1 means use the number of cores
+    #  command_store_shard_count: -1
+    #
+    #  # Recover delay: the time between a transaction being initiated and a remote replica being willing to interrupt it to complete it
+    #  recover_delay: 1s
+    #
+    #  # how quickly the fast path is reconfigured when nodes go up/down
+    #  fast_path_update_delay: 5s
+....
+
 == `reject_repair_compaction_threshold`
 
 *This option is commented out by default.*
- # Enables the execution of Accord (multi-key) transactions on this node.
- enabled: false
-
- # Journal directory for Accord
- journal_directory:
-
- # The number of Accord shards on this node; -1 means use the number of cores
- queue_shard_count: -1
-
- # The number of Accord shards on this node; -1 means use the number of cores
- command_store_shard_count: -1
-
- # Recover delay: the time between a transaction being initiated and a remote replica being willing to interrupt it to complete it
- recover_delay: 1s
-
- # how quickly the fast path is reconfigured when nodes go up/down
- fast_path_update_delay: 5s
-
 Prevents preparing a repair session or beginning a repair streaming session if pending compactions is over
 the given value.  Defaults to disabled.
 
@@ -4193,151 +4318,155 @@ See: https://cassandra.apache.org/doc/latest/cassandra/managing/operating/auto_r
 feature.
 
 
+_Default Value (complex option)_:
+
+....
+    #   # Enable/Disable the auto-repair scheduler.
+    #   # If set to false, the scheduler thread will not be started.
+    #   # If set to true, the repair scheduler thread will be created. The thread will
+    #   # check for secondary configuration available for each repair type (full, incremental,
+    #   # and preview_repaired), and based on that, it will schedule repairs.
+    #   enabled: true
+    #   repair_type_overrides:
+    #     full:
+    #       # Enable/Disable full auto-repair
+    #       enabled: true
+    #       # Minimum duration between repairing the same node again. This is useful for tiny clusters,
+    #       # such as clusters with 5 nodes that finish repairs quickly. This means that if the scheduler completes one
+    #       # round on all nodes in less than this duration, it will not start a new repair round on a given node until
+    #       # this much time has passed since the last repair completed. Consider increasing to a larger value to reduce
+    #       # the impact of repairs, however note that one should attempt to run repairs at a smaller interval than
+    #       # gc_grace_seconds to avoid potential data resurrection.
+    #       min_repair_interval: 24h
+    #       token_range_splitter:
+    #         # Implementation of IAutoRepairTokenRangeSplitter; responsible for splitting token ranges
+    #         # for repair assignments.
+    #         #
+    #         # Out of the box, Cassandra provides org.apache.cassandra.repair.autorepair.{RepairTokenRangeSplitter,
+    #         # FixedTokenRangeSplitter}.
+    #         #
+    #         # - RepairTokenRangeSplitter (default) attempts to intelligently split ranges based on data size and partition
+    #         #   count.
+    #         # - FixedTokenRangeSplitter splits into fixed ranges based on the 'number_of_subranges' option.
+    #         # class_name: org.apache.cassandra.repair.autorepair.RepairTokenRangeSplitter
+    #
+    #         # Optional parameters can be specified in the form of:
+    #         #   parameters:
+    #         #    param_key1: param_value1
+    #         parameters:
+    #           # The target and maximum amount of compressed bytes that should be included in a repair assignment.
+    #           # This scopes the amount of work involved in a repair and includes the data covering the range being
+    #           # repaired.
+    #           bytes_per_assignment: 50GiB
+    #           # The maximum number of bytes to cover in an individual schedule. This serves as
+    #           # a mechanism to throttle the work done in each repair cycle. You may reduce this
+    #           # value if the impact of repairs is causing too much load on the cluster or increase it
+    #           # if writes outpace the amount of data being repaired. Alternatively, adjust the
+    #           # min_repair_interval.
+    #           # This is set to a large value for full repair to attempt to repair all data per repair schedule.
+    #           max_bytes_per_schedule: 100000GiB
+    #     incremental:
+    #       enabled: false
+    #       # Incremental repairs operate over unrepaired data and should finish quickly. Running incremental repair
+    #       # frequently keeps the unrepaired set smaller and thus causes repairs to operate over a smaller set of data,
+    #       # so a more frequent schedule such as 1h is recommended.
+    #       # NOTE: Please consult
+    #       # https://cassandra.apache.org/doc/latest/cassandra/managing/operating/auto_repair.html#enabling-ir
+    #       # for guidance on enabling incremental repair on ane exiting cluster.
+    #       min_repair_interval: 24h
+    #       token_range_splitter:
+    #         parameters:
+    #           # Configured to attempt repairing 50GiB of compressed data per repair.
+    #           # This throttles the amount of incremental repair and anticompaction done per schedule after incremental
+    #           # repairs are turned on.
+    #           bytes_per_assignment: 50GiB
+    #           # Restricts the maximum number of bytes to cover in an individual schedule to the configured
+    #           # max_bytes_per_schedule value (defaults to 100GiB for incremental).
+    #           # Consider increasing this value if more data is written than this limit within the min_repair_interval.
+    #           max_bytes_per_schedule: 100GiB
+    #     preview_repaired:
+    #       # Performs preview repair over repaired SSTables, useful to detect possible inconsistencies in the repaired
+    #       # data set.
+    #       enabled: false
+    #       min_repair_interval: 24h
+    #       token_range_splitter:
+    #         parameters:
+    #           bytes_per_assignment: 50GiB
+    #           max_bytes_per_schedule: 100000GiB
+    #   # Time interval between successive checks to see if ongoing repairs are complete or if it is time to schedule
+    #   # repairs.
+    #   repair_check_interval: 5m
+    #   # Minimum duration for the execution of a single repair task. This prevents the scheduler from overwhelming
+    #   # the node by scheduling too many repair tasks in a short period of time.
+    #   repair_task_min_duration: 5s
+    #   # The scheduler needs to adjust its order when nodes leave the ring. Deleted hosts are tracked in metadata
+    #   # for a specified duration to ensure they are indeed removed before adjustments are made to the schedule.
+    #   history_clear_delete_hosts_buffer_interval: 2h
+    #   # By default repair is disabled if there are mixed major versions detected - which would happen
+    #   # if a major version upgrade is being performed on the cluster, but a user can enable it using this flag
+    #   mixed_major_version_repair_enabled: false
+    #   # NOTE: Each of the below settings can be overridden per repair type under repair_type_overrides
+    #   global_settings:
+    #     # If true, attempts to group tables in the same keyspace into one repair; otherwise, each table is repaired
+    #     # individually.
+    #     repair_by_keyspace: true
+    #     # Number of threads to use for each repair job scheduled by the scheduler. Similar to the -j option in nodetool
+    #     # repair.
+    #     number_of_repair_threads: 1
+    #     # Number of nodes running repair in parallel. If parallel_repair_percentage is set, the larger value is used.
+    #     parallel_repair_count: 3
+    #     # Percentage of nodes in the cluster running repair in parallel. If parallel_repair_count is set, the larger value
+    #     # is used.
+    #     parallel_repair_percentage: 3
+    #     # Whether to allow a node to take its turn running repair while one or more of its replicas are running repair.
+    #     # Defaults to false, as running repairs concurrently on replicas can increase load and also cause anticompaction
+    #     # conflicts while running incremental repair.
+    #     allow_parallel_replica_repair: false
+    #     # An addition to allow_parallel_replica_repair that also blocks repairs when replicas (including this node itself)
+    #     # are repairing in any schedule. For example, if a replica is executing full repairs, a value of false will
+    #     # prevent starting incremental repairs for this node. Defaults to true and is only evaluated when
+    #     # allow_parallel_replica_repair is false.
+    #     allow_parallel_replica_repair_across_schedules: true
+    #     # Repairs materialized views if true.
+    #     materialized_view_repair_enabled: false
+    #     # Delay before starting repairs after a node restarts to avoid repairs starting immediately after a restart.
+    #     initial_scheduler_delay: 5m
+    #     # Timeout for retrying stuck repair sessions.
+    #     repair_session_timeout: 3h
+    #     # Force immediate repair on new nodes after they join the ring.
+    #     force_repair_new_node: false
+    #     # Threshold to skip repairing tables with too many SSTables. Defaults to 10,000 SSTables to avoid penalizing good
+    #     # tables.
+    #     sstable_upper_threshold: 50000
+    #     # Maximum time allowed for repairing one table on a given node. If exceeded, the repair proceeds to the
+    #     # next table.
+    #     table_max_repair_time: 6h
+    #     # Avoid running repairs in specific data centers. By default, repairs run in all data centers. Specify data
+    #     # centers to exclude in this list. Note that repair sessions will still consider all replicas from excluded
+    #     # data centers. Useful if you have keyspaces that are not replicated in certain data centers, and you want to
+    #     # not run repair schedule in certain data centers.
+    #     ignore_dcs: []
+    #     # Repair only the primary ranges owned by a node. Equivalent to the -pr option in nodetool repair. Defaults
+    #     # to true. General advice is to keep this true.
+    #     repair_primary_token_range_only: true
+    #     # Maximum number of retries for a repair session.
+    #     repair_max_retries: 3
+    #     # Backoff time before retrying a repair session.
+    #     repair_retry_backoff: 30s
+    #     token_range_splitter:
+    #       # Splitter implementation to generate repair assignments. Defaults to RepairTokenRangeSplitter.
+    #       class_name: org.apache.cassandra.repair.autorepair.RepairTokenRangeSplitter
+    #       parameters:
+    #         # Maximum number of partitions to include in a repair assignment. Used to reduce number of partitions
+    #         # present in merkle tree leaf nodes to avoid overstreaming.
+    #         partitions_per_assignment: 1048576
+    #         # Maximum number of tables to include in a repair assignment. This reduces the number of repairs,
+    #         # especially in keyspaces with many tables. The splitter avoids batching tables together if they
+    #         # exceed other configuration parameters like bytes_per_assignment or partitions_per_assignment.
+    #         max_tables_per_assignment: 64
+....
+
 == `compression_dictionary_refresh_interval`
-
-  # Enable/Disable the auto-repair scheduler.
-  # If set to false, the scheduler thread will not be started.
-  # If set to true, the repair scheduler thread will be created. The thread will
-  # check for secondary configuration available for each repair type (full, incremental,
-  # and preview_repaired), and based on that, it will schedule repairs.
-  enabled: true
-  repair_type_overrides:
-    full:
-      # Enable/Disable full auto-repair
-      enabled: true
-      # Minimum duration between repairing the same node again. This is useful for tiny clusters,
-      # such as clusters with 5 nodes that finish repairs quickly. This means that if the scheduler completes one
-      # round on all nodes in less than this duration, it will not start a new repair round on a given node until
-      # this much time has passed since the last repair completed. Consider increasing to a larger value to reduce
-      # the impact of repairs, however note that one should attempt to run repairs at a smaller interval than
-      # gc_grace_seconds to avoid potential data resurrection.
-      min_repair_interval: 24h
-      token_range_splitter:
-        # Implementation of IAutoRepairTokenRangeSplitter; responsible for splitting token ranges
-        # for repair assignments.
-        #
-        # Out of the box, Cassandra provides org.apache.cassandra.repair.autorepair.{RepairTokenRangeSplitter,
-        # FixedTokenRangeSplitter}.
-        #
-        # - RepairTokenRangeSplitter (default) attempts to intelligently split ranges based on data size and partition
-        #   count.
-        # - FixedTokenRangeSplitter splits into fixed ranges based on the 'number_of_subranges' option.
-        # class_name: org.apache.cassandra.repair.autorepair.RepairTokenRangeSplitter
-
-        # Optional parameters can be specified in the form of:
-        #   parameters:
-        #    param_key1: param_value1
-        parameters:
-          # The target and maximum amount of compressed bytes that should be included in a repair assignment.
-          # This scopes the amount of work involved in a repair and includes the data covering the range being
-          # repaired.
-          bytes_per_assignment: 50GiB
-          # The maximum number of bytes to cover in an individual schedule. This serves as
-          # a mechanism to throttle the work done in each repair cycle. You may reduce this
-          # value if the impact of repairs is causing too much load on the cluster or increase it
-          # if writes outpace the amount of data being repaired. Alternatively, adjust the
-          # min_repair_interval.
-          # This is set to a large value for full repair to attempt to repair all data per repair schedule.
-          max_bytes_per_schedule: 100000GiB
-    incremental:
-      enabled: false
-      # Incremental repairs operate over unrepaired data and should finish quickly. Running incremental repair
-      # frequently keeps the unrepaired set smaller and thus causes repairs to operate over a smaller set of data,
-      # so a more frequent schedule such as 1h is recommended.
-      # NOTE: Please consult
-      # https://cassandra.apache.org/doc/latest/cassandra/managing/operating/auto_repair.html#enabling-ir
-      # for guidance on enabling incremental repair on ane exiting cluster.
-      min_repair_interval: 24h
-      token_range_splitter:
-        parameters:
-          # Configured to attempt repairing 50GiB of compressed data per repair.
-          # This throttles the amount of incremental repair and anticompaction done per schedule after incremental
-          # repairs are turned on.
-          bytes_per_assignment: 50GiB
-          # Restricts the maximum number of bytes to cover in an individual schedule to the configured
-          # max_bytes_per_schedule value (defaults to 100GiB for incremental).
-          # Consider increasing this value if more data is written than this limit within the min_repair_interval.
-          max_bytes_per_schedule: 100GiB
-    preview_repaired:
-      # Performs preview repair over repaired SSTables, useful to detect possible inconsistencies in the repaired
-      # data set.
-      enabled: false
-      min_repair_interval: 24h
-      token_range_splitter:
-        parameters:
-          bytes_per_assignment: 50GiB
-          max_bytes_per_schedule: 100000GiB
-  # Time interval between successive checks to see if ongoing repairs are complete or if it is time to schedule
-  # repairs.
-  repair_check_interval: 5m
-  # Minimum duration for the execution of a single repair task. This prevents the scheduler from overwhelming
-  # the node by scheduling too many repair tasks in a short period of time.
-  repair_task_min_duration: 5s
-  # The scheduler needs to adjust its order when nodes leave the ring. Deleted hosts are tracked in metadata
-  # for a specified duration to ensure they are indeed removed before adjustments are made to the schedule.
-  history_clear_delete_hosts_buffer_interval: 2h
-  # By default repair is disabled if there are mixed major versions detected - which would happen
-  # if a major version upgrade is being performed on the cluster, but a user can enable it using this flag
-  mixed_major_version_repair_enabled: false
-  # NOTE: Each of the below settings can be overridden per repair type under repair_type_overrides
-  global_settings:
-    # If true, attempts to group tables in the same keyspace into one repair; otherwise, each table is repaired
-    # individually.
-    repair_by_keyspace: true
-    # Number of threads to use for each repair job scheduled by the scheduler. Similar to the -j option in nodetool
-    # repair.
-    number_of_repair_threads: 1
-    # Number of nodes running repair in parallel. If parallel_repair_percentage is set, the larger value is used.
-    parallel_repair_count: 3
-    # Percentage of nodes in the cluster running repair in parallel. If parallel_repair_count is set, the larger value
-    # is used.
-    parallel_repair_percentage: 3
-    # Whether to allow a node to take its turn running repair while one or more of its replicas are running repair.
-    # Defaults to false, as running repairs concurrently on replicas can increase load and also cause anticompaction
-    # conflicts while running incremental repair.
-    allow_parallel_replica_repair: false
-    # An addition to allow_parallel_replica_repair that also blocks repairs when replicas (including this node itself)
-    # are repairing in any schedule. For example, if a replica is executing full repairs, a value of false will
-    # prevent starting incremental repairs for this node. Defaults to true and is only evaluated when
-    # allow_parallel_replica_repair is false.
-    allow_parallel_replica_repair_across_schedules: true
-    # Repairs materialized views if true.
-    materialized_view_repair_enabled: false
-    # Delay before starting repairs after a node restarts to avoid repairs starting immediately after a restart.
-    initial_scheduler_delay: 5m
-    # Timeout for retrying stuck repair sessions.
-    repair_session_timeout: 3h
-    # Force immediate repair on new nodes after they join the ring.
-    force_repair_new_node: false
-    # Threshold to skip repairing tables with too many SSTables. Defaults to 10,000 SSTables to avoid penalizing good
-    # tables.
-    sstable_upper_threshold: 50000
-    # Maximum time allowed for repairing one table on a given node. If exceeded, the repair proceeds to the
-    # next table.
-    table_max_repair_time: 6h
-    # Avoid running repairs in specific data centers. By default, repairs run in all data centers. Specify data
-    # centers to exclude in this list. Note that repair sessions will still consider all replicas from excluded
-    # data centers. Useful if you have keyspaces that are not replicated in certain data centers, and you want to
-    # not run repair schedule in certain data centers.
-    ignore_dcs: []
-    # Repair only the primary ranges owned by a node. Equivalent to the -pr option in nodetool repair. Defaults
-    # to true. General advice is to keep this true.
-    repair_primary_token_range_only: true
-    # Maximum number of retries for a repair session.
-    repair_max_retries: 3
-    # Backoff time before retrying a repair session.
-    repair_retry_backoff: 30s
-    token_range_splitter:
-      # Splitter implementation to generate repair assignments. Defaults to RepairTokenRangeSplitter.
-      class_name: org.apache.cassandra.repair.autorepair.RepairTokenRangeSplitter
-      parameters:
-        # Maximum number of partitions to include in a repair assignment. Used to reduce number of partitions
-        # present in merkle tree leaf nodes to avoid overstreaming.
-        partitions_per_assignment: 1048576
-        # Maximum number of tables to include in a repair assignment. This reduces the number of repairs,
-        # especially in keyspaces with many tables. The splitter avoids batching tables together if they
-        # exceed other configuration parameters like bytes_per_assignment or partitions_per_assignment.
-        max_tables_per_assignment: 64
 
 Dictionary compression settings for ZSTD dictionary-based compression
 These settings control the automatic training and caching of compression dictionaries
