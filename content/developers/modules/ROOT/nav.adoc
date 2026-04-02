@@ -63,7 +63,6 @@
 ** xref:cql/triggers.adoc[Triggers]
 ** xref:cql/txn-reference.adoc[BEGIN TRANSACTION Reference]
 ** xref:cql/changes.adoc[CQL Changes]
-** xref:cql/SASI.adoc[SASI Indexes]
 ** xref:cql/cql_singlefile.adoc[CQL Reference (Single File)]
 ** SAI
 *** xref:cql/indexing/sai/sai-concepts.adoc[SAI Concepts]

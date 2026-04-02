@@ -73,6 +73,12 @@ See xref:cql/constraints.adoc[Constraints Reference] for the full constraint syn
 Cassandra 6 supports a native `VECTOR` data type and approximate nearest neighbor (ANN) queries powered by SAI.
 This enables semantic search, retrieval-augmented generation (RAG), and recommendation patterns without a separate vector database.
 
+[WARNING]
+====
+Vector search should be treated as experimental in the Cassandra 6 developer docs.
+Evaluate it deliberately and validate recall, latency, and operational fit before adopting it for production-critical workloads.
+====
+
 [source,sql]
 ----
 CREATE TABLE documents (
@@ -141,7 +147,7 @@ TIP: Poll `system_views.slow_queries` during load testing to identify hotspots b
 | Schema constraints (CHECK clauses)
 
 | SASI indexes
-| Migrate to SAI — SAI is the supported path forward
+| Migrate to SAI — SASI is no longer the recommended path forward
 |===
 
 These are not forced migrations.
@@ -189,6 +195,7 @@ This sequence minimizes risk and delivers incremental value.
 
 . *Explore vector search for AI/ML use cases* +
   Add `VECTOR` columns and ANN indexes to existing tables to support semantic search or RAG without provisioning a separate vector store.
+  Treat this as experimental work rather than a default upgrade task.
 
 == Related Pages
 

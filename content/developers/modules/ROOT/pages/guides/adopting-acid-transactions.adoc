@@ -17,6 +17,21 @@ It covers when to use them, how to configure tables, common code patterns, drive
 For the full CQL syntax reference, see xref:cql/txn-reference.adoc[BEGIN TRANSACTION Reference].
 For cluster-level enablement and table migration procedures, see xref:operators::upgrade/onboarding-to-accord.adoc[Onboarding to Accord].
 
+== What ACID Transactions Change in Application Design
+
+ACID transactions are a correctness feature, not a general replacement for normal Cassandra writes.
+They let you move multi-step coordination logic out of the application and into Cassandra when the workflow truly needs atomicity and serializable isolation.
+
+Typical examples include:
+
+* *Transfers and reservations* where two or more rows must change together
+* *Inventory and quota enforcement* where a read must guard a write
+* *Workflow state transitions* where several tables must remain in sync
+* *Uniqueness or ownership checks* that depend on data outside one partition
+
+If your application already models a workflow as independent writes plus compensating actions, ACID transactions can often simplify that logic.
+If the workflow is naturally a single-partition write, keep it that way.
+
 == When to Use ACID Transactions
 
 === Use ACID transactions when you need
@@ -202,6 +217,22 @@ Counter columns are not supported inside transactions (they raise `Counter colum
 Use regular `decimal` or `int` columns with read-before-write arithmetic (Pattern 2 above) if you need conditional decrement logic.
 ====
 
+== Modeling Guidance
+
+Use ACID transactions to protect invariants, not to avoid data modeling.
+
+* Keep the set of touched partitions small and well understood.
+* Keep the transaction body focused on one business action.
+* Prefer one transaction per user-visible state change rather than long, catch-all transaction blocks.
+* Do not use transactions to emulate ad hoc joins or reporting queries.
+* Continue to model for your primary read paths first; transactions add correctness, not arbitrary query flexibility.
+
+[TIP]
+====
+A good transaction usually reads a few rows, checks one or two business conditions, and writes a few rows.
+If the block starts to look like a batch job or a mini stored procedure, the design likely needs to be simplified.
+====
+
 == Driver Interaction
 
 === Sending a transaction
@@ -334,6 +365,16 @@ Start by migrating your most complex LWT patterns first — multi-partition or m
 That is where ACID transactions provide the largest correctness benefit and where the migration effort is most justified.
 Single-partition `IF NOT EXISTS` inserts can remain as LWT indefinitely.
 ====
+
+== Testing and Rollout Guidance
+
+Before production rollout, validate more than just basic success cases:
+
+* Test concurrent writers against the same business entity to confirm your `IF` guards behave as expected.
+* Test driver timeout and retry behavior specifically for transactions.
+* Verify partial business outcomes never appear when one branch of the transaction should fail.
+* Measure latency separately from normal reads and writes; transaction latency has a different profile.
+* Roll out one transactional workflow at a time so you can attribute regressions to a specific change.
 
 == Related Pages
 

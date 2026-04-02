@@ -6,6 +6,19 @@ Unlike the older secondary index (2i) and SASI implementations, SAI is deeply in
 
 This guide helps you decide when SAI is the right tool and how to use it effectively for each column type and query pattern.
 
+== Why SAI Is the Default Indexing Path
+
+For new development, choose SAI unless you have a specific reason to stay with a different indexing strategy.
+SAI is the indexing feature Cassandra is advancing for flexible developer queries.
+
+Use SAI when you need to:
+
+* Add filtering to an existing table without introducing a new query table immediately
+* Combine multiple indexed predicates in one read path
+* Index collection values or keys
+* Support hybrid scalar-plus-vector queries
+* Replace legacy SASI usage with a supported path forward
+
 == When to Use SAI
 
 SAI is a good fit when any of the following applies to your workload:
@@ -27,6 +40,8 @@ In that case, model the column as a clustering column instead — clustering col
 * The query pattern is fixed and a single denormalized table with the right partition key would be simpler and more predictable.
 * You need full-text search features such as stemming, synonyms, or relevance ranking.
 SAI supports equality, range, and `CONTAINS` queries on text, but it is not a replacement for a dedicated search engine.
+* You are trying to make a poorly-partitioned workload fast after the fact.
+SAI can reduce the need for some duplicate tables, but it does not fix hot partitions or an access pattern that touches too much data.
 
 [TIP]
 ====
@@ -181,6 +196,16 @@ SAI-only queries (without a partition key) do not require `ALLOW FILTERING`.
 Unlike unindexed queries, SAI uses its on-disk structures to locate matching rows efficiently.
 However, they still fan out to all nodes, so selectivity matters: a query that matches 0.1% of rows is very different from one that matches 80%.
 
+== Query Design Guidelines
+
+Keep these rules in mind when designing around SAI:
+
+* Index columns that are actually used to reduce the result set, not columns added "just in case."
+* Prefer selective predicates first in your application design, especially for cluster-wide queries.
+* Combine SAI with a partition key whenever you can; that is usually the highest-leverage improvement.
+* Be cautious with queries that combine many indexed predicates, because some clauses may be post-filtered.
+* Treat SAI as a way to simplify targeted read paths, not as permission to query the entire cluster arbitrarily.
+
 === Multi-Column Filters
 
 SAI supports combining multiple indexed columns with `AND` logic.
@@ -201,6 +226,12 @@ SELECT * FROM orders
 `OR` logic across indexed columns is supported in Cassandra 6.0 using parenthesized filter groups.
 
 == SAI and Vector Search: Hybrid Queries
+
+[IMPORTANT]
+====
+Vector search is experimental in Cassandra 6 developer docs.
+Use SAI scalar indexing confidently as a core feature, but treat ANN vector search as an evolving capability and validate it carefully before production use.
+====
 
 SAI scalar filters combine naturally with vector ANN queries.
 This is called hybrid search: the scalar filter narrows the candidate set before or after the ANN graph traversal, depending on the query planner.
@@ -248,6 +279,15 @@ A query that selects 5 million rows is slow regardless of the index.
 * *Streaming*: SAI is compatible with zero-copy streaming (ZCS).
 When you add or remove nodes, SAI index files stream along with their SSTables without being rebuilt on the receiving node.
 
+== Operational Guidance
+
+Plan SAI adoption like any other schema change:
+
+* Build indexes in lower environments first and measure both write amplification and query latency.
+* Watch index build status before sending production traffic to a new query path.
+* Drop unused indexes; every index has write, disk, and operational cost.
+* Revisit table design if an indexed query still returns a very large percentage of the table.
+
 === Monitoring SAI Indexes
 
 Use the `system_views.sai_column_indexes` virtual table to inspect the state of SAI indexes across the cluster.
@@ -265,8 +305,8 @@ For a full reference on SAI metrics and operational monitoring, see xref:cql/ind
 
 == Migrating from SASI to SAI
 
-SASI (SSTable Attached Secondary Index) is the legacy storage-attached index implementation.
-SAI is its recommended replacement and is the only storage-attached index that receives new development in Cassandra 6.
+SASI (SSTable Attached Secondary Index) is the legacy storage-attached index implementation and is no longer the recommended path for developer documentation.
+Use SAI for new work and migrate existing SASI-backed query paths when you touch them.
 
 Migration is straightforward: drop the SASI index and create a SAI index on the same column.
 
@@ -319,7 +359,7 @@ In high-traffic environments, plan a maintenance window or build the SAI index u
 | SASI has no vector capability
 |===
 
-For most workloads, SAI is a drop-in replacement for SASI with better performance, lower disk overhead, and additional capabilities.
+For most workloads, SAI is the correct replacement for SASI with better performance, lower disk overhead, and additional capabilities.
 
 == Related Pages
 

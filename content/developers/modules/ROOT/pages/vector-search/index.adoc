@@ -4,13 +4,20 @@
 
 [IMPORTANT]
 ====
-*Preview | Unofficial | For review only*
+*Preview | Unofficial | Experimental | For review only*
 ====
 
 Cassandra supports native vector search through the `VECTOR` data type and Storage-Attached Indexing (SAI).
 You store vector embeddings as regular CQL columns, create an SAI index on those columns, and query using `ORDER BY ... ANN OF` to retrieve approximate nearest neighbors ranked by similarity.
 
 Vector search integrates naturally with the rest of Cassandra's query model — you can combine ANN similarity ranking with standard CQL scalar filters in a single query.
+
+[WARNING]
+====
+Mark vector search as experimental in developer guidance.
+Treat ANN search, recall tuning, and production behavior as subject to change while the feature matures.
+Validate quality, latency, and operational behavior in your own workload before relying on it for production-critical paths.
+====
 
 == The Technology Stack
 
