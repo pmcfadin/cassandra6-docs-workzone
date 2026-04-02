@@ -1,5 +1,4 @@
 = Unified Compaction Strategy (UCS)
-:stem: latexmath
 
 [IMPORTANT]
 ====
@@ -131,27 +130,27 @@ SSTables are sorted by token range, and then grouped into levels:
 
 image:unified/sharding.png[]
 
-UCS groups SSTables in levels based on the logarithm of the SSTables density, with the fanout factor stem:[f] as the base of the logarithm, and with each level triggering a compaction as soon as it has stem:[t] overlapping SSTables.
+UCS groups SSTables in levels based on the logarithm of the SSTables density, with the fanout factor `f` as the base of the logarithm, and with each level triggering a compaction as soon as it has `t` overlapping SSTables.
 
-The choice of the scaling parameter stem:[w], determines the value of the fanout factor stem:[f]. 
-In turn, stem:[w] defines the mode as either leveled or tiered, and stem:[t] is set as either stem:[t=2] for leveled compaction, or stem:[t=f] for tiered compaction.
+The choice of the scaling parameter `w`, determines the value of the fanout factor `f`. 
+In turn, `w` defines the mode as either leveled or tiered, and `t` is set as either `t=2` for leveled compaction, or `t=f` for tiered compaction.
 One last parameter, the minimum SSTable size, is required to determine the complete behaviour of UCS.
 
-Three compaction types are possible, based on the value of stem:[w], as shown in the diagram of RA and WA above:
+Three compaction types are possible, based on the value of `w`, as shown in the diagram of RA and WA above:
 
-* Leveled compaction, with high WA, low RA: stem:[w < 0], stem:[f = 2 - w] and stem:[t=2] 
-stem:[L_{f}] is the shorthand for specifying this range of stem:[w] values (e.g., L10 for stem:[w=-8]).
-* Tiered compaction, with low WA, high RA: stem:[w > 0], stem:[f = 2 + w] and stem:[t=f].
-stem:[T_{f}] is the shorthand (e.g., T4 for stem:[w = 2]).
-* Leveled and tiered compaction behave identically in the center: stem:[w = 0] and stem:[f = t = 2].
-In shorthand, N for stem:[w = 0].
+* Leveled compaction, with high WA, low RA: `w < 0`, `f = 2 - w` and `t = 2`
+`L_f` is the shorthand for specifying this range of `w` values (for example, `L10` for `w = -8`).
+* Tiered compaction, with low WA, high RA: `w > 0`, `f = 2 + w` and `t = f`.
+`T_f` is the shorthand (for example, `T4` for `w = 2`).
+* Leveled and tiered compaction behave identically in the center: `w = 0` and `f = t = 2`.
+In shorthand, N for `w = 0`.
 
 [NOTE]
 ====
-Leveled compaction improves reads at the expense of writes and approaches a sorted array as stem:[f] increases, whereas tiered compaction favors writes at the expense of reads and approaches an unsorted log as stem:[f] increases.
+Leveled compaction improves reads at the expense of writes and approaches a sorted array as `f` increases, whereas tiered compaction favors writes at the expense of reads and approaches an unsorted log as `f` increases.
 ====
 
-UCS permits the value of stem:[w] to be defined separately for each level; thus, levels can have different behaviours. 
+UCS permits the value of `w` to be defined separately for each level; thus, levels can have different behaviours. 
 For example, level zero can use tiered compaction (STCS-like), while higher levels can be leveled (LCS-like), defined with increasing levels of read optimization.
 
 == Size-based leveling
@@ -160,19 +159,18 @@ The strategy splits SSTables at specific shard boundaries whose number grows wit
 The non-overlap between SSTables created by the splitting makes concurrent compactions possible.
 However, let's ignore density and splitting for a moment and explore how SSTables are grouped into levels if they are never split.
 
-Memtables are flushed to level zero (L0), and the memtable flush size stem:[s_{f}] is calculated as the average size of all the SSTables
+Memtables are flushed to level zero (L0), and the memtable flush size `s_f` is calculated as the average size of all the SSTables
 written when a memtable is flushed.
-This parameter, stem:[s_{f}], is intended to form the basis of the hierarchy where all newly-flushed SSTables end up.
-Using a fixed fanout factor stem:[f] and stem:[s_{f}], the level stem:[L] for an SSTable of size stem:[s] is calculated as follows:
+This parameter, `s_f`, is intended to form the basis of the hierarchy where all newly-flushed SSTables end up.
+Using a fixed fanout factor `f` and `s_f`, the level `L` for an SSTable of size `s` is calculated as follows:
 
-[stem]
-++++
-L =
-\begin{cases}
-\left \lfloor \log_f {\frac{s}{s_{f}}} \right \rfloor & \text{if } s \ge s_{f} \\
-0 & \text{otherwise}
-\end{cases}
-++++
+[source,text]
+----
+if s >= s_f:
+  L = floor(log_f(s / s_f))
+else:
+  L = 0
+----
 
 SSTables are assigned to levels based on their size:
 
@@ -181,37 +179,37 @@ SSTables are assigned to levels based on their size:
 
 | 0
 | 0
-| stem:[s_{f} \cdot f]
+| `s_f * f`
 
 | 1
-| stem:[s_{f} \cdot f]
-| stem:[s_{f} \cdot f^2]
+| `s_f * f`
+| `s_f * f^2`
 
 | 2
-| stem:[s_{f} \cdot f^2]
-| stem:[s_{f} \cdot f^3]
+| `s_f * f^2`
+| `s_f * f^3`
 
 | 3
-| stem:[s_{f} \cdot f^3]
-| stem:[s_{f} \cdot f^4]
+| `s_f * f^3`
+| `s_f * f^4`
 
 | ...
 | ...
 | ...
 
 | n
-| stem:[s_{f} \cdot f^n]
-| stem:[s_{f} \cdot f^{n+1}]
+| `s_f * f^n`
+| `s_f * f^(n+1)`
 |===
 
-Once SSTables start accumulating in levels, compaction is triggered when the number of SSTables in a level exceeds a threshold stem:[t] discussed earlier:
+Once SSTables start accumulating in levels, compaction is triggered when the number of SSTables in a level exceeds a threshold `t` discussed earlier:
 
-* stem:[t = 2], leveled compaction: 
-.. An SSTable is promoted to level stem:[n] with size stem:[\ge s_{f} \cdot f^n].
-.. When a second SSTable is promoted to that level (also with size stem:[\ge s_{f} \cdot f^n]) they compact and form a new SSTable of size stem:[\sim 2s_{f} \cdot f^n] in the same level for stem:[f > 2]. 
-.. After this repeats at least stem:[f-2] more times (i.e., stem:[f] total SSTables enter the level), the compaction result grows to stem:[\ge  s_{f} \cdot f^{n+1}] and enters the next level.
-* stem:[t = f], tiered compaction: 
-** After stem:[f] SSTables enter level stem:[n], each of size stem:[\ge s{f} \cdot f^n], they are compacted and form a new SSTable of size stem:[\ge s_{f} \cdot f^{n+1}] in the next
+* `t = 2`, leveled compaction:
+.. An SSTable is promoted to level `n` with size `>= s_f * f^n`.
+.. When a second SSTable is promoted to that level, they compact and form a new SSTable of size `~ 2 * s_f * f^n` in the same level for `f > 2`.
+.. After this repeats at least `f - 2` more times, the compaction result grows to `>= s_f * f^(n+1)` and enters the next level.
+* `t = f`, tiered compaction: 
+** After `f` SSTables enter level `n`, each of size `>= s_f * f^n`, they are compacted and form a new SSTable of size `>= s_f * f^(n+1)` in the next
 level.
 
 Overwrites and deletions are ignored in these schemes, but if an expected proportion of overwrites/deletions are known, the algorithm can be adjusted. 
@@ -225,44 +223,43 @@ The read and write amplification for each compaction strategy are proportional t
 | Strategy | Write amplification | Read amplification
 
 | Leveled
-| stem:[\varpropto] stem:[f-1] times the number of levels
-| stem:[\varpropto] the number of levels
+| Proportional to `(f - 1) * number of levels`
+| Proportional to `number of levels`
 
 | Tiered
-| stem:[\varpropto] the number of levels
-| stem:[\varpropto] stem:[f-1] times the number of levels
+| Proportional to `number of levels`
+| Proportional to `(f - 1) * number of levels`
 |===
 ****
 
 === Number of levels
 
-Using the maximal dataset size stem:[D], the number of levels can be calculated as follows:
+Using the maximal dataset size `D`, the number of levels can be calculated as follows:
 
-[stem]
-++++
-L =
-\begin{cases}
-\left \lfloor \log_f {\frac {D}{s_{f}}} \right \rfloor & \text{if } D \ge s_{f} \\
-0 & \text{otherwise}
-\end{cases}
-++++
+[source,text]
+----
+if D >= s_f:
+  L = floor(log_f(D / s_f))
+else:
+  L = 0
+----
 
-This calculation is based on the assumption that the maximal dataset size stem:[D] is reached when all levels are full, and the maximal number of levels is inversely proportional to the logarithm of stem:[f].
+This calculation is based on the assumption that the maximal dataset size `D` is reached when all levels are full, and the maximal number of levels is inversely proportional to the logarithm of `f`.
 
 Thus, when we try to control the overheads of compaction on the database, we have a space of choices for the strategy that range from:
 
-* leveled compaction ( stem:[t=2] ) with high stem:[f]: 
+* leveled compaction ( `t=2` ) with high `f`: 
 ** low number of levels
 ** high read efficiency
 ** high write cost
-** moving closer to the behaviour of a sorted array as stem:[f] increases
-* compaction with stem:[t = f = 2] where leveled is the same as tiered and we have a middle ground with logarithmically
+** moving closer to the behaviour of a sorted array as `f` increases
+* compaction with `t = f = 2` where leveled is the same as tiered and we have a middle ground with logarithmically
 increasing read and write costs;
-* tiered compaction ( stem:[t=f] ) with high stem:[f]: 
+* tiered compaction ( `t=f` ) with high `f`: 
 ** very high number of SSTables
 ** low read efficiency 
 ** low write cost
-** moving closer to an unsorted log as stem:[f] increases
+** moving closer to an unsorted log as `f` increases
 
 This can be easily generalized to varying fan factors, by replacing the exponentiation with the product of the fan
 factors for all lower levels:
@@ -272,35 +269,35 @@ factors for all lower levels:
 
 | 0
 | 0
-| stem:[s_{f} \cdot f_0]
+| `s_f * f_0`
 
 | 1
-| stem:[s_{f} \cdot f_0]
-| stem:[s_{f} \cdot f_0 \cdot f_1]
+| `s_f * f_0`
+| `s_f * f_0 * f_1`
 
 | 2
-| stem:[s_{f} \cdot f_0 \cdot f_1]
-| stem:[s_{f} \cdot f_0 \cdot f_1 \cdot f_2]
+| `s_f * f_0 * f_1`
+| `s_f * f_0 * f_1 * f_2`
 
 | ...
 | ...
 | ...
 
 | n
-| stem:[s_{f} \cdot \prod_{i < n} f_i]
-| stem:[s_{f} \cdot \prod_{i\le n} f_i]
+| `s_f * product(f_i for i < n)`
+| `s_f * product(f_i for i <= n)`
 |===
 
 == Density-based leveling
 
-If we replace the size stem:[s] in the previous discussion with the density measure 
+If we replace the size `s` in the previous discussion with the density measure:
 
-[stem]
-++++
-d = \frac s v
-++++
+[source,text]
+----
+d = s / v
+----
 
-where stem:[v] is the fraction of the token space that the SSTable covers, all formulae and conclusions remain valid. 
+where `v` is the fraction of the token space that the SSTable covers, all formulae and conclusions remain valid. 
 However, using density, the output can now be split at arbitrary points. 
 If several SSTables are compacted and split, the new resulting SSTables formed will be denser than the original SSTables.
 For example, using a scaling parameter of T4, four input SSTables spanning 1/10 of the token space each, when compacted and split, will form four new SSTables spanning 1/40 of the token space each.
@@ -310,7 +307,7 @@ If we can ensure that the split points are fixed (see below), this process will 
 
 [IMPORTANT]
 ====
-It is important to account for locally-owned token share when calculating stem:[v]. 
+It is important to account for locally-owned token share when calculating `v`. 
 Because vnodes mean that the local token ownership of a node is not contiguous, the difference between the first and last token is not sufficient to calculate token share; thus, any non-locally-owned ranges must be excluded.
 ====
 
@@ -346,84 +343,81 @@ Using power-of-two multiples of a specified base count, i.e., splitting shards i
 
 Two sharding parameters can be configured:
 
-* base shard count stem:[b]
-* target SSTable size stem:[s_{t}]
+* base shard count `b`
+* target SSTable size `s_t`
 
-At the start of every compaction, recall that the density of the output stem:[d] is estimated, based on the input size stem:[s] of the SSTables and the token range stem:[v]:
+At the start of every compaction, recall that the density of the output `d` is estimated from the input size `s` of the SSTables and the token range `v`:
 
-[stem]
-++++
-d = \frac s v
-++++
+[source,text]
+----
+d = s / v
+----
 
-where stem:[v] is the fraction of the token range covered by the input SSTables, in a value of 0 to 1.
-stem:[v = 1] means that the entire token range is covered by the input SSTables, and stem:[v = 0] means that the input SSTables cover no token range.
+where `v` is the fraction of the token range covered by the input SSTables, in a value of 0 to 1.
+`v = 1` means that the entire token range is covered by the input SSTables, and `v = 0` means that the input SSTables cover no token range.
 
-When the initial flush of the memtable to L0 occurs, stem:[v = 1] since the entire token range is included in the memtable.
-In subsequent compactions, the token range stem:[v] is the fraction of the token range covered by the SSTables being compacted.
+When the initial flush of the memtable to L0 occurs, `v = 1` since the entire token range is included in the memtable.
+In subsequent compactions, the token range `v` is the fraction of the token range covered by the SSTables being compacted.
 
-With the calculated density of the output, plus the values of stem:[b] and stem:[s_{t}], the number of shards stem:[S] into which to split the token space can be calculated:
+With the calculated density of the output, plus the values of `b` and `s_t`, the number of shards `S` into which to split the token space can be calculated:
 
-[stem]
-++++
-S =
-\begin{cases}
-b
-  & \text{if } {\frac d s_{t} \cdot \frac 1 b} < 1 \\
-2^{\left\lfloor \log_2 \left( {\frac d s_{t} \cdot \frac 1 b}\right)\right\rceil} \cdot b
-  & \text{if } {\frac d s_{t} \cdot \frac 1 b} \ge 1 \\
-\end{cases}
-++++
+[source,text]
+----
+if (d / s_t) * (1 / b) < 1:
+  S = b
+else:
+  S = 2^(round(log2((d / s_t) * (1 / b)))) * b
+----
  
-where stem:[\lfloor x \rceil] stands for stem:[x] rounded to the nearest integer, i.e. stem:[\lfloor x + 0.5 \rfloor].
-Thus, in the second case,the density is divided by the target size and rounded to a power-of-two multiple of stem:[b]. 
-If the result is less than 1, the number of shards will be the base shard count, because the memtable is split into stem:[{2 \cdot b}], or stem:[b] L0 shards.
+Here, `round(x)` means rounding to the nearest integer.
+Thus, in the second case,the density is divided by the target size and rounded to a power-of-two multiple of `b`. 
+If the result is less than 1, the number of shards will be the base shard count, because the memtable is split into `2 * b`, or `b` L0 shards.
 
-However, the token range is not the only factor that influences if we switch between stem:[b] shards or more (where the condition is greater than or equal to 1).
-If the memtable is very large and able to flush several gigabytes at once, stem:[d] may be a magnitude larger than stem:[s_{t}], and cause SSTables to be split into multiple shards even on L0. 
-Conversely, if the memtable is small, stem:[d] may still be smaller than stem:[s_{t}] on levels above L0, where the condition is less than 1, and thus, there will be stem[b] shards.
+However, the token range is not the only factor that influences if we switch between `b` shards or more (where the condition is greater than or equal to 1).
+If the memtable is very large and able to flush several gigabytes at once, `d` may be a magnitude larger than `s_t`, and cause SSTables to be split into multiple shards even on L0. 
+Conversely, if the memtable is small, `d` may still be smaller than `s_t` on levels above L0, where the condition is less than 1, and thus, there will be `b` shards.
 
-stem:[S - 1] boundaries are generated, splitting the local token space equally into stem:[S] shards.
+`S - 1` boundaries are generated, splitting the local token space equally into `S` shards.
 Splitting the local token space will split the result of the compaction on these boundaries to form a separate SSTable for each shard. 
-SSTables produced will have sizes that fall between stem:[s_{t}/\sqrt 2] and stem:[s_{t} \cdot \sqrt 2].
+SSTables produced will have sizes that fall between `s_t / sqrt(2)` and `s_t * sqrt(2)`.
 
-For example, let's use a target SSTable size of stem:[s_{t} = 100MiB] and stem:[b = 4] base shards.
-If a stem:[s_{f} = 200 MiB] input memtable is flushed, the condition for calculating the number of shards is:
+For example, let's use a target SSTable size of `s_t = 100 MiB` and `b = 4` base shards.
+If an input memtable of `s_f = 200 MiB` is flushed, the condition for calculating the number of shards is:
 
-[stem]
-++++
-\frac{200}{100} \cdot \frac{1}{4} = 0.5 < 1
-++++
+[source,text]
+----
+(200 / 100) * (1 / 4) = 0.5 < 1
+----
 
-This calculation results in stem:[0.5 < 1], because the value of stem:[v = 1] on the initial flush. 
+This calculation results in `0.5 < 1`, because the value of `v = 1` on the initial flush. 
 Because the result is less than 1, the base shard count is used, and the memtable is split into four L0 shards of approximately 50MiB each.
 Each shard spans 1/4 of the token space.
 
 To continue the example, on the next level of compaction, for just one of the four shards, let's compact six of these 50 MiB SSTables.
 The estimated density of the output will be:
 
-[stem]
-++++
-\left( \frac{6 \cdot 50\, \mathrm{MiB}}{\frac{1}{4}} \right) = 1200 \mathrm{MiB}
-++++
+[source,text]
+----
+(6 * 50 MiB) / (1 / 4) = 1200 MiB
+----
 
-using 1/4 as the stem:[v] value for the token range covered by the input SSTables.
+using 1/4 as the `v` value for the token range covered by the input SSTables.
 
 The condition for splitting will be:
 
-[stem]
-++++
-(\frac{1200}{100} \cdot \frac{1}{4}) = 3 > 1
-++++
+[source,text]
+----
+(1200 / 100) * (1 / 4) = 3 > 1
+----
 
 Thus, the number of shards will be calculated as:
 
-[stem]
-++++
-2^{\left\lfloor \log_2 \left( {\frac{1200}{100} \cdot \frac{1}{4}}\right)\right\rceil} \cdot b
-++++
+[source,text]
+----
+2^(round(log2((1200 / 100) * (1 / 4)))) * b
+----
 
-or stem:[2^{\log_2 3}], rounded to stem:[2^2 \cdot 4] shards for the whole local token space, and that compaction covering 1/4 of the token space.
+or `2^(log2(3))`, rounded to `2^2 * 4` shards for the whole local token space, and that compaction covering 1/4 of the token space.
 Assuming no overwrites or deletions, the resulting SSTables will be of size 75 MiB, token share 1/16 and density 1200 MiB.
 
 === Full sharding scheme
@@ -442,50 +436,48 @@ Defining a `minimum SSTable size`, the base shard count can be reduced whenever 
 
 There are four user-defined sharding parameters:
 
-* base shard count stem:[b]
-* target SSTable size stem:[s_{t}]
-* minimum SSTable size stem:[s_{m}]
-* SSTable growth component stem:[\lambda]
+* base shard count `b`
+* target SSTable size `s_t`
+* minimum SSTable size `s_m`
+* SSTable growth component `lambda`
 
-The number of shards stem:[S] for a given density stem:[d] is then calculated as
+The number of shards `S` for a given density `d` is then calculated as:
 
-[stem]
-++++
-S =
-\begin{cases}
-1
-    & \text{if } d < s_{m} \\
-\min(2^{\left\lfloor \log_2 \frac {d}{s_{m}}  \right\rfloor}, x)
-    & \text{if } d < s_{m} \cdot b \text{, where } x \text{ is the largest power of 2 divisor of } b \\
-b
-    & \text{if } d < s_{t} \cdot b \\
-2^{\left\lfloor (1-\lambda) \cdot \log_2 \left( {\frac {d}{s_{t}} \cdot \frac 1 b}\right)\right\rceil} \cdot b
-    & \text{otherwise}
-\end{cases}
-++++
+[source,text]
+----
+if d < s_m:
+  S = 1
+else if d < s_m * b:
+  S = min(2^floor(log2(d / s_m)), x)
+  where x is the largest power-of-two divisor of b
+else if d < s_t * b:
+  S = b
+else:
+  S = 2^(round((1 - lambda) * log2((d / s_t) * (1 / b)))) * b
+----
 
 Some useful combinations of these parameters:
 
-* The basic scheme above uses a SSTable growth stem:[\lambda=0], and a minimum SSTable size stem:[s_{m}=0]. 
-The graph below illustrates the behaviour for base shard count stem:[b=4] and target SSTable size stem:[s_{t} = 1\, \mathrm{GB}]:
+* The basic scheme above uses a SSTable growth `lambda = 0`, and a minimum SSTable size `s_m = 0`.
+The graph below illustrates the behaviour for base shard count `b = 4` and target SSTable size `s_t = 1 GB`:
 
 image:unified/shards_graph_lambda_0.svg[Graph with lambda 0]
 
-* Using stem:[\lambda = 0.5] grows the shard count and SSTable size evenly. 
+* Using `lambda = 0.5` grows the shard count and SSTable size evenly.
 When the density quadruples, both the shard count and the expected SSTable size for that density band will double. 
-The example below uses stem:[b=8], stem:[s_{t} = 1\, \mathrm{GB}] and also applies a minimal size stem:[m = 100\, \mathrm{MB}]:
+The example below uses `b = 8`, `s_t = 1 GB` and also applies a minimal size `m = 100 MB`:
 
 image:unified/shards_graph_lambda_0_5.svg[Graph with lambda 0.5]
 
-* Similarly, stem:[\lambda = 1/3] makes the the SSTable growth the cubic root of the density growth, i.e. the SSTable size
+* Similarly, `lambda = 1/3` makes the the SSTable growth the cubic root of the density growth, i.e. the SSTable size
 grows with the square root of the growth of the shard count. 
-The graph below uses stem:[b=1] and stem:[s_{t} = 1\, \mathrm{GB}] (note: when stem:[b=1], the minimal size has no effect):
+The graph below uses `b = 1` and `s_t = 1 GB` (note: when `b = 1`, the minimal size has no effect):
 
 image:unified/shards_graph_lambda_0_33.svg[Graph with lambda 0.33]
 
-* A growth component of 1 constructs a hierarchy with exactly stem:[b] shards at every level. 
+* A growth component of 1 constructs a hierarchy with exactly `b` shards at every level. 
 Combined with a minimum SSTable size, the mode of operation uses a pre-specified number of shards, but splits only after reaching a minimum size. 
-Illustrated below for stem:[b=10] and stem:[s_{m} = 100\, \mathrm{MB}] (note: the target SSTable size is irrelevant when stem:[\lambda=1]):
+Illustrated below for `b = 10` and `s_m = 100 MB` (note: the target SSTable size is irrelevant when `lambda = 1`):
 
 image:unified/shards_graph_lambda_1.svg[Graph with lambda 1]
 
@@ -505,16 +497,16 @@ First form a minimal list of overlap sets that satisfy the following requirement
 * SSTables are placed in consecutive positions in the list
 
 The second condition can also be rephrased to say that for any point in the token range, there is a set in the list that contains all SSTables whose range covers that point. 
-In other words, the overlap sets give us the maximum number of SSTables that need to be consulted to read any key, i.e., the read amplification that our trigger stem:[t] aims to control. 
+In other words, the overlap sets give us the maximum number of SSTables that need to be consulted to read any key, i.e., the read amplification that our trigger `t` aims to control. 
 We don't calculate or store the exact spans the overlapping sets cover, only the participating SSTables.
-The sets can be obtained in stem:[O(n\log n)] time.
+The sets can be obtained in `O(n log n)` time.
 
 For example, if SSTables A, B, C and D cover, respectively, tokens 0-3, 2-7, 6-9 and 1-8, we compute a list of overlap sets that are ABD and BCD. 
 A and C don't overlap, so they must be in separate sets. 
 A, B and D overlap at token 2 and must thus be present in at least one set, and similarly for B, C and D at 7. 
 Only A and D overlap at 1, but the set ABD already includes this combination.
 
-These overlap sets are sufficient to decide whether or not a compaction should be carried out, if and only if the number of elements in a set is at least as large as stem:[s_{t}]. 
+These overlap sets are sufficient to decide whether or not a compaction should be carried out, if and only if the number of elements in a set is at least as large as `s_t`.
 However, we may need to include more SSTables in the compaction than this set alone.
 
 It is possible for our sharding scheme to end up constructing SSTables spanning differently-sized shards for the same level. 
@@ -554,7 +546,7 @@ With UCS, a steady state where compactions always use more SSTables than the ass
 
 Under the working principles of UCS, a major compaction is an operation which compacts together all SSTables that have (transitive) overlap, and where the output is split on shard boundaries appropriate for the expected resulting density.
 
-In other words, a major compaction will result in stem:[b] concurrent compactions, each containing all SSTables covered in each of the base shards.
+In other words, a major compaction will result in `b` concurrent compactions, each containing all SSTables covered in each of the base shards.
 The result will be split on shard boundaries whose number depends on the total size of data contained in the shard.
 
 == Differences with STCS and LCS
@@ -568,7 +560,7 @@ However, STCS defines buckets/levels by looking for similarly sized SSTables, ra
 Thus, STCS can end up with some odd selections of buckets, spanning SSTables of wildly different sizes; UCS's selection is more stable and predictable.
 
 STCS triggers a compaction when it finds at least `min_threshold` SSTables on some bucket, and it compacts between `min_threshold` and `max_threshold` SSTables from that bucket at a time. 
-`min_threshold` is equivalent to UCS's stem:[t = f = w + 2]. 
+`min_threshold` is equivalent to UCS's `t = f = w + 2`. 
 UCS drops the upper limit because its compaction is still efficient with very large numbers of SSTables.
 
 UCS uses a density measure to split results, in order to keep the size of SSTables and the time for compactions low. 
@@ -590,7 +582,7 @@ In this way, LCS reduces space amplification and ensures shorter compaction time
 When the combined size of a run on a level is higher than expected, it selects some SSTables to compact with overlapping ones from the next level of the hierarchy. 
 Eventually, the size of the next level gets pushed over its size limit and triggers higher-level operations.
 
-In UCS, SSTables on increasing levels increase in density by a fanout factor stem:[f]. 
+In UCS, SSTables on increasing levels increase in density by a fanout factor `f`. 
 A compaction is triggered when a second overlapping SSTable is located on a sharded level. 
 UCS compacts the overlapping bucket on that level, and the result most often ends up on that level, too.
 But eventually, the data reaches sufficient size for the next level. 
@@ -630,23 +622,23 @@ Default value: true
 Default value: false
 
 | scaling_parameters
-| A list of per-level scaling parameters, specified as stem:[L_{f}], stem:[T_{f}], stem:[N], or an integer value specifying stem:[w] directly. 
+| A list of per-level scaling parameters, specified as `L_f`, `T_f`, `N`, or an integer value specifying `w` directly.
 If more levels are present than the length of this list, the last value is used for all higher levels. 
 Often this will be a single parameter, specifying the behaviour for all levels of the hierarchy. 
 
-Leveled compaction, specified as stem:[L_{f}], is preferable for read-heavy workloads, especially if bloom filters are not effective (e.g. with wide partitions); higher levelled fan factors improve read amplification (and hence latency, as well as throughput for read-dominated workloads) at the expense of increased write costs. 
+Leveled compaction, specified as `L_f`, is preferable for read-heavy workloads, especially if bloom filters are not effective (e.g. with wide partitions); higher levelled fan factors improve read amplification (and hence latency, as well as throughput for read-dominated workloads) at the expense of increased write costs.
 The equivalent of legacy LCS is L10.
 
-Tiered compaction, specified as stem:[T_{f}], is preferable for write-heavy workloads, or ones where bloom filters or time order can be exploited; higher tiered fan factors improve the cost of writes (and hence throughput) at the expense of making reads more difficult. 
+Tiered compaction, specified as `T_f`, is preferable for write-heavy workloads, or ones where bloom filters or time order can be exploited; higher tiered fan factors improve the cost of writes (and hence throughput) at the expense of making reads more difficult.
 
-stem:[N] is the middle ground that has the features of leveled (one SSTable run per level), as well as tiered (one compaction to be promoted to the next level) and a fan factor of 2. 
+`N` is the middle ground that has the features of leveled (one SSTable run per level), as well as tiered (one compaction to be promoted to the next level) and a fan factor of 2. 
 This value can also be specified as T2 or L2.
 
 Default value: T4 (STCS with threshold 4)
 
 | target_sstable_size
-| The target sstable size stem:[s_{t}], specified as a human-friendly size in bytes, such as https://www.techtarget.com/searchstorage/definition/mebibyte-MiB[MiB]. 
-The strategy will split data in shards that aim to produce sstables of size between stem:[s_{t}/\sqrt{2}] and stem:[s_{t} \cdot \sqrt{2}].  
+| The target sstable size `s_t`, specified as a human-friendly size in bytes, such as https://www.techtarget.com/searchstorage/definition/mebibyte-MiB[MiB].
+The strategy will split data in shards that aim to produce sstables of size between `s_t / sqrt(2)` and `s_t * sqrt(2)`.
 Smaller sstables improve streaming and repair, and make compactions shorter. 
 On the other hand, each sstable on disk has a non-trivial in-memory footprint that also affects garbage collection times.  
 Increase this if the memory pressure from the number of sstables in the system becomes too high.  
@@ -661,14 +653,14 @@ A value of 0 disables this feature.
 Default: 100MiB
 
 | base_shard_count 
-| The minimum number of shards stem:[b], used for levels with the smallest density. 
+| The minimum number of shards `b`, used for levels with the smallest density. 
 This gives the minimum compaction concurrency for the lowest levels. 
 A low number would result in larger L0 sstables but may limit the overall maximum write throughput (as every piece of data has to go through L0).  
 
 Default: is 4 (1 for system tables, or when multiple data locations are defined)
 
 | sstable_growth 
-| The sstable growth component stem:[\lambda], applied as a factor in the shard exponent calculation. 
+| The sstable growth component `lambda`, applied as a factor in the shard exponent calculation.
 This is a number between 0 and 1 that controls what part of the density growth should apply to individual sstable size and what part should increase the number of shards. 
 Using a value of 1 has the effect of fixing the shard count to the base value. 
 Using 0.5 makes the shard count and SSTable size grow with the square root of the density growth. 
