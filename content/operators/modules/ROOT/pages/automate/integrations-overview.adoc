@@ -1,0 +1,107 @@
+= Official Integrations: Sidecar and Analytics
+
+[IMPORTANT]
+====
+*{draft-banner}*
+====
+
+Apache Cassandra has two official subprojects that extend cluster operations beyond core Cassandra tooling: https://github.com/apache/cassandra-sidecar[Cassandra Sidecar] and https://github.com/apache/cassandra-analytics[Cassandra Analytics].
+This page introduces both projects, explains when operators should consider them, and defines the documentation boundary between Cassandra operator docs and the subproject docs.
+
+For a similar boundary treatment of Kubernetes tooling, see xref:automate/kubernetes-considerations.adoc[Kubernetes Considerations].
+
+== Why These Integrations Exist
+
+Core Cassandra provides `nodetool`, JMX, and CQL for cluster operations.
+These tools cover the majority of operator workflows: configuration, repair, compaction, backup, and restore.
+
+However, some operational patterns benefit from capabilities that live outside the core Cassandra process:
+
+* **API-driven lifecycle management** — starting, stopping, and querying Cassandra through an HTTP API rather than JMX or SSH
+* **CDC pipelines** — change data capture with Kafka-oriented configuration
+* **Snapshot-backed bulk reads** — reading large datasets through Spark without impacting live query traffic
+* **Bulk writes with coordinated delivery** — writing SSTables to multiple clusters through Sidecar or S3-compatible transport
+* **Automated restore workflows** — API-driven restore jobs that manage SSTable import and validation
+
+Cassandra Sidecar and Cassandra Analytics are the official Apache Cassandra subprojects that provide these capabilities.
+
+== How Sidecar and Analytics Relate
+
+Analytics depends on Sidecar.
+The Analytics bulk reader and bulk writer use Sidecar endpoints to interact with the target Cassandra cluster.
+
+The correct mental model for operators is:
+
+....
+Cassandra cluster -> Sidecar (operational / API layer) -> Analytics (Spark-based bulk data workflows)
+....
+
+Operators who adopt Analytics must first deploy and secure Sidecar.
+Operators who only need API-driven lifecycle management, CDC, or restore workflows can adopt Sidecar without Analytics.
+
+== When to Consider These Integrations
+
+[cols="2,2,2",options="header"]
+|===
+|If you need... |Consider... |Instead of...
+
+|API-driven lifecycle management (start, stop, health)
+|Cassandra Sidecar
+|Manual `nodetool` or JMX over SSH
+
+|CDC pipelines with Kafka-oriented configuration
+|Cassandra Sidecar
+|Custom JMX-based CDC integration
+
+|API-driven snapshot and restore workflows
+|Cassandra Sidecar
+|Manual `nodetool snapshot` and `sstableloader`
+
+|Spark-based bulk reads from snapshots
+|Cassandra Analytics (via Sidecar)
+|`COPY TO` or custom export scripts
+
+|Bulk writes with S3-compatible transport
+|Cassandra Analytics (via Sidecar)
+|`sstableloader` for large-scale ETL
+
+|Coordinated multi-cluster bulk writes
+|Cassandra Analytics (via Sidecar)
+|Manual per-cluster `sstableloader` runs
+|===
+
+== Compatibility Posture
+
+[WARNING]
+====
+Cassandra Sidecar and Cassandra Analytics are actively developed official Apache Cassandra subprojects with their own release cadences.
+
+As of the date of this document:
+
+* Sidecar is designed around multi-version Cassandra support and includes adapters for Cassandra 4.0 and later.
+The Sidecar public documentation has not yet been updated to explicitly confirm {cass-version} support.
+* Analytics includes bridge modules for Cassandra 4.0 and 5.0.
+The reviewed public materials do not explicitly confirm {cass-version} support.
+
+Check the official project repositories for the latest compatibility information before adopting either project.
+====
+
+== Project Links
+
+Cassandra Sidecar::
+* Repository: https://github.com/apache/cassandra-sidecar[github.com/apache/cassandra-sidecar]
+* OpenAPI notes: https://github.com/apache/cassandra-sidecar/blob/trunk/OPENAPI.md[OPENAPI.md]
+* Operator guidance in this site: xref:automate/cassandra-sidecar.adoc[Cassandra Sidecar]
+
+Cassandra Analytics::
+* Repository: https://github.com/apache/cassandra-analytics[github.com/apache/cassandra-analytics]
+* User guide: https://github.com/apache/cassandra-analytics/blob/trunk/docs/src/user.adoc[user.adoc]
+* Operator guidance in this site: xref:automate/cassandra-analytics.adoc[Cassandra Analytics]
+
+== Related Pages
+
+* xref:automate/cassandra-sidecar.adoc[Cassandra Sidecar] -- operator-level orientation for Sidecar adoption, capabilities, and security considerations
+* xref:automate/cassandra-analytics.adoc[Cassandra Analytics] -- operator-level orientation for Analytics bulk read/write workflows
+* xref:automate/kubernetes-considerations.adoc[Kubernetes Considerations] -- similar boundary-first guidance for the K8ssandra ecosystem
+* xref:operate/bulk_loading.adoc[Bulk Loading] -- core Cassandra bulk loading with `sstableloader` and `nodetool import`
+* xref:backup-recovery/strategy.adoc[Backup Strategy] -- snapshot and backup planning that Sidecar can automate

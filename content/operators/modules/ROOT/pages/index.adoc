@@ -19,7 +19,7 @@ Day 1 -- Install and configure::
 xref:install.adoc[Install] | xref:configure.adoc[Configure] | xref:secure/security.adoc[Security] | xref:tcm-overview.adoc[Understand TCM]
 
 Day 2 -- Operate in production::
-xref:operate/repair-orchestration.adoc[Repair Orchestration] | xref:observe/golden-signals.adoc[Golden Signals] | xref:backup-recovery/strategy.adoc[Backup Strategy] | xref:automate/config-as-code.adoc[Config as Code]
+xref:operate/repair-orchestration.adoc[Repair Orchestration] | xref:observe/golden-signals.adoc[Golden Signals] | xref:backup-recovery/strategy.adoc[Backup Strategy] | xref:automate/config-as-code.adoc[Config as Code] | xref:automate/integrations-overview.adoc[Integrations]
 
 Incident response::
 xref:troubleshoot/incident-artifacts.adoc[Collect Artifacts] | xref:observe/diagnosing-latency.adoc[Diagnose Latency] | xref:observe/diagnosing-compaction.adoc[Diagnose Compaction] | xref:troubleshoot/ai-assisted-ops.adoc[AI-Assisted Ops]

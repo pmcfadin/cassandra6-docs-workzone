@@ -1,0 +1,192 @@
+= Cassandra Sidecar
+
+[IMPORTANT]
+====
+*{draft-banner}*
+====
+
+https://github.com/apache/cassandra-sidecar[Apache Cassandra Sidecar] is an official Apache Cassandra subproject that runs alongside each Cassandra node and exposes an HTTP API for cluster lifecycle management, snapshots, restore, CDC, and operational queries.
+This page covers when operators should adopt Sidecar, what capabilities it provides, and the boundary between what Cassandra operator docs cover and what the Sidecar project docs cover.
+
+For context on how Sidecar relates to Cassandra Analytics, see xref:automate/integrations-overview.adoc[Official Integrations: Sidecar and Analytics].
+
+== When Sidecar Is a Good Fit
+
+Consider deploying Cassandra Sidecar when the following conditions apply:
+
+. **API-driven cluster operations** -- Your team needs to start, stop, or query Cassandra nodes through an HTTP API rather than SSH-based `nodetool` or JMX.
+Sidecar provides a versioned, discoverable API surface that abstracts Cassandra-version differences behind adapters.
+
+. **Automated snapshot and restore workflows** -- You need to create snapshots, manage restore jobs, or import SSTables through an API rather than manual `nodetool` commands.
+Sidecar exposes snapshot and restore endpoints that can be integrated with orchestration tooling.
+
+. **CDC pipeline integration** -- You plan to use change data capture with Kafka-oriented CDC configuration.
+Sidecar includes CDC-related APIs and configuration surfaces.
+
+. **Cassandra Analytics adoption** -- You plan to use Cassandra Analytics for Spark-based bulk read or write workflows.
+Analytics requires reachable Sidecar endpoints on the target cluster.
+
+. **Centralized security for operational APIs** -- You want TLS, mTLS, RBAC, or JWT-based access control on operational endpoints rather than relying on SSH key management and JMX authentication alone.
+
+== When Sidecar Is NOT a Good Fit
+
+Do not deploy Sidecar when these conditions apply:
+
+. **Simple clusters managed entirely via nodetool** -- If your operational workflows are well-served by `nodetool`, JMX, and manual SSH access, Sidecar adds an additional process to deploy, secure, and monitor without clear benefit.
+
+. **No requirement for external API access** -- If no external system needs to call Cassandra operational APIs (no orchestration, no Analytics, no CDC pipeline), the HTTP API surface is unnecessary.
+
+. **Environments where an HTTP-accessible co-process is not acceptable** -- Sidecar exposes HTTP endpoints on each node.
+If your security posture prohibits additional listening ports on Cassandra hosts, Sidecar requires network-level mitigations (firewall rules, mTLS) that may not be justified for your use case.
+
+== Operator-Relevant Capabilities
+
+The following Sidecar capabilities are most relevant to cluster operators.
+For full API reference and configuration details, see the https://github.com/apache/cassandra-sidecar[Sidecar project documentation].
+
+=== Health and Readiness Endpoints
+
+Sidecar provides health check endpoints that report whether the co-located Cassandra instance is ready to serve traffic.
+These endpoints can be used by load balancers, orchestration systems, or Kubernetes readiness probes.
+
+Source: https://github.com/apache/cassandra-sidecar/blob/trunk/README.md[Sidecar README]
+
+=== OpenAPI and API Discovery
+
+Sidecar publishes OpenAPI specifications and serves a Swagger UI at runtime.
+Operators can discover the full API surface of a running Sidecar instance without consulting static documentation.
+
+Source: https://github.com/apache/cassandra-sidecar/blob/trunk/OPENAPI.md[Sidecar OPENAPI.md]
+
+=== Lifecycle APIs
+
+Sidecar exposes endpoints for starting and stopping the co-located Cassandra instance.
+This enables orchestration systems to manage Cassandra lifecycle without SSH access.
+
+=== CDC Configuration
+
+Sidecar includes CDC-related APIs and Kafka-oriented CDC configuration surfaces.
+Operators enabling CDC should understand the following implications:
+
+* CDC must be enabled in `cassandra.yaml` on the Cassandra node itself
+* Sidecar provides the API layer for CDC configuration and management, but the underlying CDC mechanism is a Cassandra feature
+* CDC commit log segments consume disk space until consumed; monitor disk usage accordingly
+
+=== Snapshot and Restore
+
+Sidecar provides API-driven snapshot creation and restore job management:
+
+* **Snapshots** -- create and list snapshots through the Sidecar HTTP API
+* **Restore jobs** -- submit restore jobs that manage SSTable import, including staging directory management and validation
+* **SSTable upload** -- upload SSTable files through Sidecar for import into a running cluster
+
+Operators should be aware of disk space implications: snapshot creation and SSTable staging both consume additional disk space on the target node.
+
+=== Live Migration
+
+Sidecar includes file movement and data transfer surfaces that support live migration scenarios.
+These capabilities are used internally by Cassandra Analytics for bulk data transfer, but can also be used independently for SSTable-level data movement.
+
+== Security Considerations
+
+Deploying Sidecar introduces a new API surface on each Cassandra node.
+Operators should evaluate the following security dimensions before deployment:
+
+TLS::
+Sidecar supports TLS for server-side encryption of its HTTP API.
+Configure TLS certificates, keystores, and truststores in the Sidecar configuration.
+
+mTLS::
+Sidecar supports mutual TLS (mTLS) for client authentication.
+When enabled, clients must present a valid certificate to access Sidecar endpoints.
+
+RBAC and JWT::
+Sidecar includes role-based access control and JWT-based authentication.
+Configure authorization rules to restrict which operations each client identity can perform.
+
+Network exposure::
+Sidecar listens on an HTTP port on each node.
+Restrict network access to Sidecar ports using firewall rules, security groups, or network policies appropriate to your deployment environment.
+
+[WARNING]
+====
+The exact security configuration fields, authentication handler implementations, certificate format requirements, and JWT configuration are owned by the Sidecar project documentation.
+This page covers the high-level security impact on your cluster; consult the Sidecar docs for implementation details.
+====
+
+== Compatibility Posture
+
+[WARNING]
+====
+Cassandra Sidecar is actively developed with explicit multi-version Cassandra support as a design goal.
+The Sidecar contributor documentation states that the base adapter supports Cassandra 4.0 and later, including trunk.
+
+However, the Sidecar README still references Apache Cassandra 4.0 as a requirement, and the default test matrix includes 4.1 and 5.1.
+The reviewed public materials have not yet been updated to explicitly confirm {cass-version} support.
+
+Recommended approach:
+
+* Treat Sidecar as an official subproject with active multi-version design intent.
+* Check the https://github.com/apache/cassandra-sidecar[Sidecar repository] for the latest release notes and compatibility information.
+* Do not assume {cass-version} support without verifying against the current Sidecar release documentation.
+
+Sources: https://github.com/apache/cassandra-sidecar/blob/trunk/README.md[README], https://github.com/apache/cassandra-sidecar/blob/trunk/CONTRIBUTING.md[CONTRIBUTING.md]
+====
+
+== Documentation Boundary
+
+The following table defines what each documentation project covers for Sidecar-related topics.
+
+[cols="2,1,1",options="header"]
+|===
+|Topic |Cassandra Docs |Sidecar Docs
+
+|When to adopt Sidecar and operator decision criteria
+|Yes
+|
+
+|Cluster prerequisites and operational risks
+|Yes
+|
+
+|High-level security impact (TLS, mTLS, RBAC, network exposure)
+|Yes
+|
+
+|Sidecar installation and deployment
+|
+|Yes
+
+|API reference and OpenAPI specification
+|
+|Yes
+
+|Detailed configuration fields and handlers
+|
+|Yes
+
+|Restore job workflows and troubleshooting
+|
+|Yes
+
+|CDC API usage and Kafka integration details
+|
+|Yes
+
+|Sidecar upgrade procedures
+|
+|Yes
+
+|Sidecar-specific diagnostics and error resolution
+|
+|Yes
+|===
+
+== Related Pages
+
+* xref:automate/integrations-overview.adoc[Official Integrations: Sidecar and Analytics] -- overview of both subprojects and their relationship
+* xref:automate/cassandra-analytics.adoc[Cassandra Analytics] -- Analytics depends on Sidecar; see this page for bulk read/write workflows
+* xref:backup-recovery/strategy.adoc[Backup Strategy] -- snapshot planning that Sidecar can automate
+* xref:backup-recovery/backups.adoc[Backups and Snapshots] -- Cassandra snapshot mechanics
+* xref:secure/security.adoc[Security Overview] -- core Cassandra authentication, authorization, and TLS
+* https://github.com/apache/cassandra-sidecar[Cassandra Sidecar Repository] -- authoritative source for Sidecar documentation, releases, and API reference

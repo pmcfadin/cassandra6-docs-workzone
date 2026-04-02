@@ -292,3 +292,5 @@ Instrument your backup pipeline to alert on:
 * xref:configure.adoc[Configuration Overview] -- covers `cassandra.yaml`
   settings including `auto_snapshot`, `snapshot_before_compaction`, and
   `incremental_backups`
+* xref:automate/cassandra-sidecar.adoc[Cassandra Sidecar] -- Sidecar
+  provides API-driven snapshot and restore workflows

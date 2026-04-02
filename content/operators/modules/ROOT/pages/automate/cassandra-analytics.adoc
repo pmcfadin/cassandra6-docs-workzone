@@ -1,0 +1,206 @@
+= Cassandra Analytics
+
+[IMPORTANT]
+====
+*{draft-banner}*
+====
+
+https://github.com/apache/cassandra-analytics[Apache Cassandra Analytics] is an official Apache Cassandra subproject that provides Spark-based bulk read and bulk write workflows for Cassandra clusters.
+This page covers when operators should consider Analytics, how it depends on Cassandra Sidecar, and the boundary between what Cassandra operator docs cover and what the Analytics project docs cover.
+
+For context on how Analytics relates to Sidecar, see xref:automate/integrations-overview.adoc[Official Integrations: Sidecar and Analytics].
+
+== Sidecar Dependency
+
+[IMPORTANT]
+====
+Cassandra Analytics uses Apache Cassandra Sidecar to interact with the target cluster.
+Sidecar must be deployed and reachable on the target cluster before Analytics jobs can run.
+
+The Analytics bulk reader and bulk writer both connect through Sidecar endpoints.
+Security configuration (TLS, truststores, authorization roles) must be consistent between the Analytics job, Sidecar, and the Cassandra cluster.
+
+See xref:automate/cassandra-sidecar.adoc[Cassandra Sidecar] for deployment and security guidance.
+====
+
+== When Analytics Is a Good Fit
+
+Consider Cassandra Analytics when the following conditions apply:
+
+. **Large-scale bulk reads that benefit from Spark parallelism** -- You need to read large datasets from Cassandra for ETL, analytics, or migration purposes, and the data volume justifies Spark infrastructure.
+Analytics reads from snapshots through Sidecar, avoiding impact on live query traffic.
+
+. **Bulk writes with coordinated multi-cluster delivery** -- You need to write SSTables to multiple Cassandra clusters in a coordinated operation.
+Analytics supports multi-cluster writes through Sidecar or S3-compatible transport.
+
+. **S3-compatible transport for cross-environment data movement** -- You need to stage bulk data in S3-compatible storage for later import, rather than writing directly to the cluster through Sidecar.
+
+. **Workloads that exceed what sstableloader handles efficiently** -- For very large bulk loads where Spark-based parallelism and coordinated delivery provide better throughput and reliability than sequential `sstableloader` runs.
+
+== When Analytics Is NOT a Good Fit
+
+Do not use Analytics when these conditions apply:
+
+. **Simple SSTable import** -- For importing a small number of SSTables into a running cluster, `sstableloader` or `nodetool import` is simpler and does not require Spark or Sidecar infrastructure.
+See xref:operate/bulk_loading.adoc[Bulk Loading] for core Cassandra bulk loading guidance.
+
+. **Small data volumes that do not justify Spark infrastructure** -- Analytics requires a Spark cluster.
+If the data volume does not justify provisioning and maintaining Spark, use core Cassandra tools instead.
+
+. **Environments without Sidecar deployed** -- Analytics requires Sidecar on the target cluster.
+If Sidecar is not deployed and the only motivation for deploying it is Analytics, evaluate whether the operational overhead is justified for your use case.
+
+== Bulk Reader Overview
+
+The Analytics bulk reader reads data from a Cassandra cluster through Sidecar using snapshot-based reads.
+
+How it works:
+
+. The Spark job connects to Sidecar endpoints on the target cluster.
+. Sidecar creates or uses an existing snapshot of the target table.
+. The Spark job reads SSTable data from the snapshot, distributing reads across Spark executors.
+. After the job completes, the snapshot may need cleanup depending on configuration.
+
+Operator considerations:
+
+* **Disk space** -- Snapshot creation consumes additional disk space on each node.
+For large tables, verify that nodes have sufficient free disk before running bulk read jobs.
+* **Snapshot cleanup** -- Understand whether your job configuration automatically cleans up snapshots after the read completes.
+Abandoned snapshots consume disk indefinitely.
+* **No impact on live traffic** -- Reading from snapshots does not add load to the live read path.
+However, snapshot creation itself is an I/O operation.
+
+Source: https://github.com/apache/cassandra-analytics/blob/trunk/docs/src/user.adoc[Analytics user guide]
+
+== Bulk Writer Overview
+
+The Analytics bulk writer generates SSTables from Spark and delivers them to the target Cassandra cluster.
+Three transport modes are available.
+
+=== Direct Sidecar Upload
+
+The Spark job generates SSTables and uploads them directly to Sidecar on the target cluster.
+Sidecar manages SSTable import into the running Cassandra instance.
+
+* Simplest transport mode
+* Requires network connectivity from Spark executors to Sidecar endpoints
+* SSTable staging directories on Cassandra nodes consume temporary disk space during import
+
+=== S3-Compatible Transport
+
+The Spark job writes SSTables to an S3-compatible object store.
+A separate process or Sidecar job imports the SSTables from object storage.
+
+* Decouples SSTable generation from import
+* Useful when Spark executors cannot reach Sidecar endpoints directly
+* Requires S3-compatible storage (AWS S3, MinIO, or equivalent)
+
+=== Coordinated Multi-Cluster Write
+
+The Spark job writes SSTables to multiple Cassandra clusters in a single coordinated operation.
+This is useful for populating multiple clusters with the same dataset -- for example, when setting up a new datacenter or migrating data across environments.
+
+* Coordinates delivery across multiple Sidecar-equipped clusters
+* Each target cluster must have Sidecar deployed and reachable
+* Security configuration must be consistent across all target clusters
+
+Source: https://github.com/apache/cassandra-analytics/blob/trunk/docs/src/user.adoc[Analytics user guide]
+
+== Prerequisites
+
+Before running Analytics jobs, verify the following:
+
+Spark cluster::
+Analytics jobs run on Apache Spark.
+A functioning Spark cluster (standalone, YARN, or Kubernetes-based) must be available.
+
+Sidecar deployment::
+Sidecar must be deployed and reachable on every node of the target Cassandra cluster.
+See xref:automate/cassandra-sidecar.adoc[Cassandra Sidecar] for deployment guidance.
+
+Security configuration::
+If TLS is enabled on Sidecar, the Spark job must be configured with the appropriate truststores, keystores, and credentials.
+The Analytics user guide documents the specific Spark properties for Sidecar security configuration.
+
+Authorization roles::
+If Sidecar RBAC is enabled, the identity used by the Spark job must have sufficient permissions for the operations it performs (snapshot creation, SSTable upload, restore job submission).
+
+Network connectivity::
+Spark executors must be able to reach Sidecar HTTP endpoints on the target cluster.
+For S3-compatible transport, Spark executors must be able to reach the object store, and Sidecar must be able to reach the object store for import.
+
+== Compatibility Posture
+
+[WARNING]
+====
+Cassandra Analytics is actively developed as an official Apache Cassandra subproject.
+The repository includes bridge modules for Cassandra 4.0 and 5.0, and recent change log entries reference Cassandra 5.0 CDC support specifically.
+
+The reviewed public materials do not explicitly confirm {cass-version} support.
+
+Recommended approach:
+
+* Check the https://github.com/apache/cassandra-analytics[Analytics repository] and https://github.com/apache/cassandra-analytics/blob/trunk/CHANGES.txt[CHANGES.txt] for the latest version compatibility information.
+* Do not assume {cass-version} support without verifying against the current Analytics release documentation.
+
+Sources: https://github.com/apache/cassandra-analytics/blob/trunk/docs/src/user.adoc[user.adoc], https://github.com/apache/cassandra-analytics/blob/trunk/CHANGES.txt[CHANGES.txt]
+====
+
+== Documentation Boundary
+
+The following table defines what each documentation project covers for Analytics-related topics.
+
+[cols="2,1,1",options="header"]
+|===
+|Topic |Cassandra Docs |Analytics Docs
+
+|When to use Analytics versus core bulk loading tools
+|Yes
+|
+
+|Sidecar dependency and cluster prerequisites
+|Yes
+|
+
+|High-level security prerequisites
+|Yes
+|
+
+|Bulk reader and writer transport mode concepts
+|Yes
+|
+
+|Spark job configuration and job arguments
+|
+|Yes
+
+|Detailed reader and writer properties
+|
+|Yes
+
+|CDC module configuration
+|
+|Yes
+
+|S3-compatible transport setup
+|
+|Yes
+
+|Analytics installation and Spark integration
+|
+|Yes
+
+|Troubleshooting Analytics job failures
+|
+|Yes
+|===
+
+== Related Pages
+
+* xref:automate/integrations-overview.adoc[Official Integrations: Sidecar and Analytics] -- overview of both subprojects and their relationship
+* xref:automate/cassandra-sidecar.adoc[Cassandra Sidecar] -- Sidecar must be deployed before Analytics can be used
+* xref:operate/bulk_loading.adoc[Bulk Loading] -- core Cassandra bulk loading with `sstableloader` and `nodetool import`
+* xref:backup-recovery/strategy.adoc[Backup Strategy] -- snapshot planning relevant to Analytics bulk reads
+* xref:backup-recovery/backups.adoc[Backups and Snapshots] -- Cassandra snapshot mechanics
+* https://github.com/apache/cassandra-analytics[Cassandra Analytics Repository] -- authoritative source for Analytics documentation, releases, and user guide
+* https://github.com/apache/cassandra-analytics/blob/trunk/docs/src/user.adoc[Analytics User Guide] -- detailed Spark properties, reader/writer configuration, and examples

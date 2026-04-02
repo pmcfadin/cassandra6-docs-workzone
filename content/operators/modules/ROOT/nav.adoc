@@ -69,6 +69,10 @@
 * Automate
 ** xref:automate/config-as-code.adoc[Configuration as Code]
 ** xref:automate/kubernetes-considerations.adoc[Kubernetes Considerations]
+** Integrations
+*** xref:automate/integrations-overview.adoc[Integrations Overview]
+*** xref:automate/cassandra-sidecar.adoc[Cassandra Sidecar]
+*** xref:automate/cassandra-analytics.adoc[Cassandra Analytics]
 
 * Troubleshoot
 ** xref:troubleshoot/incident-artifacts.adoc[Collecting Incident Artifacts]

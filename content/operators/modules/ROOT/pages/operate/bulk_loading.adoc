@@ -797,3 +797,8 @@ option is used, some option like withBufferSizeInMB will be ignored.
 
 |build() |Builds a CQLSSTableWriter object.
 |===
+
+== Related Pages
+
+* xref:automate/integrations-overview.adoc[Official Integrations: Sidecar and Analytics] -- for Spark-based bulk read/write workflows that go beyond `sstableloader` and `nodetool import`
+* xref:backup-recovery/backups.adoc[Backups and Snapshots] -- snapshot mechanics used by bulk loading

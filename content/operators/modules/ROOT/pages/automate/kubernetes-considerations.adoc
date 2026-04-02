@@ -291,3 +291,4 @@ The following table defines what each project documents, to help you find the ri
 * xref:backup-recovery/backups.adoc[Backups and Snapshots] — Cassandra snapshot mechanics; for Kubernetes backup workflows see K8ssandra / Medusa documentation
 * xref:secure/security.adoc[Security Overview] — authentication, authorization, and TLS configuration applicable in all deployment models
 * https://docs.k8ssandra.io/[K8ssandra Documentation] — authoritative reference for deploying and operating Cassandra on Kubernetes
+* xref:automate/integrations-overview.adoc[Official Integrations: Sidecar and Analytics] — boundary-first guidance for two other official Cassandra subprojects
