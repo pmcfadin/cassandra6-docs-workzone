@@ -21,6 +21,7 @@ This workspace is a phase-1 research and operations package for planning Apache 
 - `llm/prompt-pack.md`: bounded prompts for inventorying, diffing, drafting, and review.
 - `llm/review-gates.md`: mandatory human checkpoints for AI-assisted work.
 - `backlog/epics.md`: phased execution roadmap.
+- `backlog/build-stack-upgrade-plan.md`: dependency-ordered plan for upgrading the upstream docs build stack to the Antora 3 baseline.
 - `backlog/subtasks.md`: agent-ready subtasks and acceptance criteria.
 - `backlog/execution-readiness.md`: final planning handoff with fixed decisions, phase order, and implementation start checklist.
 - `backlog/ownership-map.md`: reviewer-role map and recommended JIRA slicing for execution.
