@@ -1,3 +1,16 @@
 build/
 node_modules/
 .cache/
+
+# macOS filesystem artifacts (AppleDouble files appear after external-drive copies)
+.DS_Store
+._*
+
+# Local clones of upstream repos used by the playbook and migration workstreams
+/cassandra/
+/cassandra-website/
+/cassandra-website-staging/
+
+# Machine-local tool state
+/.claude/
+/.playwright-cli/
