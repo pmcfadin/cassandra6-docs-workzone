@@ -14,7 +14,7 @@ Vector search integrates naturally with the rest of Cassandra's query model — 
 
 [WARNING]
 ====
-Mark vector search as experimental in developer guidance.
+Vector search is experimental.
 Treat ANN search, recall tuning, and production behavior as subject to change while the feature matures.
 Validate quality, latency, and operational behavior in your own workload before relying on it for production-critical paths.
 ====
