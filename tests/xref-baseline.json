@@ -1,0 +1,593 @@
+{
+  "by_branch": {
+    "CASSANDRA-21448-trunk": 66,
+    "main": 6
+  },
+  "by_type": {
+    "include": 1,
+    "section": 2,
+    "table": 1,
+    "xref": 68
+  },
+  "capture_date": "2026-07-31",
+  "level": "error",
+  "schema_version": 2,
+  "source_build": "workzone-local-20260731",
+  "source_url": "",
+  "target_counts": [
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 7,
+      "msg": "target of xref not found: cassandra:managing/configuration/cass_yaml_file.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 3,
+      "msg": "target of xref not found: cassandra:managing/tools/nodetool/nodetool.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 3,
+      "msg": "target of xref not found: master@_:ROOT:community.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 2,
+      "msg": "target of xref not found: cassandra:managing/configuration/cass_yaml_file.adoc#max_hint_window"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 2,
+      "msg": "target of xref not found: master@_:ROOT:bugs.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 2,
+      "msg": "target of xref not found: master@_:ROOT:development/index.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 2,
+      "msg": "target of xref not found: reference/native-protocol.adoc"
+    },
+    {
+      "branch": "main",
+      "category": "section",
+      "count": 2,
+      "msg": "level 0 sections can only be used when doctype is book"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: _/download.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: cassandra:cyclist_base-table.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: cassandra:cyclist_races-table.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: cassandra:developing/accord/index.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: cassandra:developing/cql/indexing/2i/_2i-create-on-collection.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: cassandra:developingindexing/2i/2i-create-on-collection.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/configuration/cass_yaml_file.adoc#commitlog_compression"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/configuration/cass_yaml_file.adoc#commitlog_directory"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/configuration/cass_yaml_file.adoc#commitlog_segment_size"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/configuration/cass_yaml_file.adoc#commitlog_segment_size "
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/configuration/cass_yaml_file.adoc#commitlog_sync"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/configuration/cass_yaml_file.adoc#commitlog_total_space"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/configuration/cass_yaml_file.adoc#max_mutation_size"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/configuration/cass_yaml_file.adoc#memtable_allocation_type"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/configuration/cass_yaml_file.adoc#memtable_cleanup_threshold"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/configuration/cass_yaml_file.adoc#memtable_heap_space"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/configuration/cass_yaml_file.adoc#memtable_offheap_space"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/operating/compression/index.adoc#cql-compression-options"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/tools/nodetool/drain.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/tools/nodetool/flush.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/tools/nodetool/rebuild_index.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: cassandra:race_times-table.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: developing/cql/indexing/2i/2i-create.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: developing/cql/indexing/2i/2i-drop.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: developing/cql/table-create.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: developing/querying/use-write-time.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: managing/configuration/cass_yaml_file.adoc#_prepared_statements_cache_size"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: managing/tools/nodetool/nodetool.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:case-studies.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:cassandra-basics.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:development/ci.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:development/code_style.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:development/dependencies.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:development/documentation.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:development/gettingstarted.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:development/how_to_commit.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:development/how_to_review.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:development/ide.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:development/patches.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:development/release_process.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:development/testing.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:docdev/index.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:download.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:glossary.adoc"
+    },
+    {
+      "branch": "CASSANDRA-21448-trunk",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: reference:cql-commands/drop-materialized-view.adoc"
+    },
+    {
+      "branch": "main",
+      "category": "include",
+      "count": 1,
+      "msg": "target of include not found: example$CQL/query_with_index_hints.cql"
+    },
+    {
+      "branch": "main",
+      "category": "table",
+      "count": 1,
+      "msg": "dropping cells from incomplete row detected end of table"
+    },
+    {
+      "branch": "main",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: internals/sstable-architecture/compaction-lifecycle.adoc"
+    },
+    {
+      "branch": "main",
+      "category": "xref",
+      "count": 1,
+      "msg": "target of xref not found: testing.adoc"
+    }
+  ],
+  "top_targets": [
+    {
+      "count": 7,
+      "msg": "target of xref not found: cassandra:managing/configuration/cass_yaml_file.adoc"
+    },
+    {
+      "count": 3,
+      "msg": "target of xref not found: cassandra:managing/tools/nodetool/nodetool.adoc"
+    },
+    {
+      "count": 3,
+      "msg": "target of xref not found: master@_:ROOT:community.adoc"
+    },
+    {
+      "count": 2,
+      "msg": "level 0 sections can only be used when doctype is book"
+    },
+    {
+      "count": 2,
+      "msg": "target of xref not found: cassandra:managing/configuration/cass_yaml_file.adoc#max_hint_window"
+    },
+    {
+      "count": 2,
+      "msg": "target of xref not found: master@_:ROOT:bugs.adoc"
+    },
+    {
+      "count": 2,
+      "msg": "target of xref not found: master@_:ROOT:development/index.adoc"
+    },
+    {
+      "count": 2,
+      "msg": "target of xref not found: reference/native-protocol.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "dropping cells from incomplete row detected end of table"
+    },
+    {
+      "count": 1,
+      "msg": "target of include not found: example$CQL/query_with_index_hints.cql"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: _/download.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: cassandra:cyclist_base-table.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: cassandra:cyclist_races-table.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: cassandra:developing/accord/index.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: cassandra:developing/cql/indexing/2i/_2i-create-on-collection.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: cassandra:developingindexing/2i/2i-create-on-collection.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/configuration/cass_yaml_file.adoc#commitlog_compression"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/configuration/cass_yaml_file.adoc#commitlog_directory"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/configuration/cass_yaml_file.adoc#commitlog_segment_size"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/configuration/cass_yaml_file.adoc#commitlog_segment_size "
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/configuration/cass_yaml_file.adoc#commitlog_sync"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/configuration/cass_yaml_file.adoc#commitlog_total_space"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/configuration/cass_yaml_file.adoc#max_mutation_size"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/configuration/cass_yaml_file.adoc#memtable_allocation_type"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/configuration/cass_yaml_file.adoc#memtable_cleanup_threshold"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/configuration/cass_yaml_file.adoc#memtable_heap_space"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/configuration/cass_yaml_file.adoc#memtable_offheap_space"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/operating/compression/index.adoc#cql-compression-options"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/tools/nodetool/drain.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/tools/nodetool/flush.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: cassandra:managing/tools/nodetool/rebuild_index.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: cassandra:race_times-table.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: developing/cql/indexing/2i/2i-create.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: developing/cql/indexing/2i/2i-drop.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: developing/cql/table-create.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: developing/querying/use-write-time.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: internals/sstable-architecture/compaction-lifecycle.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: managing/configuration/cass_yaml_file.adoc#_prepared_statements_cache_size"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: managing/tools/nodetool/nodetool.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:case-studies.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:cassandra-basics.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:development/ci.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:development/code_style.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:development/dependencies.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:development/documentation.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:development/gettingstarted.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:development/how_to_commit.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:development/how_to_review.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:development/ide.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:development/patches.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:development/release_process.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:development/testing.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:docdev/index.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:download.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: master@_:ROOT:glossary.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: reference:cql-commands/drop-materialized-view.adoc"
+    },
+    {
+      "count": 1,
+      "msg": "target of xref not found: testing.adoc"
+    }
+  ],
+  "total": 72,
+  "trunk_sha_at_capture": ""
+}

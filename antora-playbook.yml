@@ -9,7 +9,11 @@
 
 site:
   title: 'Apache Cassandra 6 Docs — Preview'
-  url: ~
+  # site.url is required for Antora to emit 404.html and sitemap.xml
+  # (the smoke suite asserts the 404 page exists). Points at the GitHub
+  # Pages deployment; local preview is unaffected (only canonical links,
+  # sitemap, and 404 asset prefixes use it).
+  url: https://pmcfadin.github.io/cassandra6-docs-workzone
   start_page: home::index.adoc
 
 content:

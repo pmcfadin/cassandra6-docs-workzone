@@ -1,0 +1,77 @@
+# DRAFT — port target: apache/cassandra-website/.github/workflows/docs-preview-comment.yml
+#
+# Posts (and keeps updated) a single sticky PR comment linking the rendered
+# site artifact from the docs-check run. Fork-safe by construction: it runs
+# via workflow_run on the TRUSTED base branch's workflow definition, with no
+# secrets beyond the default GITHUB_TOKEN — the pattern ASF policy allows
+# (never pull_request_target with credentials).
+#
+# When .asf.yaml autostage lands (Phase 2), the "deploy to staging branch"
+# job appends the cassandra-<name>.staged.apache.org URL to this comment.
+
+name: docs-preview-comment
+
+on:
+  workflow_run:
+    workflows: [docs-check]
+    types: [completed]
+
+permissions:
+  actions: read
+  pull-requests: write
+
+jobs:
+  comment:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find or create the sticky preview comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const prs = run.pull_requests;
+            if (!prs || prs.length === 0) return; // fork PRs: resolve via head SHA
+            const pr = prs[0].number;
+            const ok = run.conclusion === 'success';
+            const arts = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner, repo: context.repo.repo, run_id: run.id });
+            const site = arts.data.artifacts.find(a => a.name === 'site');
+            const marker = '<!-- docs-preview-comment -->';
+            // Inline screenshots: PR comments render images from any https
+            // URL. The build publishes _screenshots/*.png into the HTML tree,
+            // and the contributor's fork Pages hosts that tree — so the
+            // comment can embed them with no external image host. They only
+            // resolve once the fork has Pages enabled; harmless 404s if not.
+            const head = run.head_repository;
+            const pages = head ? `https://${head.owner.login}.github.io/${head.name}` : null;
+            const shots = ['home', 'getting-started', 'architecture', 'generated-cass-yaml'];
+            const gallery = pages
+              ? ['', '#### Screenshots (from this build)', '',
+                 shots.map(s => `<img src="${pages}/_screenshots/${s}.png" width="360" alt="${s}">`).join(' ')]
+              : [];
+            const body = [
+              marker,
+              ok ? '### 📗 Docs build passed' : '### 📕 Docs build failed',
+              '',
+              `| Check | Result |`,
+              `|---|---|`,
+              `| Build + xref gate | ${ok ? '✅' : '❌'} ([run](${run.html_url})) |`,
+              site ? `| Rendered preview | [download site artifact](${run.html_url}/artifacts/${site.id}) |` : '',
+              ...(ok ? gallery : []),
+              '',
+              ok ? '_Reviewers: content only — the mechanics are machine-verified._'
+                 : '_See the run log; the xref gate report lists any newly introduced errors._',
+            ].join('\n');
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: pr, per_page: 100 });
+            const existing = comments.data.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: pr, body });
+            }

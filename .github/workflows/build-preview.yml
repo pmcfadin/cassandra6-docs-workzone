@@ -1,4 +1,10 @@
-name: Build and Deploy Docs
+name: Build, Check, and Deploy Docs
+
+# docs-check pipeline (workzone reference implementation):
+#   every PR and push gets: Antora build -> xref ratchet gate -> Playwright
+#   smoke suite. Pushes to main additionally deploy to GitHub Pages, but only
+#   after the gate and smoke suite pass — no human verifies mechanics.
+# Port target: apache/cassandra-website (see future/docs-check/README.md).
 
 on:
   push:
@@ -8,15 +14,130 @@ on:
     branches:
       - main
 
-# Cancel in-progress deploys when a new push arrives on the same ref.
+# Cancel in-progress runs when a new push arrives on the same ref.
 concurrency:
   group: pages-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # ── Job 1: Build + Deploy (push to main only) ──────────────────────
-  build-and-deploy:
+  # ── Job 1: Build + xref ratchet gate (every event) ─────────────────
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Clone Apache Cassandra trunk docs
+        run: git clone --depth 1 --branch trunk https://github.com/apache/cassandra.git cassandra
+
+      - name: Generate antora.yml for the cassandra source
+        # antora.yml is not committed upstream (auto-generated since 2026-04);
+        # without this step the Antora build fails at content aggregation.
+        run: cd cassandra && python3 doc/scripts/gen-antora-yml.py
+
+      - name: Build Antora site (JSON logs)
+        # --log-format=json must be explicit: Antora flips the default to
+        # 'pretty' when CI=true, which the xref gate cannot parse.
+        run: |
+          npx antora --log-format=json --log-level=warn antora-playbook.yml \
+            | tee antora-build.log
+          touch build/site/.nojekyll
+
+      - name: Xref ratchet gate (fail only on newly introduced errors)
+        run: |
+          bin/xref-report.sh --baseline tests/xref-baseline.json \
+            --fail-on-introduced antora-build.log
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: antora-build-log
+          path: antora-build.log
+          retention-days: 14
+
+      - name: Upload site
+        uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: build/site
+          retention-days: 14
+
+      - name: Link preview artifact in run summary
+        run: |
+          echo "### Docs build passed ✅" >> "$GITHUB_STEP_SUMMARY"
+          echo "Rendered site is attached as the **site** artifact on this run — download and open \`index.html\`." >> "$GITHUB_STEP_SUMMARY"
+
+  # ── Job 2: Playwright rendered-HTML smoke suite ────────────────────
+  smoke:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download built site
+        uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: build/site
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run smoke suite (includes review screenshots)
+        run: npx playwright test
+
+      - name: Upload review screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-screenshots
+          path: build/screenshots
+          retention-days: 30
+
+      - name: Screenshots in run summary
+        if: always()
+        run: |
+          echo "### Review screenshots 📸" >> "$GITHUB_STEP_SUMMARY"
+          echo "Download the **review-screenshots** artifact — one PNG per audience landing page." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 14
+
+  # ── Job 3: Deploy (push to main only, gated on build + smoke) ──────
+  deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [build, smoke]
     runs-on: ubuntu-latest
     permissions:
       pages: write
@@ -26,22 +147,11 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - name: Download built site
+        uses: actions/download-artifact@v4
         with:
-          node-version: '20'
-
-      - name: Clone Apache Cassandra trunk docs
-        run: git clone --depth 1 --branch trunk https://github.com/apache/cassandra.git cassandra-upstream
-
-      - name: Build Antora site
-        run: npx antora antora-playbook.yml
-
-      - name: Create .nojekyll
-        run: touch build/site/.nojekyll
+          name: site
+          path: build/site
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
@@ -54,34 +164,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
-  # ── Job 2: Build only (pull requests targeting main) ───────────────
-  validate-pr:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Clone Apache Cassandra trunk docs
-        run: git clone --depth 1 --branch trunk https://github.com/apache/cassandra.git cassandra-upstream
-
-      - name: Build Antora site
-        run: npx antora antora-playbook.yml
-
-      - name: Create .nojekyll
-        run: touch build/site/.nojekyll
-
-      - name: Upload build artifact for review
-        uses: actions/upload-artifact@v4
-        with:
-          name: docs-preview-pr-${{ github.event.pull_request.number }}
-          path: build/site
-          retention-days: 7

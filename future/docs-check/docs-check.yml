@@ -1,0 +1,116 @@
+# DRAFT — port target: apache/cassandra-website/.github/workflows/docs-check.yml
+#
+# PR validation pipeline per docs/website-qa-automation.md and
+# future/build-test-deploy-modernization.md. Proven reference implementation:
+# this workzone's .github/workflows/build-preview.yml (measured: build 5.5s,
+# xref gate <1s, smoke suite 3.6s on the six-component workzone site).
+#
+# Prerequisites before this can merge upstream:
+#   1. Antora 3 reland (CASSANDRA-21315) — the JSON log format the xref gate
+#      parses does not exist on the Antora 2.3 production stack.
+#   2. bin/xref-report.sh + a committed baselines/xref-baseline.json
+#      (tooling lives in the workzone today; moves upstream with this PR).
+#   3. data-testid attributes on site-ui partials + tests/playwright suite
+#      (Test Inventory in docs/website-qa-automation.md).
+#   4. External actions SHA-pinned per ASF GitHub Actions policy
+#      (placeholders marked "PIN-SHA" below); actions/* and github/* are exempt.
+#
+# ASF policy notes: no secrets requested, no pull_request_target, runs on
+# fork PRs, ≤4 concurrent jobs (cap is 20).
+
+name: docs-check
+
+on:
+  pull_request:
+    paths:
+      - 'site-content/**'
+      - 'site-ui/**'
+      - 'tests/**'
+      - 'package.json'
+      - 'playwright.config.ts'
+      - '.github/workflows/docs-check.yml'
+
+concurrency:
+  group: docs-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Build once; everything downstream consumes the artifact ────────
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      # Top-level content build, same scope as the existing site-content.yaml
+      # (full multi-branch versioned builds stay on the merge/Jenkins path —
+      # Antora has no incremental build, so PR speed comes from scope).
+      - name: Build site (container, top-level content)
+        run: |
+          ./run.sh website-ui bundle
+          ./run.sh website build 2>&1 | tee antora-build.log
+        # Post-Antora-3 the equivalent Node-only path is:
+        #   npx antora --log-format=json --log-level=warn <playbook> | tee antora-build.log
+
+      - name: Xref ratchet gate
+        # Fails ONLY on errors not present in the committed baseline, so the
+        # pre-existing backlog never blocks a contributor. Refreshing the
+        # baseline is an explicit, reviewed act (a PR that shrinks it).
+        run: |
+          bin/xref-report.sh --baseline baselines/xref-baseline.json \
+            --fail-on-introduced antora-build.log
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: antora-build-log, path: antora-build.log, retention-days: 14 }
+      - uses: actions/upload-artifact@v4
+        with: { name: site, path: site-content/build/html, retention-days: 14 }
+
+  # ── Layer 1: internal link integrity (offline, deterministic) ──────
+  links-internal:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: site, path: site-content/build/html }
+      - name: Lychee (offline — internal links and anchors only)
+        uses: lycheeverse/lychee-action@PIN-SHA # ASF: pin to reviewed SHA
+        with:
+          args: --offline --include-fragments --config tests/lychee/lychee.toml site-content/build/html
+          fail: true
+
+  # ── Layer 2: rendered-HTML smoke suite ─────────────────────────────
+  playwright:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm }
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with: { name: site, path: site-content/build/html }
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with: { name: playwright-report, path: playwright-report, retention-days: 14 }
+
+  # ── Layer 3: prose hygiene (cheap, blocking-ready) ──────────────────
+  typos:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Spell check changed sources
+        uses: crate-ci/typos@PIN-SHA # ASF: pin to reviewed SHA
+        with:
+          files: site-content/source
+          config: tests/_typos.toml

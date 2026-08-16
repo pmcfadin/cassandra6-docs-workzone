@@ -17,9 +17,15 @@
 #   --source-url <url>      Baseline metadata: Jenkins console URL
 #   --capture-date <YYYY-MM-DD>  Baseline metadata (default: today)
 #   --trunk-sha <sha>       Baseline metadata: upstream SHA at capture time
+#   --fail-on-introduced    Gate mode: exit 2 if any error not in the baseline
+#                           was introduced (requires --baseline; a missing or
+#                           unreadable baseline also fails, exit 3 — the gate
+#                           is fail-closed)
 #   -h, --help              Show this help
 #
-# Always exits 0. This is a reporting tool, not a gate.
+# Default: always exits 0 (reporting tool). With --fail-on-introduced the
+# script becomes a CI ratchet gate: pre-existing baseline errors pass,
+# newly introduced errors fail.
 
 set -euo pipefail
 
@@ -31,6 +37,7 @@ LEVEL="error"
 BRANCH=""
 BASELINE=""
 EMIT_BASELINE=0
+FAIL_ON_INTRODUCED=0
 SOURCE_BUILD=""
 SOURCE_URL=""
 CAPTURE_DATE="$(date +%Y-%m-%d)"
@@ -47,6 +54,7 @@ while [ $# -gt 0 ]; do
     --source-url)     SOURCE_URL="${2-}"; shift 2 ;;
     --capture-date)   CAPTURE_DATE="${2-}"; shift 2 ;;
     --trunk-sha)      TRUNK_SHA="${2-}"; shift 2 ;;
+    --fail-on-introduced) FAIL_ON_INTRODUCED=1; shift ;;
     -h|--help)        usage; exit 0 ;;
     --)               shift; break ;;
     -*)               echo "unknown flag: $1" >&2; usage; exit 0 ;;
@@ -54,13 +62,20 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+if [ "$FAIL_ON_INTRODUCED" = "1" ] && [ -z "$BASELINE" ]; then
+  echo "--fail-on-introduced requires --baseline <path>" >&2
+  exit 3
+fi
+
 if ! command -v python3 >/dev/null 2>&1; then
   echo "xref-report.sh requires python3 (json stdlib). jq alone is insufficient for baseline diffing." >&2
+  [ "$FAIL_ON_INTRODUCED" = "1" ] && exit 3
   exit 0
 fi
 
 if [ -n "$INPUT_FILE" ] && [ ! -r "$INPUT_FILE" ]; then
   echo "cannot read: $INPUT_FILE" >&2
+  [ "$FAIL_ON_INTRODUCED" = "1" ] && exit 3
   exit 0
 fi
 
@@ -82,6 +97,7 @@ source_url     = sys.argv[6]
 capture_date   = sys.argv[7]
 trunk_sha      = sys.argv[8]
 input_file     = sys.argv[9]
+fail_on_introduced = sys.argv[10] == "1"
 
 CATEGORIES = [
     ("xref",    "target of xref"),
@@ -204,7 +220,7 @@ if baseline_path:
             base = json.load(fh)
     except (OSError, ValueError) as exc:
         print(f"baseline read failed: {exc}", file=sys.stderr)
-        sys.exit(0)
+        sys.exit(3 if fail_on_introduced else 0)
 
     base_target_counts = base.get("target_counts")
     if base_target_counts is None:
@@ -308,10 +324,19 @@ if baseline_path:
         print("  Introduced (top 10):")
         for d, key in sorted(introduced_rows, key=lambda x: (-x[0], x[1]))[:10]:
             print(f"    +{d:<4} {key_label(key)}")
+
+    if fail_on_introduced and introduced > 0:
+        print()
+        print(f"GATE: {introduced} error(s) introduced vs baseline — failing.",
+              file=sys.stderr)
+        sys.exit(2)
+    if fail_on_introduced:
+        print()
+        print("GATE: no new errors vs baseline — pass.")
 else:
     print_report()
 PY
 
 python3 "$PY_SCRIPT" "$LEVEL" "$BRANCH" "$BASELINE" "$EMIT_BASELINE" \
   "$SOURCE_BUILD" "$SOURCE_URL" "$CAPTURE_DATE" "$TRUNK_SHA" \
-  "$INPUT_FILE"
+  "$INPUT_FILE" "$FAIL_ON_INTRODUCED"
