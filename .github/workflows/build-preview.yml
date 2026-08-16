@@ -57,7 +57,7 @@ jobs:
       - name: Xref ratchet gate (fail only on newly introduced errors)
         run: |
           bin/xref-report.sh --baseline tests/xref-baseline.json \
-            --fail-on-introduced antora-build.log
+            --fail-on-introduced --ignore-branch antora-build.log
 
       - name: Upload build log
         if: always()

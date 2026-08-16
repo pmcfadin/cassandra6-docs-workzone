@@ -21,6 +21,10 @@
 #                           was introduced (requires --baseline; a missing or
 #                           unreadable baseline also fails, exit 3 — the gate
 #                           is fail-closed)
+#   --ignore-branch         Diff on (category, msg) only, summing counts
+#                           across branches. Use where refnames differ
+#                           between environments (local clone branch vs CI
+#                           fresh clone vs detached HEAD)
 #   -h, --help              Show this help
 #
 # Default: always exits 0 (reporting tool). With --fail-on-introduced the
@@ -38,6 +42,7 @@ BRANCH=""
 BASELINE=""
 EMIT_BASELINE=0
 FAIL_ON_INTRODUCED=0
+IGNORE_BRANCH=0
 SOURCE_BUILD=""
 SOURCE_URL=""
 CAPTURE_DATE="$(date +%Y-%m-%d)"
@@ -55,6 +60,7 @@ while [ $# -gt 0 ]; do
     --capture-date)   CAPTURE_DATE="${2-}"; shift 2 ;;
     --trunk-sha)      TRUNK_SHA="${2-}"; shift 2 ;;
     --fail-on-introduced) FAIL_ON_INTRODUCED=1; shift ;;
+    --ignore-branch)  IGNORE_BRANCH=1; shift ;;
     -h|--help)        usage; exit 0 ;;
     --)               shift; break ;;
     -*)               echo "unknown flag: $1" >&2; usage; exit 0 ;;
@@ -98,6 +104,7 @@ capture_date   = sys.argv[7]
 trunk_sha      = sys.argv[8]
 input_file     = sys.argv[9]
 fail_on_introduced = sys.argv[10] == "1"
+ignore_branch      = sys.argv[11] == "1"
 
 CATEGORIES = [
     ("xref",    "target of xref"),
@@ -256,6 +263,15 @@ if baseline_path:
         cur_key_counts = dict(by_key)
         legacy_msg_only = False
 
+    if ignore_branch and not legacy_msg_only:
+        def collapse(counts):
+            out = Counter()
+            for (b, c, m), n in counts.items():
+                out[("", c, m)] += n
+            return dict(out)
+        base_key_counts = collapse(base_key_counts)
+        cur_key_counts = collapse(cur_key_counts)
+
     fixed = 0
     introduced = 0
     fixed_by_branch = Counter()
@@ -339,4 +355,4 @@ PY
 
 python3 "$PY_SCRIPT" "$LEVEL" "$BRANCH" "$BASELINE" "$EMIT_BASELINE" \
   "$SOURCE_BUILD" "$SOURCE_URL" "$CAPTURE_DATE" "$TRUNK_SHA" \
-  "$INPUT_FILE" "$FAIL_ON_INTRODUCED"
+  "$INPUT_FILE" "$FAIL_ON_INTRODUCED" "$IGNORE_BRANCH"
