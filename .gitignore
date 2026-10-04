@@ -14,3 +14,7 @@ node_modules/
 # Machine-local tool state
 /.claude/
 /.playwright-cli/
+
+# Playwright output
+/test-results/
+/playwright-report/

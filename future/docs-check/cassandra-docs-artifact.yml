@@ -1,0 +1,128 @@
+# Port target: apache/cassandra/.github/workflows/docs-artifact.yml
+#
+# mck's ask (Slack, 2026-08-16): "create a gha action that triggers when
+# path xxx is touched and invokes .build/docker/build-docs.sh and then does
+# 'tar -cvf build/cassandra-html-docs.tar build/html' and makes the file
+# build/cassandra-html-docs.tar downloadable so that others can download and
+# test it… and you go all fancy and take that further, using gitpages on
+# that html directory (somehow)"
+#
+# Scope is deliberately minimal (mck: "we are not dreaming big"):
+#   - PR touching docs paths -> build in-tree HTML via the existing
+#     .build/docker/build-docs.sh -> downloadable tar artifact.
+#   - The "fancy" part is fork-only: on a push to a contributor's fork,
+#     the same HTML deploys to THAT FORK's GitHub Pages, giving every
+#     contributor a hosted preview URL with zero apache-repo surface.
+#     On apache/cassandra itself the deploy job never runs.
+#
+# No secrets, no pull_request_target, only actions/* namespace (no SHA
+# pinning needed per ASF GitHub Actions policy). Follow-up after this
+# lands: a Playwright smoke job against the built HTML (mck: "adding tests
+# after having built the html – i love it") — suite pattern already proven
+# in the cassandra6-docs-workzone repo.
+
+name: docs-artifact
+
+on:
+  pull_request:
+    paths:
+      - 'doc/**'
+      - 'conf/cassandra.yaml'
+      - '.build/docker/build-docs.sh'
+      - '.github/workflows/docs-artifact.yml'
+  push:
+    branches-ignore:
+      - 'cassandra-*'   # release branches: Jenkins owns those builds
+    paths:
+      - 'doc/**'
+      - 'conf/cassandra.yaml'
+      - '.build/docker/build-docs.sh'
+      - '.github/workflows/docs-artifact.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  group: docs-artifact-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build in-tree HTML docs (Docker, ant gen-doc)
+        run: .build/docker/build-docs.sh
+
+      - name: Tar the HTML
+        run: tar -cvf build/cassandra-html-docs.tar build/html
+
+      - name: Upload downloadable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cassandra-html-docs
+          path: build/cassandra-html-docs.tar
+          retention-days: 30
+
+      - name: Review screenshots of key pages
+        # "screenshots at least to show we haven't broken anything" — captured
+        # by machine on every run, not by the contributor. Each capture fails
+        # if the page didn't render, so this is also a minimal smoke test.
+        # Published into the HTML tree so the fork-Pages deploy hosts them —
+        # a PR comment can then embed them inline (images in comments render
+        # from any https URL; no external image host needed).
+        run: |
+          npm init -y >/dev/null 2>&1 || true
+          npx --yes playwright@1.49 install --with-deps chromium
+          npx --yes http-server build/html -p 5152 -c-1 --silent &
+          sleep 2
+          mkdir -p build/html/_screenshots
+          for spec in \
+            "Cassandra/7.0/index.html:home" \
+            "Cassandra/7.0/cassandra/getting-started/index.html:getting-started" \
+            "Cassandra/7.0/cassandra/architecture/index.html:architecture" \
+            "Cassandra/7.0/cassandra/managing/configuration/cass_yaml_file.html:generated-cass-yaml"; do
+            npx --yes playwright@1.49 screenshot --viewport-size=1440,900 \
+              "http://127.0.0.1:5152/${spec%%:*}" "build/html/_screenshots/${spec##*:}.png"
+          done
+        # TODO at port time: derive the version segment ("7.0") from
+        # build.xml base.version instead of hardcoding.
+
+      - name: Upload screenshots artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-screenshots
+          path: build/html/_screenshots
+          retention-days: 30
+
+      - name: Run summary
+        run: |
+          echo "### In-tree docs built ✅" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **cassandra-html-docs** artifact: untar, open \`build/html/index.html\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **docs-screenshots** artifact: PNGs of home, getting-started, architecture, and the generated cassandra.yaml page" >> "$GITHUB_STEP_SUMMARY"
+
+      # Kept for the fork-Pages deploy below; skipped on apache/cassandra.
+      - name: Upload Pages artifact (forks only)
+        if: github.event_name == 'push' && github.repository != 'apache/cassandra'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/html
+
+  # ── Fancy part: hosted preview on the contributor's own fork ────────
+  # Requires the fork owner to enable Pages (Settings -> Pages -> Source:
+  # GitHub Actions) once. Never runs on apache/cassandra.
+  deploy-fork-pages:
+    if: github.event_name == 'push' && github.repository != 'apache/cassandra'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to fork's GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

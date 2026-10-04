@@ -1,0 +1,51 @@
+# DRAFT — port target: apache/cassandra-website/.github/workflows/links-external.yml
+#
+# External links rot on their own schedule, not the PR author's — so this
+# never blocks a PR. Weekly sweep; failures land as a single auto-filed
+# issue for maintainers (Superset's exact pattern). Cache keeps repeat
+# checks cheap and avoids hammering external hosts.
+
+name: links-external
+
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Mondays 06:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  lychee:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore lychee cache
+        uses: actions/cache@v4
+        with:
+          path: .lycheecache
+          key: lychee-${{ github.run_id }}
+          restore-keys: lychee-
+
+      - name: Check external links in built site
+        # Assumes the latest rendered site is available (checkout of
+        # asf-staging, or a fresh build step here — decide at port time).
+        uses: lycheeverse/lychee-action@PIN-SHA # ASF: pin to reviewed SHA
+        with:
+          args: >-
+            --cache --max-cache-age 1d
+            --scheme https --scheme http
+            --exclude-path site-content/build/html/doc
+            site-content/build/html
+          fail: false
+          jobSummary: true
+
+      - name: File or update the broken-links issue
+        if: env.lychee_exit_code != 0
+        uses: peter-evans/create-issue-from-file@PIN-SHA # ASF: pin to reviewed SHA
+        with:
+          title: 'Broken external links (weekly sweep)'
+          content-filepath: ./lychee/out.md
+          labels: documentation, automated

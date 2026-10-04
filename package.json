@@ -1,6 +1,16 @@
 {
+  "scripts": {
+    "build": "./build.sh build",
+    "preview": "./build.sh preview",
+    "test:smoke": "playwright test",
+    "check:xref": "bin/xref-report.sh --baseline research/antora3-xref-baseline.json --fail-on-introduced"
+  },
   "dependencies": {
     "@antora/cli": "^3.1.14",
     "@antora/site-generator": "^3.1.14"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "http-server": "^14.1.1"
   }
 }
